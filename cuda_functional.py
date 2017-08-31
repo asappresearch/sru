@@ -463,14 +463,12 @@ class SRUCell(nn.Module):
                 batch, n_out if not self.bidirectional else n_out*2
             ).zero_())
 
+        x, weight = input, self.weight
         if self.training and (self.rnn_dropout>0):
-            mask = self.get_dropout_mask_((batch, n_in), self.rnn_dropout)
-            x = input * mask.expand_as(input)
-        else:
-            x = input
+            weight = nn.functional.dropout(weight, p=self.rnn_dropout, training=self.training)
 
         x_2d = x if x.dim() == 2 else x.contiguous().view(-1, n_in)
-        u = x_2d.mm(self.weight)
+        u = x_2d.mm(weight)
 
         if self.training and (self.dropout>0):
             bidir = 2 if self.bidirectional else 1
