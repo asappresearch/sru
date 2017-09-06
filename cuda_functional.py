@@ -421,7 +421,7 @@ class SRU_Compute(Function):
 
 class SRUCell(nn.Module):
     def __init__(self, n_in, n_out, dropout=0, rnn_dropout=0,
-                use_tanh=0, bidirectional=False):
+                use_tanh=1, bidirectional=False):
         super(SRUCell, self).__init__()
         self.n_in = n_in
         self.n_out = n_out
@@ -454,7 +454,7 @@ class SRUCell(nn.Module):
         else:
             self.bias.data[n_out:].zero_().add_(bias_val)
 
-    def forward(self, input, c0):
+    def forward(self, input, c0=None):
         assert input.dim() == 2 or input.dim() == 3
         n_in, n_out = self.n_in, self.n_out
         batch = input.size(-2)
@@ -488,7 +488,7 @@ class SRUCell(nn.Module):
 
 class SRU(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers, dropout=0, rnn_dropout=0,
-                use_tanh=0, bidirectional=False):
+                use_tanh=1, bidirectional=False):
         super(SRU, self).__init__()
         self.n_in = input_size
         self.n_out = hidden_size

@@ -24,7 +24,7 @@ def read_corpus(path, eos="</s>"):
 def create_batches(data_text, map_to_ids, batch_size, cuda=True):
     data_ids = map_to_ids(data_text)
     N = len(data_ids)
-    L = ((N-1)/batch_size) * batch_size
+    L = ((N-1) // batch_size) * batch_size
     x = np.copy(data_ids[:L].reshape(batch_size,-1).T)
     y = np.copy(data_ids[1:L+1].reshape(batch_size,-1).T)
     x, y = torch.from_numpy(x), torch.from_numpy(y)
@@ -74,7 +74,6 @@ class Model(nn.Module):
                 rnn_dropout = args.rnn_dropout,
                 use_tanh = 0
             )
-            self.rnn.rnn_lst[-1].dropout = args.rnn_dropout
         self.output_layer = nn.Linear(self.n_d, self.n_V)
         # tie weights
         self.output_layer.weight = self.embedding_layer.embedding.weight
@@ -119,10 +118,9 @@ def train_model(epoch, model, train):
 
     unroll_size = args.unroll_size
     batch_size = args.batch_size
-    N = (len(train[0])-1)/unroll_size + 1
+    N = (len(train[0])-1)//unroll_size + 1
     lr = args.lr
 
-    start_time = time.time()
     total_loss = 0.0
     criterion = nn.CrossEntropyLoss(size_average=False)
     hidden = model.init_hidden(batch_size)
@@ -155,25 +153,16 @@ def train_model(epoch, model, train):
             sys.stdout.write("\r{}".format(i))
             sys.stdout.flush()
 
-    sys.stdout.write("\rEpoch={}  lr={:.4f}  train_loss={:.3f}  train_ppl={:.3f}"
-            "\t[{:.2f}m]\n".format(
-        epoch,
-        lr,
-        total_loss/N,
-        np.exp(total_loss/N),
-        (time.time()-start_time)/60.0
-    ))
-    sys.stdout.flush()
+    return np.exp(total_loss/N)
 
-def eval_model(prefix, model, valid):
+def eval_model(model, valid):
     model.eval()
     args = model.args
     total_loss = 0.0
     unroll_size = model.args.unroll_size
-    start_time = time.time()
     criterion = nn.CrossEntropyLoss(size_average=False)
     hidden = model.init_hidden(1)
-    N = (len(valid[0])-1)/unroll_size + 1
+    N = (len(valid[0])-1)//unroll_size + 1
     for i in range(N):
         x = valid[0][i*unroll_size:(i+1)*unroll_size]
         y = valid[1][i*unroll_size:(i+1)*unroll_size].view(-1)
@@ -185,15 +174,6 @@ def eval_model(prefix, model, valid):
         total_loss += loss.data[0]
     avg_loss = total_loss / valid[1].numel()
     ppl = np.exp(avg_loss)
-    sys.stdout.write("\t[{}]  {}_loss={:.3f}  {}_ppl={:.1f}\t[{:.2f}m]\n".format(
-        prefix,
-        prefix,
-        avg_loss,
-        prefix,
-        ppl,
-        (time.time()-start_time)/60.0
-    ))
-    sys.stdout.flush()
     return ppl
 
 def main(args):
@@ -223,19 +203,32 @@ def main(args):
         start_time = time.time()
         if args.lr_decay_epoch>0 and epoch>=args.lr_decay_epoch:
             args.lr *= args.lr_decay
-        train_model(epoch, model, train)
-        model.print_pnorm()
-        dev_ppl = eval_model('dev', model, dev)
-        sys.stdout.write("Time used this epoch: {:.2f}m\n".format(
+        train_ppl = train_model(epoch, model, train)
+        dev_ppl = eval_model(model, dev)
+        sys.stdout.write("\rEpoch={}  lr={:.4f}  train_ppl={:.2f}  dev_ppl={:.2f}"
+                "\t[{:.2f}m]\n".format(
+            epoch,
+            args.lr,
+            train_ppl,
+            dev_ppl,
             (time.time()-start_time)/60.0
         ))
+        model.print_pnorm()
+        sys.stdout.flush()
+
         if dev_ppl < best_dev:
             unchanged = 0
             best_dev = dev_ppl
-            eval_model('test', model, test)
+            start_time = time.time()
+            test_ppl = eval_model(model, test)
+            sys.stdout.write("\t[eval]  test_ppl={:.2f}\t[{:.2f}m]\n".format(
+                test_ppl,
+                (time.time()-start_time)/60.0
+            ))
+            sys.stdout.flush()
         else:
             unchanged += 1
-        if unchanged >= 20: break
+        if unchanged >= 30: break
         sys.stdout.write("\n")
 
 if __name__ == "__main__":
@@ -246,8 +239,8 @@ if __name__ == "__main__":
     argparser.add_argument("--test", type=str, required=True, help="test file")
     argparser.add_argument("--batch_size", "--batch", type=int, default=32)
     argparser.add_argument("--unroll_size", type=int, default=35)
-    argparser.add_argument("--max_epoch", type=int, default=200)
-    argparser.add_argument("--d", type=int, default=820)
+    argparser.add_argument("--max_epoch", type=int, default=300)
+    argparser.add_argument("--d", type=int, default=910)
     argparser.add_argument("--dropout", type=float, default=0.7,
         help="dropout of word embeddings and softmax output"
     )
@@ -260,10 +253,10 @@ if __name__ == "__main__":
     argparser.add_argument("--depth", type=int, default=6)
     argparser.add_argument("--lr", type=float, default=1.0)
     argparser.add_argument("--lr_decay", type=float, default=0.98)
-    argparser.add_argument("--lr_decay_epoch", type=int, default=80)
+    argparser.add_argument("--lr_decay_epoch", type=int, default=175)
     argparser.add_argument("--weight_decay", type=float, default=1e-5)
     argparser.add_argument("--clip_grad", type=float, default=5)
 
     args = argparser.parse_args()
-    print args
+    print (args)
     main(args)
