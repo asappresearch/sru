@@ -1,0 +1,6 @@
+numpy
+pandas
+msgpack-python
+spacy
+cupy
+pynvrtc
