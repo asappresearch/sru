@@ -1,7 +1,7 @@
 
 ## About
 
-SRU is a recurrent unit that can run **over 10 times faster** than cuDNN LSTM, without loss of accuracy tested on many tasks.
+SRU is a recurrent unit that can run over 10 times faster than cuDNN LSTM, without loss of accuracy tested on many tasks.
 
 <br>
 
