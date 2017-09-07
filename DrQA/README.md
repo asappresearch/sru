@@ -37,11 +37,12 @@ python train.py -e 50 -bs 32
 ```
 
 ## Results
-### EM & F1
-||EM|F1|seconds/epoch|
-|---|---|---|---|
-|LSTM (original paper)|69.5|78.8|~700s|
-|SRU (this version)|70.3|79.5|~200s|
+||EM|F1|Time used in RNN|Total time/epoch|
+|---|---|---|---|---|
+|LSTM (original paper)|69.5|78.8|~523s|~700s|
+|SRU (this version)|**70.3**|**79.5**|**~88s**|**~200s**|
+
+Tested on GeForce GTX 1070.
 
 ### Credits
 Author of the Document Reader model: [Danqi Chen](https://github.com/danqi).
