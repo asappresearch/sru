@@ -53,12 +53,13 @@ output, hidden = rnn(x)      # forward pass
  - machine translation
  - speech recognition
  
-
 <br>
 
 ## Contributors
 -  **Tao Lei** (tao@asapp.com)
 -  **Yu Zhang** (yzhang87@csail.mit.edu)
+
+<br>
 
 ## To-do
   - [ ] ReLU activation
