@@ -1,11 +1,18 @@
 
 ## About
 
-SRU is a recurrent unit that can run over 10 times faster than cuDNN LSTM, without loss of accuracy tested on many tasks.
+**SRU** is a recurrent unit that can run over 10 times faster than cuDNN LSTM, without loss of accuracy tested on many tasks. 
 
 <p align="center">
-<img width=650 src="imgs/speed.png"><br>
-<i>Average processing time of cuDNN LSTM, conv2d and SRU, tested on GTX 1070</i>
+<img width=620 src="imgs/speed.png"><br>
+<i>Average processing time of LSTM, conv2d and SRU, tested on GTX 1070</i><br>
+</p>
+
+For example, the figures above and below present the processing time of a single mini-batch and the training time for sentence-level classification tasks. SRU achieve 10 to 16 times speed-up compared to LSTM, and operates as fast as (or faster than) word-level convolutional model (CNNs).
+
+<p align="center">
+<img width=580 src="imgs/classification.png"><br>
+<i>Training time (x-axis) vs valid accuracies (y-axis) on classification benchmarks</i><br>
 </p>
 
 <br>
@@ -17,6 +24,15 @@ SRU is a recurrent unit that can run over 10 times faster than cuDNN LSTM, witho
  
 CuPy and pynvrtc needed to compile the CUDA code into a callable function at runtime.
 
+<br>
+
+## Tasks
+ - classification
+ - question answering on SQuAD
+ - language modelling on PTB
+ - machine translation
+ - speech recognition
+ 
 <br>
 
 ## Contributors
