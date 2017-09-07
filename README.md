@@ -28,10 +28,10 @@ CuPy and pynvrtc needed to compile the CUDA code into a callable function at run
 
 <br>
 
-## Tasks
- - classification
- - question answering on SQuAD
- - language modelling on PTB
+## Examples
+ - [classification](/classification/)
+ - [question answering (SQuAD)](/DrQA/)
+ - [language modelling on PTB](/language_model/)
  - machine translation
  - speech recognition
  
