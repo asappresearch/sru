@@ -18,6 +18,7 @@ For example, the figure above presents the processing time of a single mini-batc
  
 CuPy and pynvrtc needed to compile the CUDA code into a callable function at runtime.
 
+<br>
 
 ## Examples
 The usage of SRU is the similar to `nn.LSTM`. 
@@ -58,3 +59,8 @@ output, hidden = rnn(x)      # forward pass
 ## Contributors
 -  **Tao Lei** (tao@asapp.com)
 -  **Yu Zhang** (yzhang87@csail.mit.edu)
+
+## To-do
+  - [ ] ReLU activation
+  - [ ] Layer normalization + residual to compare with highway connection (current version)
+  
