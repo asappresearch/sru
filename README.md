@@ -29,6 +29,29 @@ CuPy and pynvrtc needed to compile the CUDA code into a callable function at run
 <br>
 
 ## Examples
+The usage of SRU is the similar to `nn.LSTM`.
+```python
+import torch
+from cuda_functional import SRU, SRUCell
+
+# input has length 20, batch size 32 and dimension 128
+x = torch.FloatTensor(20, 32, 128).cuda()
+
+rnn = SRU(input_size, hidden_size,
+    num_layers = 2,          # number of stacking RNN layers
+    dropout = 0.0,           # dropout applied between RNN layers
+    rnn_dropout = 0.0,       # variational dropout applied on linear transformation (Wx)
+    use_tanh = 1,            # use tanh or identity activation
+    bidirectional = False    # bidirectional RNN ?
+)
+
+output, hidden = rnn(x)      # forward pass
+
+# output is (length, batch size, hidden size * number of directions)
+# hidden is (layers, batch size, hidden size * number of directions)
+
+```
+
  - [classification](/classification/)
  - [question answering (SQuAD)](/DrQA/)
  - [language modelling on PTB](/language_model/)
