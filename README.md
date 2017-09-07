@@ -10,7 +10,7 @@
 
 <br>
 
-For example, the figures above and below present the processing time of a single mini-batch and the training time for sentence-level classification tasks. SRU achieve 10 to 16 times speed-up compared to LSTM, and operates as fast as (or faster than) word-level convolutional model (CNNs).
+For example, the figures above and below present the processing time of a single mini-batch and the training time for sentence-level classification tasks. SRU achieves 10 to 16 times speed-up compared to LSTM, and operates as fast as (or faster than) word-level convolutional model (CNNs).
 
 <p align="center">
 <img width=550 src="imgs/classification.png"><br>
