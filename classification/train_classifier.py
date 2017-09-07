@@ -212,7 +212,7 @@ if __name__ == "__main__":
     argparser.add_argument("--batch_size", "--batch", type=int, default=32)
     argparser.add_argument("--max_epoch", type=int, default=100)
     argparser.add_argument("--d", type=int, default=128)
-    argparser.add_argument("--dropout", type=float, default=0.0)
+    argparser.add_argument("--dropout", type=float, default=0.5)
     argparser.add_argument("--depth", type=int, default=2)
     argparser.add_argument("--lr", type=float, default=0.001)
     argparser.add_argument("--lr_decay", type=float, default=0)
