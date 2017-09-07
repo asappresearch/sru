@@ -1,5 +1,10 @@
 
-Code used for sentence classification tasks. We evaluate CNN, LSTM and SRU on 6 benchmarks 
+Code used for sentence classification tasks. We evaluate CNN, LSTM and SRU on 6 benchmarks. Example learning curves:
+
+<p align="center">
+<img width=550 src="../imgs/classification.png"><br>
+<i>Training time (x-axis) vs valid accuracies (y-axis) on classification benchmarks</i><br>
+</p>
 
 ## How to run
   - Download the datasets from [harvardnlp/sent-conv-torch/data](https://github.com/harvardnlp/sent-conv-torch/tree/master/data)
