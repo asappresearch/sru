@@ -10,14 +10,9 @@
 
 <br>
 
-For example, the figures above and below present the processing time of a single mini-batch and the training time for sentence-level classification tasks. SRU achieves 10 to 16 times speed-up compared to LSTM, and operates as fast as (or faster than) word-level convolutional model (CNNs).
+For example, the figures above presents the processing time of a single mini-batch of 32 samples. SRU achieves 10 to 16 times speed-up compared to LSTM, and operates as fast as (or faster than) word-level convolution using conv2d. 
 
-<p align="center">
-<img width=550 src="imgs/classification.png"><br>
-<i>Training time (x-axis) vs valid accuracies (y-axis) on classification benchmarks</i><br>
-</p>
-
-
+<br>
 
 ## Requirements
  - GPU and CUDA are required
@@ -63,6 +58,7 @@ output, hidden = rnn(x)      # forward pass
  - speech recognition
  
 
+<br>
 
 ## Contributors
 -  **Tao Lei** (tao@asapp.com)
