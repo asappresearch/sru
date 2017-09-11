@@ -26,7 +26,7 @@ For example, the figure above presents the processing time of a single mini-batc
  - [CuPy](https://cupy.chainer.org/)
  - [pynvrtc](https://github.com/NVIDIA/pynvrtc)
  
-CuPy and pynvrtc needed to compile the CUDA code into a callable function at runtime.
+Install requirements via `pip install -r requirements.txt`. CuPy and pynvrtc needed to compile the CUDA code into a callable function at runtime. 
 
 <br>
 
@@ -66,7 +66,7 @@ export PYTHONPATH=path_to_repo/sru
  - [classification](/classification/)
  - [question answering (SQuAD)](/DrQA/)
  - [language modelling on PTB](/language_model/)
- - machine translation
+ - machine translation (to be included in OpenNMT-py)
  - [speech recognition](/speech/) (**Note:** implemented in CNTK instead of PyTorch)-
  
 <br>
