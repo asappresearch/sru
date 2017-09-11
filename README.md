@@ -8,7 +8,7 @@
 </p>
 For example, the figure above presents the processing time of a single mini-batch of 32 samples. SRU achieves 10 to 16 times speed-up compared to LSTM, and operates as fast as (or faster than) word-level convolution using conv2d. 
 
-### Reference:
+#### Reference:
 [Training RNNs as Fast as CNNs](https://arxiv.org/abs/1709.02755)
 ```
 @article{lei2017sru,
@@ -18,6 +18,7 @@ For example, the figure above presents the processing time of a single mini-batc
   year={2017}
 }
 ```
+<br>
 
 ## Requirements
  - **GPU and CUDA are required**
