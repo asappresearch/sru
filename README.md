@@ -31,7 +31,7 @@ CuPy and pynvrtc needed to compile the CUDA code into a callable function at run
 <br>
 
 ## Examples
-The usage of SRU is the similar to `nn.LSTM`. 
+The usage of SRU is similar to `nn.LSTM`. 
 ```python
 import torch
 from cuda_functional import SRU, SRUCell
@@ -55,6 +55,12 @@ output, hidden = rnn(x)      # forward pass
 # hidden is (layers, batch size, hidden size * number of directions)
 
 ```
+Make sure `cuda_functional.py` and the shared library `cuda/lib64` can be found by the system, e.g. 
+```
+export LD_LIBRARY_PATH=/usr/local/cuda/lib64
+export PYTHONPATH=path_to_repo/sru
+```
+
 <br>
 
  - [classification](/classification/)
