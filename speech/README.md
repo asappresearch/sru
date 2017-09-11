@@ -18,5 +18,5 @@ Code used for speech recognition tasks. We evaluate LSTM and SRU on SWBD task.
   
 ## TODO
    - Make it compatible with newest CNTK version.
-   - Write custimized kernel for SRU
-   - Port to Pytorch and MXNet 
+   - Write custimized kernel for SRU.
+   - Port to Pytorch and MXNet. 
