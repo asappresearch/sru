@@ -9,7 +9,7 @@ Code used for speech recognition tasks. We evaluate LSTM and SRU on SWBD task.
   ```
     run.sh
   ```
-  - Run **run_SRU.sh** ang get the results.
+  - Run **run_SRU.sh** and get the results.
   ```
     run_SRU.sh --ndl ndlfile
   ```
