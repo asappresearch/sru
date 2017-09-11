@@ -21,7 +21,7 @@ For example, the figure above presents the processing time of a single mini-batc
 <br>
 
 ## Requirements
- - **GPU and CUDA are required**
+ - **GPU and CUDA 8 are required**
  - [PyTorch](http://pytorch.org/)
  - [CuPy](https://cupy.chainer.org/)
  - [pynvrtc](https://github.com/NVIDIA/pynvrtc)
@@ -34,10 +34,11 @@ Install requirements via `pip install -r requirements.txt`. CuPy and pynvrtc nee
 The usage of SRU is similar to `nn.LSTM`. 
 ```python
 import torch
+from torch.autograd import Variable
 from cuda_functional import SRU, SRUCell
 
 # input has length 20, batch size 32 and dimension 128
-x = torch.FloatTensor(20, 32, 128).cuda()
+x = Variable(torch.FloatTensor(20, 32, 128).cuda())
 
 input_size, hidden_size = 128, 128
 
@@ -48,6 +49,7 @@ rnn = SRU(input_size, hidden_size,
     use_tanh = 1,            # use tanh or identity activation
     bidirectional = False    # bidirectional RNN ?
 )
+rnn.cuda()
 
 output, hidden = rnn(x)      # forward pass
 
