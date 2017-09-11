@@ -1,0 +1,179 @@
+load=ndlMacroDefine
+run=ndlCreateNetwork_LSTMP_c1024_p256_x3
+
+ndlMacroDefine=[
+    # Macro definitions
+    MeanVarNorm(x)=[
+	xMean = Mean(x);
+    	xStdDev = InvStdDev(x)
+    	xNorm=PerDimMeanVarNormalization(x,xMean,xStdDev)
+    ]
+ 
+    LogPrior(labels)
+    {
+	Prior=Mean(labels)
+	LogPrior=Log(Prior)
+    }   
+
+
+    LSTMPComponentForward(inputDim, outputDim, cellDim, inputx, cellDimX2, cellDimX3, cellDimX4)
+    {
+        wx = Parameter(cellDimX4, inputDim, init=uniform, initValueScale=1);
+        b = Parameter(cellDimX4, init=fixedValue, value=0.0);
+        Wh = Parameter(cellDimX4, outputDim, init=uniform, initValueScale=1);
+
+        Wci = Parameter(cellDim, init=uniform, initValueScale=1);
+        Wcf = Parameter(cellDim, init=uniform, initValueScale=1);
+        Wco = Parameter(cellDim, init=uniform, initValueScale=1);
+
+        dh = LCPastValue(outputDim, output, timeStep=1, latencyStep=21);
+        dc = LCPastValue(cellDim, ct, timeStep=1, latencyStep=21);
+
+        wxx = Times(wx, inputx);
+        wxxpb = Plus(wxx, b);
+        
+        whh = Times(wh, dh);
+
+		wxxpbpwhh = Plus(wxxpb,whh)	
+				
+		G1 = RowSlice(0, cellDim, wxxpbpwhh)		
+		G2 = RowSlice(cellDim, cellDim, wxxpbpwhh)
+		G3 = RowSlice(cellDimX2, cellDim, wxxpbpwhh);
+		G4 = RowSlice(cellDimX3, cellDim, wxxpbpwhh);
+		
+        Wcidc = DiagTimes(Wci, dc);
+        it = Sigmoid (Plus ( G1, Wcidc));
+
+        bit = ElementTimes(it, Tanh( G2 ));
+
+        Wcfdc = DiagTimes(Wcf, dc);
+        ft = Sigmoid( Plus (G3, Wcfdc));
+
+        bft = ElementTimes(ft, dc);
+
+        ct = Plus(bft, bit);
+
+        Wcoct = DiagTimes(Wco, ct);
+        ot = Sigmoid( Plus( G4, Wcoct));
+
+        output = ElementTimes(ot, Tanh(ct));
+    }
+    
+    LSTMPComponentBackward(inputDim, outputDim, cellDim, inputx, cellDimX2, cellDimX3, cellDimX4)
+    {
+        wx = Parameter(cellDimX4, inputDim, init=uniform, initValueScale=1);
+        b = Parameter(cellDimX4, init=fixedValue, value=0.0);
+        Wh = Parameter(cellDimX4, outputDim, init=uniform, initValueScale=1);
+
+        Wci = Parameter(cellDim, init=uniform, initValueScale=1);
+        Wcf = Parameter(cellDim, init=uniform, initValueScale=1);
+        Wco = Parameter(cellDim, init=uniform, initValueScale=1);
+
+        dh = FutureValue(outputDim, output, timeStep=1);
+        dc = FutureValue(cellDim, ct, timeStep=1);
+
+        wxx = Times(wx, inputx);
+        wxxpb = Plus(wxx, b);
+        
+        whh = Times(wh, dh);
+
+		wxxpbpwhh = Plus(wxxpb,whh)	
+				
+		G1 = RowSlice(0, cellDim, wxxpbpwhh)		
+		G2 = RowSlice(cellDim, cellDim, wxxpbpwhh)
+		G3 = RowSlice(cellDimX2, cellDim, wxxpbpwhh);
+		G4 = RowSlice(cellDimX3, cellDim, wxxpbpwhh);
+		
+        Wcidc = DiagTimes(Wci, dc);
+        it = Sigmoid (Plus ( G1, Wcidc));
+
+        bit = ElementTimes(it, Tanh( G2 ));
+
+        Wcfdc = DiagTimes(Wcf, dc);
+        ft = Sigmoid( Plus (G3, Wcfdc));
+
+        bft = ElementTimes(ft, dc);
+
+        ct = Plus(bft, bit);
+
+        Wcoct = DiagTimes(Wco, ct);
+        ot = Sigmoid( Plus( G4, Wcoct));
+
+        output = ElementTimes(ot, Tanh(ct));
+
+    }
+
+]
+
+ndlCreateNetwork_LSTMP_c1024_p256_x3=[
+
+	#define basic i/o
+	baseFeatDim=$baseFeatDim$
+    FeatDim=$featDim$
+	labelDim=$labelDim$
+    cellDim=512
+    cellDimX2=1024  #If BrainScript is used we don't need to pass in following three values
+    cellDimX3=1536
+    cellDimX4=2048 
+
+	hiddenDim=512
+    hiddenDim2=1024
+
+	features=Input(FeatDim, tag=feature)
+	labels=Input(labelDim, tag=label)
+    #feashift=RowSlice(RowSliceStart, baseFeatDim, features);      # shift 5 frames right (x_{t+5} -> x_{t} )
+
+
+	featNorm = MeanVarNorm(features)
+
+
+	# layer 1
+    LSTMForwardOutput1 = LSTMPComponentForward(baseFeatDim, hiddenDim, cellDim, featNorm, cellDimX2, cellDimX3, cellDimX4);
+
+    LSTMBackwardOutput1 = LSTMPComponentBackward(baseFeatDim, hiddenDim, cellDim, featNorm, cellDimX2, cellDimX3, cellDimX4);
+
+    LSTMoutput1 = RowStack(LSTMForwardOutput1, LSTMBackwardOutput1)
+    
+    # layer 2 
+    LSTMForwardOutput2 = LSTMPComponentForward(hiddenDim2, hiddenDim, cellDim, LSTMoutput1,cellDimX2, cellDimX3, cellDimX4);
+
+    LSTMBackwardOutput2 = LSTMPComponentBackward(hiddenDim2, hiddenDim, cellDim, LSTMoutput1,cellDimX2, cellDimX3, cellDimX4);
+
+    LSTMoutput2 = RowStack(LSTMForwardOutput2, LSTMBackwardOutput2)
+
+    # layer 3 
+    LSTMForwardOutput3 = LSTMPComponentForward(hiddenDim2, hiddenDim, cellDim, LSTMoutput2,cellDimX2, cellDimX3, cellDimX4);
+
+    LSTMBackwardOutput3 = LSTMPComponentBackward(hiddenDim2, hiddenDim, cellDim, LSTMoutput2,cellDimX2, cellDimX3, cellDimX4);
+
+    LSTMoutput3 = RowStack(LSTMForwardOutput3, LSTMBackwardOutput3)
+
+    # layer 4 
+    LSTMForwardOutput4 = LSTMPComponentForward(hiddenDim2, hiddenDim, cellDim, LSTMoutput3,cellDimX2, cellDimX3, cellDimX4);
+
+    LSTMBackwardOutput4 = LSTMPComponentBackward(hiddenDim2, hiddenDim, cellDim, LSTMoutput3,cellDimX2, cellDimX3, cellDimX4);
+
+    LSTMoutput4 = RowStack(LSTMForwardOutput4, LSTMBackwardOutput4)
+
+    # layer 5 
+    LSTMForwardOutput5 = LSTMPComponentForward(hiddenDim2, hiddenDim, cellDim, LSTMoutput4,cellDimX2, cellDimX3, cellDimX4);
+
+    LSTMBackwardOutput5 = LSTMPComponentBackward(hiddenDim2, hiddenDim, cellDim, LSTMoutput4,cellDimX2, cellDimX3, cellDimX4);
+
+    LSTMoutput5 = RowStack(LSTMForwardOutput5, LSTMBackwardOutput5)
+
+
+
+	W = Parameter(labelDim, hiddenDim2, init=uniform, initValueScale=1);
+	b = Parameter(labelDim, init=fixedvalue, value=0);
+	LSTMoutputW = Plus(Times(W, LSTMoutput5), b);
+
+	
+    cr = CrossEntropyWithSoftmax(labels, LSTMoutputW,tag=Criteria);
+    Err = ErrorPrediction(labels,LSTMoutputW,tag=Eval);
+    
+    logPrior = LogPrior(labels)	 
+    ScaledLogLikelihood=Minus(LSTMoutputW,logPrior,tag=Output)
+
+]
+

@@ -1,0 +1,100 @@
+load=ndlMacroDefine
+run=ndlCreateNetwork_LSTMP_c1024_p256_x3
+
+ndlMacroDefine=[
+    # Macro definitions
+    MeanVarNorm(x)=[
+	xMean = Mean(x);
+    	xStdDev = InvStdDev(x)
+    	xNorm=PerDimMeanVarNormalization(x,xMean,xStdDev)
+    ]
+ 
+    LogPrior(labels)
+    {
+	Prior=Mean(labels)
+	LogPrior=Log(Prior)
+    }   
+    
+    FastKernelNN(inputDim, outputDim, cellDim, inputx, cellDimX2, cellDimX3, cellDimX4)
+    {
+        wx = Parameter(cellDimX4, inputDim, init=uniform, initValueScale=1);
+        b = Parameter(cellDimX4, init=fixedValue, value=0.0);
+
+        constOne = Parameter(cellDim, init=fixedValue, value=1.0,learningRateMultiplier=0.0);
+
+        wxx = Times(wx, inputx); 
+        wxxpb = Plus(wxx, b);
+
+
+
+		G1 = RowSlice(0, cellDim, wxxpb) # input transform
+		G2 = RowSlice(cellDim, cellDim, wxxpb) # cell gate
+		G3 = RowSlice(cellDimX2, cellDim, wxxpb); # output gate
+		G4 = RowSlice(cellDimX3, cellDim, wxxpb); # input transform for highway
+
+        lambda = Sigmoid(G2) 
+        dcell = PastValue(cellDim, cell, timeStep=1)
+        cell = Plus (ElementTimes(lambda, dcell) , ElementTimes(Minus(constOne, lambda), G1))
+        
+        wx2 = Parameter(cellDim, inputDim, init=uniform, initValueScale=1);
+        hgate = Sigmoid(G3)
+        fhgate = Minus(constOne, hgate)
+        output = Plus(ElementTimes(fhgate, G4), ElementTimes(hgate, tanh(cell)))
+        
+    }
+     
+]
+
+ndlCreateNetwork_LSTMP_c1024_p256_x3=[
+
+	#define basic i/o
+    baseFeatDim=$baseFeatDim$
+    RowSliceStart=$RowSliceStart$ 
+    FeatDim=$featDim$
+	labelDim=$labelDim$
+    cellDim=1024
+    cellDimX2=2048  #If BrainScript is used we don't need to pass in following three values
+    cellDimX3=3072
+    cellDimX4=4096 
+	hiddenDim=1024
+
+	features=Input(FeatDim, tag=feature)
+	labels=Input(labelDim, tag=label)
+
+	#featNorm = MeanVarNorm(features)
+    feashift=RowSlice(RowSliceStart, baseFeatDim, features);      # shift 5 frames right (x_{t+5} -> x_{t} )
+
+
+    featNorm = MeanVarNorm(feashift)
+
+
+	# layer 1
+    LSTMoutput1 = FastKernelNN(baseFeatDim, hiddenDim, cellDim, featNorm, cellDimX2, cellDimX3, cellDimX4);
+    # layer 2 
+    LSTMoutput2 = FastKernelNN(hiddenDim, hiddenDim, cellDim, LSTMoutput1, cellDimX2, cellDimX3, cellDimX4);
+    # layer 3 
+    LSTMoutput3 = FastKernelNN(hiddenDim, hiddenDim, cellDim, LSTMoutput2, cellDimX2, cellDimX3, cellDimX4);
+    LSTMoutput4 = FastKernelNN(hiddenDim, hiddenDim, cellDim, LSTMoutput3, cellDimX2, cellDimX3, cellDimX4);
+    LSTMoutput5 = FastKernelNN(hiddenDim, hiddenDim, cellDim, LSTMoutput4, cellDimX2, cellDimX3, cellDimX4);
+    LSTMoutput6 = FastKernelNN(hiddenDim, hiddenDim, cellDim, LSTMoutput5, cellDimX2, cellDimX3, cellDimX4);
+    LSTMoutput7 = FastKernelNN(hiddenDim, hiddenDim, cellDim, LSTMoutput6, cellDimX2, cellDimX3, cellDimX4);
+    LSTMoutput8 = FastKernelNN(hiddenDim, hiddenDim, cellDim, LSTMoutput7, cellDimX2, cellDimX3, cellDimX4);
+
+    LSTMoutput9 = FastKernelNN(hiddenDim, hiddenDim, cellDim, LSTMoutput8, cellDimX2, cellDimX3, cellDimX4);
+    LSTMoutput10 = FastKernelNN(hiddenDim, hiddenDim, cellDim, LSTMoutput9, cellDimX2, cellDimX3, cellDimX4);
+    LSTMoutput11 = FastKernelNN(hiddenDim, hiddenDim, cellDim, LSTMoutput10, cellDimX2, cellDimX3, cellDimX4);
+    LSTMoutput12 = FastKernelNN(hiddenDim, hiddenDim, cellDim, LSTMoutput11, cellDimX2, cellDimX3, cellDimX4);
+
+
+	W = Parameter(labelDim, hiddenDim, init=uniform, initValueScale=1);
+	b = Parameter(labelDim, init=fixedvalue, value=0);
+	LSTMoutputW = Plus(Times(W, LSTMoutput12), b);
+	
+    cr = CrossEntropyWithSoftmax(labels, LSTMoutputW,tag=Criteria);
+    Err = ErrorPrediction(labels,LSTMoutputW,tag=Eval);
+    
+    logPrior = LogPrior(labels)	 
+    ScaledLogLikelihood=Minus(LSTMoutputW,logPrior,tag=Output)
+
+]
+
