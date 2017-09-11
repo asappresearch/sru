@@ -61,7 +61,7 @@ output, hidden = rnn(x)      # forward pass
  - [question answering (SQuAD)](/DrQA/)
  - [language modelling on PTB](/language_model/)
  - machine translation
- - speech recognition
+ - [speech recognition](/speech/) (**Note:** implemented in CNTK instead of PyTorch)-
  
 <br>
 
