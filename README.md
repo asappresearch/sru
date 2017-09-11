@@ -8,10 +8,19 @@
 </p>
 For example, the figure above presents the processing time of a single mini-batch of 32 samples. SRU achieves 10 to 16 times speed-up compared to LSTM, and operates as fast as (or faster than) word-level convolution using conv2d. 
 
-<br>
+### Reference:
+[Training RNNs as Fast as CNNs](https://arxiv.org/abs/1709.02755)
+```
+@article{lei2017sru,
+  title={Training RNNs as Fast as CNNs},
+  author={Lei, Tao and Zhang, Yu},
+  journal={arXiv preprint arXiv:1709.02755},
+  year={2017}
+}
+```
 
 ## Requirements
- - GPU and CUDA are required
+ - **GPU and CUDA are required**
  - [PyTorch](http://pytorch.org/)
  - [CuPy](https://cupy.chainer.org/)
  - [pynvrtc](https://github.com/NVIDIA/pynvrtc)
