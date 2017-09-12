@@ -26,12 +26,12 @@ For example, the figure above presents the processing time of a single mini-batc
  - [CuPy](https://cupy.chainer.org/)
  - [pynvrtc](https://github.com/NVIDIA/pynvrtc)
  
-Install requirements via `pip install -r requirements.txt`. CuPy and pynvrtc needed to compile the CUDA code into a callable function at runtime. 
+Install requirements via `pip install -r requirements.txt`. CuPy and pynvrtc needed to compile the CUDA code into a callable function at runtime. Only single GPU training is supported. 
 
 <br>
 
 ## Examples
-The usage of SRU is similar to `nn.LSTM`. 
+The usage of SRU is similar to `nn.LSTM`. SRU likely requires more stacking layers than LSTM. We recommend starting by 2 layers and use more if necessary (see our report for more experimental details).
 ```python
 import torch
 from torch.autograd import Variable
@@ -81,5 +81,6 @@ export PYTHONPATH=path_to_repo/sru
 
 ## To-do
   - [ ] ReLU activation
+  - [ ] support multi-GPU (context change)
   - [ ] Layer normalization + residual to compare with highway connection (current version)
   
