@@ -4,7 +4,7 @@ In the experiments, we used identity activation `--use_tanh 0` and set highway g
 These choices are found to produce better results.
 
 ## How to run
-  - Download the datasets from https://github.com/yoonkim/lstm-char-cnn/tree/master/data/ptb
+  - Download the dataset from https://github.com/yoonkim/lstm-char-cnn/tree/master/data/ptb
   
   - Make sure CUDA library path and `cuda_functional.py` is available to python. For example,
   ```python
