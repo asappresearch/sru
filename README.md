@@ -74,10 +74,7 @@ export PYTHONPATH=path_to_repo/sru
 <br>
 
 ## Contributors
--  **Tao Lei** (tao@asapp.com)
--  **Yu Zhang** (yzhang87@csail.mit.edu)
-
-<br>
+https://github.com/taolei87/sru/graphs/contributors
 
 ## To-do
   - [ ] ReLU activation
