@@ -60,7 +60,8 @@ extern "C" {
             float val = (activation_type == 1) ? tanh(cur) : (
                 (activation_type == 2) ? reluf(cur) : cur
             );
-            *hp = (val*mask-(*xp))*g2 + (*xp);
+            //*hp = (val*mask-(*xp))*g2 + (*xp);
+            *hp = val*mask*g2;
             up += ncols_u;
             xp += ncols_x;
             cp += ncols;
@@ -117,14 +118,16 @@ extern "C" {
 
             const float gh_val = *ghp;
 
-            // h = c*g2 + x*(1-g2) = (c-x)*g2 + x
+            // h = c*g2
             // c = c'*g1 + g0*(1-g1) = (c'-g0)*g1 + g0
 
             // grad wrt x
-            *gxp = gh_val*(1-g2);
+            //*gxp = gh_val*(1-g2);
+            *gxp = 0;
 
             // grad wrt g2, u2 and bias2
-            float gg2 = gh_val*(c_val*mask-x_val)*(g2*(1-g2));
+            //float gg2 = gh_val*(c_val*mask-x_val)*(g2*(1-g2));
+            float gg2 = gh_val*(c_val*mask)*(g2*(1-g2));
             *(gup+2) = gg2;
             gbias2 += gg2;
 
@@ -207,7 +210,8 @@ extern "C" {
             float val = (activation_type == 1) ? tanh(cur) : (
                 (activation_type == 2) ? reluf(cur) : cur
             );
-            *hp = (val*mask-(*xp))*g2 + (*xp);
+            //*hp = (val*mask-(*xp))*g2 + (*xp);
+            *hp = val*mask*g2;
             up += ncols_u_;
             xp += ncols_x_;
             cp += ncols_;
@@ -280,14 +284,16 @@ extern "C" {
 
             const float gh_val = *ghp;
 
-            // h = c*g2 + x*(1-g2) = (c-x)*g2 + x
+            // h = c*g2
             // c = c'*g1 + g0*(1-g1) = (c'-g0)*g1 + g0
 
             // grad wrt x
-            *gxp = gh_val*(1-g2);
+            //*gxp = gh_val*(1-g2);
+            *gxp = 0;
 
             // grad wrt g2, u2 and bias2
-            float gg2 = gh_val*(c_val*mask-x_val)*(g2*(1-g2));
+            //float gg2 = gh_val*(c_val*mask-x_val)*(g2*(1-g2));
+            float gg2 = gh_val*(c_val*mask)*(g2*(1-g2));
             *(gup+2) = gg2;
             gbias2 += gg2;
 
