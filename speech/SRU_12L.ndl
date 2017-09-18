@@ -27,10 +27,10 @@ ndlMacroDefine=[
 
 
 
-		G1 = RowSlice(0, cellDim, wxxpb) # input transform
-		G2 = RowSlice(cellDim, cellDim, wxxpb) # cell gate
-		G3 = RowSlice(cellDimX2, cellDim, wxxpb); # output gate
-		G4 = RowSlice(cellDimX3, cellDim, wxxpb); # input transform for highway
+	G1 = RowSlice(0, cellDim, wxxpb) # input transform
+	G2 = RowSlice(cellDim, cellDim, wxxpb) # cell gate
+	G3 = RowSlice(cellDimX2, cellDim, wxxpb); # output gate
+	G4 = RowSlice(cellDimX3, cellDim, wxxpb); # input transform for highway
 
         lambda = Sigmoid(G2) 
         dcell = PastValue(cellDim, cell, timeStep=1)
