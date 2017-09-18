@@ -60,7 +60,6 @@ extern "C" {
             float val = (activation_type == 1) ? tanh(cur) : (
                 (activation_type == 2) ? reluf(cur) : cur
             );
-            //float val = use_tanh ? tanh(cur) : cur;
             *hp = (val*mask-(*xp))*g2 + (*xp);
             up += ncols_u;
             xp += ncols_x;
@@ -108,8 +107,7 @@ extern "C" {
             const float g1 = sigmoidf((*(up+1))+bias1);
             const float g2 = sigmoidf((*(up+2))+bias2);
 
-            //const float c_val = use_tanh ? tanh(*cp) : (*cp);
-            float float c_val = (activation_type == 1) ? tanh(*cp) : (
+            const float c_val = (activation_type == 1) ? tanh(*cp) : (
                 (activation_type == 2) ? reluf(*cp) : (*cp)
             );
 
@@ -134,7 +132,6 @@ extern "C" {
             const float tmp = (activation_type == 1) ? (g2*(1-c_val*c_val)) : (
                 ((activation_type == 0) || (c_val > 0)) ? g2 : 0.f
             );
-            //const float tmp = use_tanh ? (g2*(1-c_val*c_val)) : g2;
             const float gc = gh_val*mask*tmp + cur;
 
             // grad wrt u0
@@ -210,7 +207,6 @@ extern "C" {
             float val = (activation_type == 1) ? tanh(cur) : (
                 (activation_type == 2) ? reluf(cur) : cur
             );
-            //float val = use_tanh ? tanh(cur) : cur;
             *hp = (val*mask-(*xp))*g2 + (*xp);
             up += ncols_u_;
             xp += ncols_x_;
@@ -275,8 +271,7 @@ extern "C" {
             const float g1 = sigmoidf((*(up+1))+bias1);
             const float g2 = sigmoidf((*(up+2))+bias2);
 
-            //const float c_val = use_tanh ? tanh(*cp) : (*cp);
-            float float c_val = (activation_type == 1) ? tanh(*cp) : (
+            const float c_val = (activation_type == 1) ? tanh(*cp) : (
                 (activation_type == 2) ? reluf(*cp) : (*cp)
             );
             const float x_val = *xp;
@@ -300,7 +295,6 @@ extern "C" {
             const float tmp = (activation_type == 1) ? (g2*(1-c_val*c_val)) : (
                 ((activation_type == 0) || (c_val > 0)) ? g2 : 0.f
             );
-            //const float tmp = use_tanh ? (g2*(1-c_val*c_val)) : g2;
             const float gc = gh_val*mask*tmp + cur;
 
             // grad wrt u0
