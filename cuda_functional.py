@@ -20,12 +20,17 @@ extern "C" {
         return 1.f / (1.f + expf(-x));
     }
 
+    __forceinline__ __device__ float reluf(float x)
+    {
+        return (x > 0.f) ? x : 0.f;
+    }
+
     __global__ void sru_fwd(const float * __restrict__ u, const float * __restrict__ x,
                             const float * __restrict__ bias, const float * __restrict__ init,
                             const float * __restrict__ mask_h,
                             const int len, const int batch, const int d, const int k,
                             float * __restrict__ h, float * __restrict__ c,
-                            const int use_tanh)
+                            const int activation_type)
     {
         assert ((k == 3) || (x == NULL));
 
@@ -52,7 +57,9 @@ extern "C" {
             float g2 = sigmoidf((*(up+2))+bias2);
             cur = (cur-(*up))*g1 + (*up);
             *cp = cur;
-            float val = use_tanh ? tanh(cur) : cur;
+            float val = (activation_type == 1) ? tanh(cur) : (
+                (activation_type == 2) ? reluf(cur) : cur
+            );
             *hp = (val*mask-(*xp))*g2 + (*xp);
             up += ncols_u;
             xp += ncols_x;
@@ -68,7 +75,7 @@ extern "C" {
                             const int len, const int batch, const int d, const int k,
                             float * __restrict__ grad_u, float * __restrict__ grad_x,
                             float * __restrict__ grad_bias, float * __restrict__ grad_init,
-                            int use_tanh)
+                            int activation_type)
     {
         assert((k == 3) || (x == NULL));
         assert((k == 3) || (grad_x == NULL));
@@ -100,7 +107,10 @@ extern "C" {
             const float g1 = sigmoidf((*(up+1))+bias1);
             const float g2 = sigmoidf((*(up+2))+bias2);
 
-            const float c_val = use_tanh ? tanh(*cp) : (*cp);
+            const float c_val = (activation_type == 1) ? tanh(*cp) : (
+                (activation_type == 2) ? reluf(*cp) : (*cp)
+            );
+
             const float x_val = *xp;
             const float u_val = *up;
             const float prev_c_val = (row>0) ? (*(cp-ncols)) : (*(init+col));
@@ -119,7 +129,9 @@ extern "C" {
             gbias2 += gg2;
 
             // grad wrt c
-            const float tmp = use_tanh ? (g2*(1-c_val*c_val)) : g2;
+            const float tmp = (activation_type == 1) ? (g2*(1-c_val*c_val)) : (
+                ((activation_type == 0) || (c_val > 0)) ? g2 : 0.f
+            );
             const float gc = gh_val*mask*tmp + cur;
 
             // grad wrt u0
@@ -151,7 +163,7 @@ extern "C" {
                             const float * __restrict__ mask_h,
                             const int len, const int batch, const int d, const int k,
                             float * __restrict__ h, float * __restrict__ c,
-                            const int use_tanh)
+                            const int activation_type)
     {
         assert ((k == 3) || (x == NULL));
         assert ((k == 3) || (k == 4));
@@ -192,7 +204,9 @@ extern "C" {
             float g2 = sigmoidf((*(up+2))+bias2);
             cur = (cur-(*up))*g1 + (*up);
             *cp = cur;
-            float val = use_tanh ? tanh(cur) : cur;
+            float val = (activation_type == 1) ? tanh(cur) : (
+                (activation_type == 2) ? reluf(cur) : cur
+            );
             *hp = (val*mask-(*xp))*g2 + (*xp);
             up += ncols_u_;
             xp += ncols_x_;
@@ -209,7 +223,7 @@ extern "C" {
                             const int len, const int batch, const int d, const int k,
                             float * __restrict__ grad_u, float * __restrict__ grad_x,
                             float * __restrict__ grad_bias, float * __restrict__ grad_init,
-                            int use_tanh)
+                            int activation_type)
     {
         assert((k == 3) || (x == NULL));
         assert((k == 3) || (grad_x == NULL));
@@ -257,7 +271,9 @@ extern "C" {
             const float g1 = sigmoidf((*(up+1))+bias1);
             const float g2 = sigmoidf((*(up+2))+bias2);
 
-            const float c_val = use_tanh ? tanh(*cp) : (*cp);
+            const float c_val = (activation_type == 1) ? tanh(*cp) : (
+                (activation_type == 2) ? reluf(*cp) : (*cp)
+            );
             const float x_val = *xp;
             const float u_val = *up;
             const float prev_c_val = (cnt<len-1) ? (*(cp-ncols_)) : (*(init+col));
@@ -276,7 +292,9 @@ extern "C" {
             gbias2 += gg2;
 
             // grad wrt c
-            const float tmp = use_tanh ? (g2*(1-c_val*c_val)) : g2;
+            const float tmp = (activation_type == 1) ? (g2*(1-c_val*c_val)) : (
+                ((activation_type == 0) || (c_val > 0)) ? g2 : 0.f
+            );
             const float gc = gh_val*mask*tmp + cur;
 
             // grad wrt u0
@@ -319,9 +337,9 @@ SRU_STREAM = Stream(ptr=torch.cuda.current_stream().cuda_stream)
 
 class SRU_Compute(Function):
 
-    def __init__(self, use_tanh, d_out, bidirectional=False):
+    def __init__(self, activation_type, d_out, bidirectional=False):
         super(SRU_Compute, self).__init__()
-        self.use_tanh = use_tanh
+        self.activation_type = activation_type
         self.d_out = d_out
         self.bidirectional = bidirectional
 
@@ -354,7 +372,7 @@ class SRU_Compute(Function):
             k_,
             h.data_ptr(),
             c.data_ptr(),
-            self.use_tanh],
+            self.activation_type],
             block = (thread_per_block,1,1), grid = (num_block,1,1),
             stream=SRU_STREAM
         )
@@ -412,7 +430,7 @@ class SRU_Compute(Function):
             grad_x.data_ptr() if k_ == 3 else 0,
             grad_bias.data_ptr(),
             grad_init.data_ptr(),
-            self.use_tanh],
+            self.activation_type],
             block = (thread_per_block,1,1), grid = (num_block,1,1),
             stream=SRU_STREAM
         )
@@ -421,14 +439,14 @@ class SRU_Compute(Function):
 
 class SRUCell(nn.Module):
     def __init__(self, n_in, n_out, dropout=0, rnn_dropout=0,
-                use_tanh=1, bidirectional=False):
+                bidirectional=False, use_tanh=1, use_relu=0):
         super(SRUCell, self).__init__()
         self.n_in = n_in
         self.n_out = n_out
         self.rnn_dropout = rnn_dropout
         self.dropout = dropout
         self.bidirectional = bidirectional
-        self.use_tanh = use_tanh
+        self.activation_type = 2 if use_relu else (1 if use_tanh else 0)
 
         out_size = n_out*2 if bidirectional else n_out
         k = 4 if n_in != out_size else 3
@@ -475,9 +493,9 @@ class SRUCell(nn.Module):
         if self.training and (self.dropout>0):
             bidir = 2 if self.bidirectional else 1
             mask_h = self.get_dropout_mask_((batch, n_out*bidir), self.dropout)
-            h, c = SRU_Compute(self.use_tanh, n_out, self.bidirectional)(u, input, self.bias, c0, mask_h)
+            h, c = SRU_Compute(self.activation_type, n_out, self.bidirectional)(u, input, self.bias, c0, mask_h)
         else:
-            h, c = SRU_Compute(self.use_tanh, n_out, self.bidirectional)(u, input, self.bias, c0)
+            h, c = SRU_Compute(self.activation_type, n_out, self.bidirectional)(u, input, self.bias, c0)
 
         return h, c
 
@@ -488,7 +506,7 @@ class SRUCell(nn.Module):
 
 class SRU(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers=2, dropout=0, rnn_dropout=0,
-                use_tanh=1, bidirectional=False):
+                bidirectional=False, use_tanh=1, use_relu=0):
         super(SRU, self).__init__()
         self.n_in = input_size
         self.n_out = hidden_size
@@ -505,8 +523,9 @@ class SRU(nn.Module):
                 n_out = self.n_out,
                 dropout = dropout if i+1 != num_layers else 0,
                 rnn_dropout = rnn_dropout,
+                bidirectional = bidirectional,
                 use_tanh = use_tanh,
-                bidirectional = bidirectional
+                use_relu = use_relu,
             )
             self.rnn_lst.append(l)
 
