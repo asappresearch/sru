@@ -543,7 +543,7 @@ class SRU(nn.Module):
             c0 = [ zeros for i in range(self.depth) ]
         else:
             assert c0.dim() == 3    # (depth, batch, n_out*dir_)
-            c0 = c0.chunk(self.depth, 0)
+            c0 = [ x.squeeze(0) for x in c0.chunk(self.depth, 0) ]
 
         prevx = input
         lstc = []
