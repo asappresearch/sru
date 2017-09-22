@@ -17,7 +17,7 @@ def readme():
 def get_version():
     """ Gets the current version of the package.
     """
-    version_py = os.path.join(os.path.dirname(__file__), 'version.py')
+    version_py = os.path.join(os.path.dirname(__file__), 'sru/version.py')
     with open(version_py) as fh:
         for line in fh:
             if line.startswith('__version__'):
