@@ -35,7 +35,7 @@ class StackedBRNN(nn.Module):
             self.rnns.append(MF.SRUCell(input_size, hidden_size,
                                       dropout=dropout_rate,
                                       rnn_dropout=dropout_rate,
-                                      use_tanh=1,
+                                      use_tanh=0,
                                       bidirectional=True))
 
     def forward(self, x, x_mask):

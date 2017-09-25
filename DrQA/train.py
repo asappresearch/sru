@@ -30,7 +30,7 @@ parser.add_argument('--save_last_only', action='store_true',
                     help='only save the final models.')
 parser.add_argument('--eval_per_epoch', type=int, default=1,
                     help='perform evaluation per x epochs.')
-parser.add_argument('--seed', type=int, default=937,
+parser.add_argument('--seed', type=int, default=-1,
                     help='random seed for data shuffling, dropout, etc.')
 parser.add_argument("--cuda", type=str2bool, nargs='?',
                     const=True, default=torch.cuda.is_available(),
@@ -173,13 +173,13 @@ def main():
             log.warn("dev EM: {} F1: {}".format(em, f1))
         # save
         if not args.save_last_only or epoch == epoch_0 + args.epochs - 1:
-            model_file = os.path.join(model_dir, 'checkpoint_epoch_{}.pt'.format(epoch))
+            model_file = '{}.checkpoint.pt'.format(args.log_file)
             model.save(model_file, epoch)
             if f1 > best_val_score:
                 best_val_score = f1
                 copyfile(
                     model_file,
-                    os.path.join(model_dir, 'best_model.pt'))
+                    '{}.best.pt'.format(args.log_file))
                 log.info('[new best model saved.]')
 
 
