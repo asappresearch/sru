@@ -70,9 +70,9 @@ Instead of using `PYTHONPATH`, the SRU module now can be installed as a regular 
  - [classification](/classification/)
  - [question answering (SQuAD)](/DrQA/)
  - [language modelling on PTB](/language_model/)
- - machine translation (to be included in OpenNMT-py)
- - [speech recognition](/speech/) (**Note:** implemented in CNTK instead of PyTorch)-
- 
+ - [speech recognition](/speech/) (**Note:** implemented in CNTK instead of PyTorch)
+  - machine translation: SRU has been included in [OpenNMT-py](https://github.com/OpenNMT/OpenNMT-py) by [Jianyu Zhan](http://github.com/jianyuzhan) and [Sasha Rush](http://github.com/srush). Also thanks to [@jingxil](https://github.com/jingxil) for testing. See results [here](http://cnyah.com/2017/09/20/an-empirical-comparison-between-SRU-and-LSTM/).
+  
 <br>
 
 ## Contributors
@@ -81,5 +81,6 @@ https://github.com/taolei87/sru/graphs/contributors
 ## To-do
   - [x] ReLU activation
   - [ ] support multi-GPU (context change)
-  - [ ] Layer normalization + residual to compare with highway connection (current version)
+  - [ ] Layer normalization, residual, batch norm, etc
+  - [ ] support packed sequence
   
