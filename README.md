@@ -1,4 +1,12 @@
 
+### Latest
+
+[@musyoku](https://github.com/musyoku) had a very nice [SRU implementaion](https://github.com/musyoku/chainer-sru) in chainer, where he reports 30x speed-up over LSTM in some cases! 
+
+Check the speed comparison he did [here](https://raw.githubusercontent.com/musyoku/images/master/sru/pytorch-vs-chainer-lstm.png).
+
+<br>
+
 ## About
 
 **SRU** is a recurrent unit that can run over 10 times faster than cuDNN LSTM, without loss of accuracy tested on many tasks. 
