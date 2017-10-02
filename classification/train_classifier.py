@@ -12,7 +12,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.autograd import Variable
 
-import cuda_functional as MF
+import cuda_functional2 as MF
 import dataloader
 import modules
 
