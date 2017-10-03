@@ -30,6 +30,7 @@ extern "C" {
                             const float * __restrict__ weight,
                             const float * __restrict__ init,
                             const int len, const int batch, const int d,
+                            const int reverse,
                             float * __restrict__ sum)
     {
         int ncols = batch*d;
@@ -41,13 +42,21 @@ extern "C" {
         float *sp = sum + col;
         float cur = *(init + col);
 
+        if (reverse) {
+            xp += (len-1)*ncols;
+            wp += (len-1)*ncols;
+            sp += (len-1)*ncols;
+        }
+
+        const int ncols_ = reverse ? -ncols : ncols;
+
         for (int cnt = 0; cnt < len; ++cnt)
         {
             cur = cur*(*wp) + (*xp);
             *sp = cur;
-            xp += ncols;
-            wp += ncols;
-            sp += ncols;
+            xp += ncols_;
+            wp += ncols_;
+            sp += ncols_;
         }
     }
 
@@ -55,6 +64,7 @@ extern "C" {
                             const float * __restrict__ weight,
                             const float * __restrict__ init,
                             const int len, const int batch, const int d,
+                            const int reverse,
                             const float * __restrict__ grad_sum,
                             float * __restrict__ grad_x,
                             float * __restrict__ grad_weight,
@@ -71,18 +81,28 @@ extern "C" {
         float *gwp = grad_weight + ((len-1)*ncols+col);
         float cur = 0;
 
+        if (reverse) {
+            gsp -= (len-1)*ncols;
+            sp  -= (len-1)*ncols;
+            wp  -= (len-1)*ncols;
+            gxp -= (len-1)*ncols;
+            gwp -= (len-1)*ncols;
+        }
+
+        const int ncols_ = reverse ? -ncols : ncols;
+
         for (int cnt = 0; cnt < len; ++cnt)
         {
-            const float prev = (cnt < len-1) ? (*(sp-ncols)) : (*(init+col));
+            const float prev = (cnt < len-1) ? (*(sp-ncols_)) : (*(init+col));
             cur += (*gsp);
             *gxp = cur;
             *gwp = cur*prev;
             cur = cur*(*wp);
-            sp -= ncols;
-            wp -= ncols;
-            gsp -= ncols;
-            gxp -= ncols;
-            gwp -= ncols;
+            sp -= ncols_;
+            wp -= ncols_;
+            gsp -= ncols_;
+            gxp -= ncols_;
+            gwp -= ncols_;
         }
         *(grad_init + col) = cur;
     }
@@ -100,6 +120,10 @@ Stream = namedtuple('Stream', ['ptr'])
 SRU_STREAM = Stream(ptr=torch.cuda.current_stream().cuda_stream)
 
 class WeightedCumsum(Function):
+    def __init__(self, reverse=0):
+        super(WeightedCumsum, self).__init__()
+        self.reverse = reverse
+
     def forward(self, x, weight, init=None):
         # only implement a tensor version
         assert x.dim() == 3
@@ -122,6 +146,7 @@ class WeightedCumsum(Function):
             length,
             batch,
             d,
+            self.reverse,
             cum_sum.data_ptr()],
             block = (thread_per_block,1,1), grid = (num_block,1,1),
             stream=SRU_STREAM
@@ -153,6 +178,7 @@ class WeightedCumsum(Function):
             length,
             batch,
             d,
+            self.reverse,
             grad_sum.contiguous().data_ptr(),
             grad_x.data_ptr(),
             grad_weight.data_ptr(),
@@ -172,7 +198,7 @@ class SRUCell(nn.Module):
                 bidirectional=False, use_tanh=1, use_relu=0):
         assert use_relu == 0
         assert use_tanh == 1
-        assert bidirectional == False
+        #assert bidirectional == False
 
         super(SRUCell, self).__init__()
         self.n_in = n_in
@@ -181,14 +207,16 @@ class SRUCell(nn.Module):
         self.dropout = dropout
         self.bidirectional = bidirectional
 
-        k = 4 if n_in != n_out else 3
+        out_size = n_out*2 if bidirectional else n_out
+        k = 4 if n_in != out_size else 3
+        k = k*2 if bidirectional else k
         self.k = k
         self.weight = nn.Parameter(torch.Tensor(
             n_in,
             n_out*k
         ))
         self.bias = nn.Parameter(torch.Tensor(
-            n_out*3
+            n_out*6 if bidirectional else n_out*3
         ))
         self.init_weight()
 
@@ -217,22 +245,38 @@ class SRUCell(nn.Module):
         u = x_2d.mm(self.weight).view(length, batch, -1)  # (length, batch, n_out*k)
         wx = u.chunk(self.k, 2)
         assert len(wx) == self.k
-        b = self.bias.chunk(3, 0)
+        b = self.bias.chunk(6 if self.bidirectional else 3, 0)
 
-        tilde_x = F.tanh(wx[0] + b[0])
-        forget = F.sigmoid(wx[1] + b[1])
-        reset = F.sigmoid(wx[2] + b[2])
-        c = WeightedCumsum()((1-forget)*tilde_x, forget, c0)
+        out_size = n_out*2 if self.bidirectional else n_out
+
+        if not self.bidirectional:
+            tilde_x = F.tanh(wx[0] + b[0])
+            forget = F.sigmoid(wx[1] + b[1])
+            reset = F.sigmoid(wx[2] + b[2])
+            c = WeightedCumsum()((1-forget)*tilde_x, forget, c0)
+            highway_x = input if n_in == out_size else wx[3]
+        else:
+            tilde_x_1 = F.tanh(wx[0] + b[0])
+            forget_1 = F.sigmoid(wx[1] + b[1])
+            reset_1 = F.sigmoid(wx[2] + b[2])
+            tilde_x_2 = F.tanh(wx[3] + b[3])
+            forget_2 = F.sigmoid(wx[4] + b[4])
+            reset_2 = F.sigmoid(wx[5] + b[5])
+            c_1 = WeightedCumsum(reverse=0)((1-forget_1)*tilde_x_1, forget_1, c0[:,:n_out])
+            c_2 = WeightedCumsum(reverse=1)((1-forget_2)*tilde_x_2, forget_2, c0[:,n_out:])
+            # (length, batch, n_out*2)
+            c = torch.cat((c_1, c_2), 2)
+            reset = torch.cat((reset_1, reset_2), 2)
+            highway_x = input if n_in == out_size else torch.cat((wx[6], wx[7]), 2)
 
         if self.training and (self.dropout>0):
-            mask_h = self.get_dropout_mask_((batch, n_out), self.dropout)
+            mask_h = self.get_dropout_mask_((batch, out_size), self.dropout)
             pre_h = c * mask_h.expand_as(c)
         else:
             pre_h = c
-        highway_x = input if n_in == n_out else wx[3]
         h = pre_h*reset + highway_x*(1-reset)
 
-        return h, c
+        return h, c[-1]
 
     def get_dropout_mask_(self, size, p):
         w = self.weight.data
