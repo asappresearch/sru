@@ -142,7 +142,7 @@ def main():
         model.cuda()
 
     if args.resume:
-        batches = BatchGen(dev, batch_size=args.batch_size, evaluation=True, gpu=args.cuda)
+        batches = BatchGen(dev, batch_size=1, evaluation=True, gpu=args.cuda)
         predictions = []
         for batch in batches:
             predictions.extend(model.predict(batch))
