@@ -42,7 +42,8 @@ class Model(nn.Module):
                 args.d,
                 args.depth,
                 dropout = args.dropout,
-                use_tanh = 1,
+                use_tanh = args.tanh,
+                use_relu = args.relu,
             )
             d_out = args.d
         self.out = nn.Linear(d_out, nclasses)
@@ -217,6 +218,9 @@ if __name__ == "__main__":
     argparser.add_argument("--lr", type=float, default=0.001)
     argparser.add_argument("--lr_decay", type=float, default=0)
     argparser.add_argument("--cv", type=int, default=0)
+    argparser.add_argument("--tanh", type=int, default=0)
+    argparser.add_argument("--relu", type=int, default=0)
+
 
     args = argparser.parse_args()
     print (args)
