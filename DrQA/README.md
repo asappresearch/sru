@@ -3,6 +3,20 @@ DrQA
 
 A pytorch implementation of the ACL 2017 paper [Reading Wikipedia to Answer Open-Domain Questions](http://www-cs.stanford.edu/people/danqi/papers/acl2017.pdf) (DrQA). The code is based on [Runqi](https://hitvoice.github.io/about/)'s implementation (https://github.com/hitvoice/DrQA).
 
+## Steps taken to reproduce classification:
+
+1. Install CUDA 8.0 following [NVIDIA Installation Guide](http://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html).
+2. Install Python 3.5 or newer.
+3. Install [pytorch](http://pytorch.org/) matched with your OS, python and cuda versions.
+3. Clone source repo: `git clone https://github.com/taolei87/sru`
+5. Install requirements: `pip install -r sru/requirements.txt`.
+4. (If using Linux) Make sure wget is intalled and use download the [SQuAD](https://rajpurkar.github.io/SQuAD-explorer/) datafile, GloVe word vectors and Spacy English language models using `bash download.sh`.
+5. (If NOT using Linux) Make sure to download the [SQuAD](https://rajpurkar.github.io/SQuAD-explorer/) datafile, GloVe word vectors and Spacy English language models.
+8. Update document reader model from https://github.com/hitvoice/DrQA. Already done in this repo as of December 2017.
+9. Export required paths: `export LD_LIBRARY_PATH=/usr/local/cuda/lib64 && export PYTHONPATH=./sru`
+10. Run to train the model example: python3 train.py -e 50 -bs 32 --save_last_only
+11. Check the drqa/layers.py to train using different models (SRU / LSTM)
+
 ## Requirements
 - python >=3.5 
 - pytorch 0.2.0
@@ -12,37 +26,6 @@ A pytorch implementation of the ACL 2017 paper [Reading Wikipedia to Answer Open
 - spacy 1.x
 - cupy
 - pynvrtc
-
-## Quick Start
-### Setup
-- make sure python 3 and pip is installed.
-- install [pytorch](http://pytorch.org/) matched with your OS, python and cuda versions.
-- install the remaining requirements via `pip install -r requirements.txt`
-- download the [SQuAD](https://rajpurkar.github.io/SQuAD-explorer/) datafile, GloVe word vectors and Spacy English language models using `bash download.sh`.
-
-### Train
-
-```bash
-# prepare the data
-python prepro.py
-
-# make sure CUDA lib path can be found, e.g.:
-export LD_LIBRARY_PATH=/usr/local/cuda/lib64
-
-# specify the path to find SRU implementation, e.g.:
-export PYTHONPATH=../../sru/
-
-# train for 50 epoches with batchsize 32
-python train.py -e 50 -bs 32
-```
-
-## Results
-||EM|F1|Time used in RNN|Total time/epoch|
-|---|---|---|---|---|
-|LSTM (original paper)|69.5|78.8|~523s|~700s|
-|SRU (this version)|**70.3**|**79.5**|**~88s**|**~200s**|
-
-Tested on GeForce GTX 1070.
 
 ### Credits
 Author of the Document Reader model: [Danqi Chen](https://github.com/danqi).
