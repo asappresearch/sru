@@ -84,7 +84,7 @@ def train_model(epoch, model, optimizer,
         train_x, train_y, valid_x, valid_y,
         test_x, test_y,
         best_valid, test_err):
-
+    start = time.time()
     model.train()
     args = model.args
     N = len(train_x)
@@ -104,11 +104,13 @@ def train_model(epoch, model, optimizer,
 
     valid_err = eval_model(niter, model, valid_x, valid_y)
 
-    sys.stdout.write("Epoch={} iter={} lr={:.6f} train_loss={:.6f} valid_err={:.6f}\n".format(
+    stop = time.time()
+    sys.stdout.write("Epoch={} iter={} lr={:.6f} train_loss={:.6f} valid_err={:.6f} time={:.6f} \n".format(
         epoch, niter,
         optimizer.param_groups[0]['lr'],
         loss.data[0],
-        valid_err
+        valid_err,
+	(stop - start)
     ))
 
     if valid_err < best_valid:

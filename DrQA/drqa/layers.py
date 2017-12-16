@@ -29,14 +29,14 @@ class StackedBRNN(nn.Module):
         self.rnns = nn.ModuleList()
         for i in range(num_layers):
             input_size = input_size if i == 0 else 2 * hidden_size
-            #self.rnns.append(rnn_type(input_size, hidden_size,
-            #                          num_layers=1,
-            #                          bidirectional=True))
-            self.rnns.append(MF.SRUCell(input_size, hidden_size,
-                                      dropout=dropout_rate,
-                                      rnn_dropout=dropout_rate,
-                                      use_tanh=1,
+            self.rnns.append(rnn_type(input_size, hidden_size,
+                                      num_layers=1,
                                       bidirectional=True))
+            #self.rnns.append(MF.SRUCell(input_size, hidden_size,
+            #                          dropout=dropout_rate,
+            #                          rnn_dropout=dropout_rate,
+            #                          use_tanh=1,
+            #                          bidirectional=True))
 
     def forward(self, x, x_mask):
         """Can choose to either handle or ignore variable length sequences.

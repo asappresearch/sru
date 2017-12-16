@@ -273,8 +273,9 @@ class BatchGen:
 
             context_tag = torch.LongTensor(batch_size, context_len).fill_(0)
             for i, doc in enumerate(batch[2]):
+                print(*doc)
                 context_tag[i, :len(doc)] = torch.LongTensor(doc)
-
+                
             context_ent = torch.LongTensor(batch_size, context_len).fill_(0)
             for i, doc in enumerate(batch[3]):
                 context_ent[i, :len(doc)] = torch.LongTensor(doc)
