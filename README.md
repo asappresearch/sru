@@ -21,7 +21,7 @@ For example, the figure above presents the processing time of a single mini-batc
 ```
 @article{lei2017sru,
   title={Training RNNs as Fast as CNNs},
-  author={Lei, Tao and Zhang, Yu},
+  author={Tao Lei, Yu Zhang and Yoav Artzi},
   journal={arXiv preprint arXiv:1709.02755},
   year={2017}
 }
