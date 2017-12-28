@@ -325,23 +325,39 @@ extern "C" {
 
 SRU_PROG = Program(SRU_CODE.encode('utf-8'), 'sru_prog.cu'.encode('utf-8'))
 SRU_PTX = SRU_PROG.compile()
-SRU_MOD = function.Module()
-SRU_MOD.load(bytes(SRU_PTX.encode()))
-SRU_FWD_FUNC = SRU_MOD.get_function('sru_fwd')
-SRU_BWD_FUNC = SRU_MOD.get_function('sru_bwd')
-SRU_BiFWD_FUNC = SRU_MOD.get_function('sru_bi_fwd')
-SRU_BiBWD_FUNC = SRU_MOD.get_function('sru_bi_bwd')
-
-Stream = namedtuple('Stream', ['ptr'])
-SRU_STREAM = Stream(ptr=torch.cuda.current_stream().cuda_stream)
 
 class SRU_Compute(Function):
+
+    device2func = {}
 
     def __init__(self, activation_type, d_out, bidirectional=False):
         super(SRU_Compute, self).__init__()
         self.activation_type = activation_type
         self.d_out = d_out
         self.bidirectional = bidirectional
+
+    def compile_functions(self, device):
+        print (device)
+        mod = function.Module()
+        mod.load(bytes(SRU_PTX.encode()))
+        fwd_func = mod.get_function('sru_fwd')
+        bwd_func = mod.get_function('sru_bwd')
+        bifwd_func = mod.get_function('sru_bi_fwd')
+        bibwd_func = mod.get_function('sru_bi_bwd')
+
+        Stream = namedtuple('Stream', ['ptr'])
+        current_stream = Stream(ptr=torch.cuda.current_stream().cuda_stream)
+
+        SRU_Compute.device2func[device] = (current_stream, fwd_func,
+            bifwd_func, bwd_func, bibwd_func
+        )
+
+    def get_functions(self):
+        device = torch.cuda.current_device()
+        if device not in SRU_Compute.device2func:
+            self.compile_functions(device)
+
+        return SRU_Compute.device2func[device]
 
     def forward(self, u, x, bias, init=None, mask_h=None):
         bidir = 2 if self.bidirectional else 1
@@ -359,7 +375,8 @@ class SRU_Compute(Function):
         c = x.new(*size)
         h = x.new(*size)
 
-        FUNC = SRU_FWD_FUNC if not self.bidirectional else SRU_BiFWD_FUNC
+        stream, fwd_func, bifwd_func, _, _ = self.get_functions()
+        FUNC = fwd_func if not self.bidirectional else bifwd_func
         FUNC(args=[
             u.contiguous().data_ptr(),
             x.contiguous().data_ptr() if k_ == 3 else 0,
@@ -374,7 +391,7 @@ class SRU_Compute(Function):
             c.data_ptr(),
             self.activation_type],
             block = (thread_per_block,1,1), grid = (num_block,1,1),
-            stream=SRU_STREAM
+            stream=stream
         )
 
         self.save_for_backward(u, x, bias, init, mask_h)
@@ -412,7 +429,8 @@ class SRU_Compute(Function):
         # Normal use
         grad_x = x.new(*x.size()) if k_ == 3 else None
 
-        FUNC = SRU_BWD_FUNC if not self.bidirectional else SRU_BiBWD_FUNC
+        stream, _, _, bwd_func, bibwd_func = self.get_functions()
+        FUNC = bwd_func if not self.bidirectional else bibwd_func
         FUNC(args=[
             u.contiguous().data_ptr(),
             x.contiguous().data_ptr() if k_ == 3 else 0,
@@ -432,7 +450,7 @@ class SRU_Compute(Function):
             grad_init.data_ptr(),
             self.activation_type],
             block = (thread_per_block,1,1), grid = (num_block,1,1),
-            stream=SRU_STREAM
+            stream=stream
         )
         return grad_u, grad_x, grad_bias.sum(1).view(-1), grad_init, None
 
