@@ -336,8 +336,9 @@ class SRU_Compute(Function):
         self.d_out = d_out
         self.bidirectional = bidirectional
 
-    def compile_functions(self, device):
-        print (device)
+    def compile_functions(self):
+        device = torch.cuda.current_device()
+        print ('SRU loaded for gpu {}'.format(device))
         mod = function.Module()
         mod.load(bytes(SRU_PTX.encode()))
         fwd_func = mod.get_function('sru_fwd')
@@ -351,13 +352,11 @@ class SRU_Compute(Function):
         SRU_Compute.device2func[device] = (current_stream, fwd_func,
             bifwd_func, bwd_func, bibwd_func
         )
+        return current_stream, fwd_func, bifwd_func, bwd_func, bibwd_func
 
     def get_functions(self):
-        device = torch.cuda.current_device()
-        if device not in SRU_Compute.device2func:
-            self.compile_functions(device)
-
-        return SRU_Compute.device2func[device]
+        res = SRU_Compute.device2func.get(torch.cuda.current_device(), None)
+        return res if res else self.compile_functions()
 
     def forward(self, u, x, bias, init=None, mask_h=None):
         bidir = 2 if self.bidirectional else 1
