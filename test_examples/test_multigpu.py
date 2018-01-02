@@ -12,12 +12,12 @@ def run(x, model, N):
     print ("{:.4}".format(time.time()-start))
 
 N = 1000
-input_size, hidden_size = 2048, 2048
-num_layers = 2
+input_size, hidden_size = 1024, 1024
+num_layers = 4
 batch_size = 256
 length = 32
 
-x = Variable(torch.randn(length, batch_size, input_size).float())
+x = Variable(torch.randn(length, batch_size, input_size).float(), volatile=True)
 x = x.cuda()
 
 # single gpu
