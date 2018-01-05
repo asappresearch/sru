@@ -507,7 +507,7 @@ def SRU_Compute_CPU(activation_type, d, bidirectional=False):
                 elif activation_type == 2:
                     g_c_t = nn.functional.relu(c_t)
                 else:
-                    assert False, activation_type
+                    assert False, 'Activation type must be 0, 1, or 2, not {}'.format(activation_type)
 
                 h[t, :, di, :] = (g_c_t * mask_h - x_prime[t, :, di, :]) * reset[t, :, di, :] + x_prime[t, :, di, :]
 
