@@ -10,8 +10,6 @@ from pynvrtc.compiler import Program
 from collections import namedtuple
 
 
-tmp_ = torch.rand(1,1).cuda()
-
 SRU_CODE = """
 extern "C" {
 
@@ -323,25 +321,41 @@ extern "C" {
 }
 """
 
-SRU_PROG = Program(SRU_CODE.encode('utf-8'), 'sru_prog.cu'.encode('utf-8'))
-SRU_PTX = SRU_PROG.compile()
-SRU_MOD = function.Module()
-SRU_MOD.load(bytes(SRU_PTX.encode()))
-SRU_FWD_FUNC = SRU_MOD.get_function('sru_fwd')
-SRU_BWD_FUNC = SRU_MOD.get_function('sru_bwd')
-SRU_BiFWD_FUNC = SRU_MOD.get_function('sru_bi_fwd')
-SRU_BiBWD_FUNC = SRU_MOD.get_function('sru_bi_bwd')
 
-Stream = namedtuple('Stream', ['ptr'])
-SRU_STREAM = Stream(ptr=torch.cuda.current_stream().cuda_stream)
-
-class SRU_Compute(Function):
+class SRU_Compute_GPU(Function):
+    _FWD_FUNC = None
+    _BWD_FUNC = None
+    _BiFWD_FUNC = None
+    _BiBWD_FUNC = None
+    _STREAM = None
 
     def __init__(self, activation_type, d_out, bidirectional=False):
-        super(SRU_Compute, self).__init__()
+        self.compile()
+
+        super(SRU_Compute_GPU, self).__init__()
         self.activation_type = activation_type
         self.d_out = d_out
         self.bidirectional = bidirectional
+
+    @classmethod
+    def compile(cls):
+        """Compiles forward and backward GPU kernels for uni- and bi-directional
+        SRU. Assumes there is only one GPU.
+        """
+        if cls._STREAM is not None:
+            return
+
+        prog = Program(SRU_CODE.encode(), 'sru_prog.cu'.encode())
+        ptx = prog.compile()
+        mod = function.Module()
+        mod.load(bytes(ptx.encode()))
+        cls._FWD_FUNC = mod.get_function('sru_fwd')
+        cls._BWD_FUNC = mod.get_function('sru_bwd')
+        cls._BiFWD_FUNC = mod.get_function('sru_bi_fwd')
+        cls._BiBWD_FUNC = mod.get_function('sru_bi_bwd')
+
+        Stream = namedtuple('Stream', ['ptr'])
+        cls._STREAM = Stream(ptr=torch.cuda.current_stream().cuda_stream)
 
     def forward(self, u, x, bias, init=None, mask_h=None):
         bidir = 2 if self.bidirectional else 1
@@ -359,7 +373,7 @@ class SRU_Compute(Function):
         c = x.new(*size)
         h = x.new(*size)
 
-        FUNC = SRU_FWD_FUNC if not self.bidirectional else SRU_BiFWD_FUNC
+        FUNC = self._FWD_FUNC if not self.bidirectional else self._BiFWD_FUNC
         FUNC(args=[
             u.contiguous().data_ptr(),
             x.contiguous().data_ptr() if k_ == 3 else 0,
@@ -374,7 +388,7 @@ class SRU_Compute(Function):
             c.data_ptr(),
             self.activation_type],
             block = (thread_per_block,1,1), grid = (num_block,1,1),
-            stream=SRU_STREAM
+            stream=self._STREAM
         )
 
         self.save_for_backward(u, x, bias, init, mask_h)
@@ -385,6 +399,7 @@ class SRU_Compute(Function):
             last_hidden = torch.cat((c[-1,:,:d], c[0,:,d:]), dim=1)
         else:
             last_hidden = c[-1]
+
         return h, last_hidden
 
     def backward(self, grad_h, grad_last):
@@ -412,7 +427,7 @@ class SRU_Compute(Function):
         # Normal use
         grad_x = x.new(*x.size()) if k_ == 3 else None
 
-        FUNC = SRU_BWD_FUNC if not self.bidirectional else SRU_BiBWD_FUNC
+        FUNC = self._BWD_FUNC if not self.bidirectional else self._BiBWD_FUNC
         FUNC(args=[
             u.contiguous().data_ptr(),
             x.contiguous().data_ptr() if k_ == 3 else 0,
@@ -432,9 +447,75 @@ class SRU_Compute(Function):
             grad_init.data_ptr(),
             self.activation_type],
             block = (thread_per_block,1,1), grid = (num_block,1,1),
-            stream=SRU_STREAM
+            stream=self._STREAM
         )
         return grad_u, grad_x, grad_bias.sum(1).view(-1), grad_init, None
+
+
+def SRU_Compute_CPU(activation_type, d, bidirectional=False):
+    """CPU version of the core SRU computation.
+
+    Has the same interface as SRU_Compute_GPU() but is a regular Python function
+    instead of a torch.autograd.Function because we don't implement backward()
+    explicitly.
+    """
+    def sru_compute_cpu(u, x, bias, init=None, mask_h=None):
+        bidir = 2 if bidirectional else 1
+        length = x.size(0) if x.dim() == 3 else 1
+        batch = x.size(-2)
+        k = u.size(-1) // d // bidir
+
+        if mask_h is None:
+            mask_h = 1
+
+        u = u.view(length, batch, bidir, d, k)
+
+        x_tilde = u[..., 0]
+
+        forget_bias, reset_bias = bias.view(2, bidir, d)
+        forget = (u[..., 1] + forget_bias).sigmoid()
+        reset = (u[..., 2] + reset_bias).sigmoid()
+
+        if k == 3:
+            x_prime = x.view(length, batch, bidir, d)
+        else:
+            x_prime = u[..., 3]
+
+        h = Variable(x.data.new(length, batch, bidir, d))
+
+        if init is None:
+            c_init = Variable(x.data.new(batch, bidir, d).zero_())
+        else:
+            c_init = init.view(batch, bidir, d)
+
+        c_final = []
+        for di in range(bidir):
+            if di == 0:
+                time_seq = range(length)
+            else:
+                time_seq = range(length - 1, -1, -1)
+
+            c_prev = c_init[:, di, :]
+            for t in time_seq:
+                c_t = (c_prev - x_tilde[t, :, di, :]) * forget[t, :, di, :] + x_tilde[t, :, di, :]
+                c_prev = c_t
+
+                if activation_type == 0:
+                    g_c_t = c_t
+                elif activation_type == 1:
+                    g_c_t = c_t.tanh()
+                elif activation_type == 2:
+                    g_c_t = nn.functional.relu(c_t)
+                else:
+                    assert False, 'Activation type must be 0, 1, or 2, not {}'.format(activation_type)
+
+                h[t, :, di, :] = (g_c_t * mask_h - x_prime[t, :, di, :]) * reset[t, :, di, :] + x_prime[t, :, di, :]
+
+            c_final.append(c_t)
+
+        return h.view(length, batch, -1), torch.stack(c_final, dim=1).view(batch, -1)
+
+    return sru_compute_cpu
 
 
 class SRUCell(nn.Module):
@@ -490,14 +571,17 @@ class SRUCell(nn.Module):
         x_2d = x if x.dim() == 2 else x.contiguous().view(-1, n_in)
         u = x_2d.mm(self.weight)
 
+        if input.is_cuda:
+            SRU_Compute = SRU_Compute_GPU(self.activation_type, n_out, self.bidirectional)
+        else:
+            SRU_Compute = SRU_Compute_CPU(self.activation_type, n_out, self.bidirectional)
+
         if self.training and (self.dropout>0):
             bidir = 2 if self.bidirectional else 1
             mask_h = self.get_dropout_mask_((batch, n_out*bidir), self.dropout)
-            h, c = SRU_Compute(self.activation_type, n_out, self.bidirectional)(u, input, self.bias, c0, mask_h)
+            return SRU_Compute(u, input, self.bias, c0, mask_h)
         else:
-            h, c = SRU_Compute(self.activation_type, n_out, self.bidirectional)(u, input, self.bias, c0)
-
-        return h, c
+            return SRU_Compute(u, input, self.bias, c0)
 
     def get_dropout_mask_(self, size, p):
         w = self.weight.data
@@ -556,5 +640,3 @@ class SRU(nn.Module):
             return prevx, torch.stack(lstc)
         else:
             return prevx
-
-
