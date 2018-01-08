@@ -1,12 +1,4 @@
 
-### Latest
-
-[@musyoku](https://github.com/musyoku) had a very nice [SRU implementaion](https://github.com/musyoku/chainer-sru) in chainer, where he reports 30x speed-up over LSTM in some cases! 
-
-Check the speed comparison he did [here](https://raw.githubusercontent.com/musyoku/images/master/sru/pytorch-vs-chainer-lstm.png).
-
-<br>
-
 ## About
 
 **SRU** is a recurrent unit that can run over 10 times faster than cuDNN LSTM, without loss of accuracy tested on many tasks. 
@@ -60,10 +52,10 @@ rnn = SRU(input_size, hidden_size,
 )
 rnn.cuda()
 
-output, hidden = rnn(x)      # forward pass
+output_states, c_states = rnn(x)      # forward pass
 
-# output is (length, batch size, hidden size * number of directions)
-# hidden is (layers, batch size, hidden size * number of directions)
+# output_states is (length, batch size, number of directions * hidden size)
+# c_states is (layers, batch size, number of directions * hidden size)
 
 ```
 Make sure `cuda_functional.py` and the shared library `cuda/lib64` can be found by the system, e.g. 
@@ -85,6 +77,15 @@ Instead of using `PYTHONPATH`, the SRU module now can be installed as a regular 
 
 ## Contributors
 https://github.com/taolei87/sru/graphs/contributors
+
+
+### Other Implementations
+
+[@musyoku](https://github.com/musyoku) had a very nice [SRU implementaion](https://github.com/musyoku/chainer-sru) in chainer.
+
+[@adrianbg](https://github.com/adrianbg) implemented the [CPU version](https://github.com/taolei87/sru/pull/42).
+
+<br>
 
 ## To-do
   - [x] ReLU activation
