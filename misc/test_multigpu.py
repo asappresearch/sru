@@ -22,9 +22,9 @@ def run(x, model, N):
     print ("{:.4} sec\n".format(time.time()-start))
 
 N = 100
-input_size, hidden_size = 256, 1024
+input_size, hidden_size = 512, 1024
 num_layers = 2
-batch_size = 128*2
+batch_size = 128*4
 length = 64
 
 x = Variable(torch.randn(length, batch_size, input_size).float(), volatile=True)
