@@ -11,6 +11,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.autograd import Variable
+from torch.nn.utils.convert_parameters import parameters_to_vector
+from tensorboardX import SummaryWriter
 
 import cuda_functional as MF
 import dataloader
@@ -83,13 +85,14 @@ def eval_model(niter, model, valid_x, valid_y):
 def train_model(epoch, model, optimizer,
         train_x, train_y, valid_x, valid_y,
         test_x, test_y,
-        best_valid, test_err):
+        best_valid, test_err, writer):
 
     model.train()
     args = model.args
     N = len(train_x)
     niter = epoch*len(train_x)
     criterion = nn.CrossEntropyLoss()
+    params = [ p for p in model.parameters() if p.requires_grad ]
 
     cnt = 0
     for x, y in zip(train_x, train_y):
@@ -100,6 +103,13 @@ def train_model(epoch, model, optimizer,
         output = model(x)
         loss = criterion(output, y)
         loss.backward()
+
+        pvec = parameters_to_vector(
+            [ p.grad for p in params ]
+        )
+        writer.add_scalar('grad_norm', pvec.norm(), niter)
+        writer.add_histogram('grad', pvec.clone().cpu().data.numpy(), niter, bins='sturges')
+
         optimizer.step()
 
     valid_err = eval_model(niter, model, valid_x, valid_y)
@@ -118,6 +128,9 @@ def train_model(epoch, model, optimizer,
     return best_valid, test_err
 
 def main(args):
+    log_path = args.log+"_{}".format(random.randint(1,1000))
+    writer = SummaryWriter(log_dir=log_path)
+
     if args.dataset == 'mr':
         data, label = dataloader.read_MR(args.path)
     elif args.dataset == 'subj':
@@ -190,7 +203,8 @@ def main(args):
             train_x, train_y,
             valid_x, valid_y,
             test_x, test_y,
-            best_valid, test_err
+            best_valid, test_err,
+            writer
         )
         if args.lr_decay>0:
             optimizer.param_groups[0]['lr'] *= args.lr_decay
@@ -202,6 +216,11 @@ def main(args):
         test_err
     ))
 
+    writer.export_scalars_to_json(
+        "{}/all_scalars.json".format(log_path)
+    )
+    writer.close()
+
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser(sys.argv[0], conflict_handler='resolve')
     argparser.add_argument("--cnn", action='store_true', help="whether to use cnn")
@@ -209,14 +228,15 @@ if __name__ == "__main__":
     argparser.add_argument("--dataset", type=str, default="mr", help="which dataset")
     argparser.add_argument("--path", type=str, required=True, help="path to corpus directory")
     argparser.add_argument("--embedding", type=str, required=True, help="word vectors")
-    argparser.add_argument("--batch_size", "--batch", type=int, default=32)
-    argparser.add_argument("--max_epoch", type=int, default=100)
+    argparser.add_argument("--batch_size", "--batch", type=int, default=64)
+    argparser.add_argument("--max_epoch", type=int, default=10)
     argparser.add_argument("--d", type=int, default=128)
     argparser.add_argument("--dropout", type=float, default=0.5)
     argparser.add_argument("--depth", type=int, default=2)
     argparser.add_argument("--lr", type=float, default=0.001)
     argparser.add_argument("--lr_decay", type=float, default=0)
     argparser.add_argument("--cv", type=int, default=0)
+    argparser.add_argument("--log", type=str, required=True)
 
     args = argparser.parse_args()
     print (args)

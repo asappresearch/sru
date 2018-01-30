@@ -27,10 +27,11 @@ def clean_str(string, TREC=False):
     string = re.sub(r"\s{2,}", " ", string)
     return string.strip() if TREC else string.strip().lower()
 
-def read_corpus(path, clean=True, TREC=False):
+def read_corpus(path, clean=True, TREC=False, encoding='ISO-8859-1'):
+    print (path)
     data = []
     labels = []
-    with open(path) as fin:
+    with open(path, encoding=encoding) as fin:
         for line in fin:
             label, sep, text = line.partition(' ')
             label = int(label)
@@ -43,7 +44,7 @@ def read_MR(path, seed=1234):
     file_path = os.path.join(path, "rt-polarity.all")
     data, labels = read_corpus(file_path)
     random.seed(seed)
-    perm = range(len(data))
+    perm = list(range(len(data)))
     random.shuffle(perm)
     data = [ data[i] for i in perm ]
     labels = [ labels[i] for i in perm ]
@@ -111,7 +112,7 @@ def cv_split(data, labels, nfold, test_id):
     lst_y = [ y for i, y in enumerate(labels) if i%nfold != test_id ]
     test_x = [ x for i, x in enumerate(data) if i%nfold == test_id ]
     test_y = [ y for i, y in enumerate(labels) if i%nfold == test_id ]
-    perm = range(len(lst_x))
+    perm = list(range(len(lst_x)))
     random.shuffle(perm)
     M = int(len(lst_x)*0.9)
     train_x = [ lst_x[i] for i in perm[:M] ]
