@@ -89,7 +89,7 @@ https://github.com/taolei87/sru/graphs/contributors
 
 ## To-do
   - [x] ReLU activation
-  - [ ] support multi-GPU (context change)
+  - [x] support multi-GPU via `nn.DataParallel` (see example [here](/misc/test_multigpu.py))
   - [ ] Layer normalization, residual, batch norm, etc
   - [ ] support packed sequence
   
