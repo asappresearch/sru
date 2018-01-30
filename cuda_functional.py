@@ -323,39 +323,38 @@ extern "C" {
 
 
 class SRU_Compute_GPU(Function):
-    _FWD_FUNC = None
-    _BWD_FUNC = None
-    _BiFWD_FUNC = None
-    _BiBWD_FUNC = None
-    _STREAM = None
+
+    _SRU_PROG = Program(SRU_CODE.encode('utf-8'), 'sru_prog.cu'.encode())
+    _SRU_PTX = _SRU_PROG.compile()
+    _DEVICE2FUNC = {}
 
     def __init__(self, activation_type, d_out, bidirectional=False):
-        self.compile()
-
         super(SRU_Compute_GPU, self).__init__()
         self.activation_type = activation_type
         self.d_out = d_out
         self.bidirectional = bidirectional
 
-    @classmethod
-    def compile(cls):
-        """Compiles forward and backward GPU kernels for uni- and bi-directional
-        SRU. Assumes there is only one GPU.
-        """
-        if cls._STREAM is not None:
-            return
-
-        prog = Program(SRU_CODE.encode(), 'sru_prog.cu'.encode())
-        ptx = prog.compile()
+    def compile_functions(self):
+        device = torch.cuda.current_device()
+        print ('SRU loaded for gpu {}'.format(device))
         mod = function.Module()
-        mod.load(bytes(ptx.encode()))
-        cls._FWD_FUNC = mod.get_function('sru_fwd')
-        cls._BWD_FUNC = mod.get_function('sru_bwd')
-        cls._BiFWD_FUNC = mod.get_function('sru_bi_fwd')
-        cls._BiBWD_FUNC = mod.get_function('sru_bi_bwd')
+        mod.load(bytes(self._SRU_PTX.encode()))
+        fwd_func = mod.get_function('sru_fwd')
+        bwd_func = mod.get_function('sru_bwd')
+        bifwd_func = mod.get_function('sru_bi_fwd')
+        bibwd_func = mod.get_function('sru_bi_bwd')
 
         Stream = namedtuple('Stream', ['ptr'])
-        cls._STREAM = Stream(ptr=torch.cuda.current_stream().cuda_stream)
+        current_stream = Stream(ptr=torch.cuda.current_stream().cuda_stream)
+
+        self._DEVICE2FUNC[device] = (current_stream, fwd_func,
+            bifwd_func, bwd_func, bibwd_func
+        )
+        return current_stream, fwd_func, bifwd_func, bwd_func, bibwd_func
+
+    def get_functions(self):
+        res = self._DEVICE2FUNC.get(torch.cuda.current_device(), None)
+        return res if res else self.compile_functions()
 
     def forward(self, u, x, bias, init=None, mask_h=None):
         bidir = 2 if self.bidirectional else 1
@@ -373,7 +372,8 @@ class SRU_Compute_GPU(Function):
         c = x.new(*size)
         h = x.new(*size)
 
-        FUNC = self._FWD_FUNC if not self.bidirectional else self._BiFWD_FUNC
+        stream, fwd_func, bifwd_func, _, _ = self.get_functions()
+        FUNC = fwd_func if not self.bidirectional else bifwd_func
         FUNC(args=[
             u.contiguous().data_ptr(),
             x.contiguous().data_ptr() if k_ == 3 else 0,
@@ -388,7 +388,7 @@ class SRU_Compute_GPU(Function):
             c.data_ptr(),
             self.activation_type],
             block = (thread_per_block,1,1), grid = (num_block,1,1),
-            stream=self._STREAM
+            stream=stream
         )
 
         self.save_for_backward(u, x, bias, init, mask_h)
@@ -399,7 +399,6 @@ class SRU_Compute_GPU(Function):
             last_hidden = torch.cat((c[-1,:,:d], c[0,:,d:]), dim=1)
         else:
             last_hidden = c[-1]
-
         return h, last_hidden
 
     def backward(self, grad_h, grad_last):
@@ -427,7 +426,8 @@ class SRU_Compute_GPU(Function):
         # Normal use
         grad_x = x.new(*x.size()) if k_ == 3 else None
 
-        FUNC = self._BWD_FUNC if not self.bidirectional else self._BiBWD_FUNC
+        stream, _, _, bwd_func, bibwd_func = self.get_functions()
+        FUNC = bwd_func if not self.bidirectional else bibwd_func
         FUNC(args=[
             u.contiguous().data_ptr(),
             x.contiguous().data_ptr() if k_ == 3 else 0,
@@ -447,7 +447,7 @@ class SRU_Compute_GPU(Function):
             grad_init.data_ptr(),
             self.activation_type],
             block = (thread_per_block,1,1), grid = (num_block,1,1),
-            stream=self._STREAM
+            stream=stream
         )
         return grad_u, grad_x, grad_bias.sum(1).view(-1), grad_init, None
 
