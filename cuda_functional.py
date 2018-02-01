@@ -590,7 +590,7 @@ class SRUCell(nn.Module):
 
 class SRU(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers=2, dropout=0, rnn_dropout=0,
-                bidirectional=False, use_tanh=1, use_relu=0):
+                bidirectional=False, use_tanh=1, use_relu=0, layer_norm=0):
         super(SRU, self).__init__()
         self.n_in = input_size
         self.n_out = hidden_size
@@ -598,7 +598,9 @@ class SRU(nn.Module):
         self.dropout = dropout
         self.rnn_dropout = rnn_dropout
         self.rnn_lst = nn.ModuleList()
+        self.ln_lst = nn.ModuleList()
         self.bidirectional = bidirectional
+        self.use_layer_norm = layer_norm
         self.out_size = hidden_size*2 if bidirectional else hidden_size
 
         for i in range(num_layers):
@@ -612,6 +614,8 @@ class SRU(nn.Module):
                 use_relu = use_relu,
             )
             self.rnn_lst.append(l)
+            if layer_norm:
+                self.ln_lst.append(LayerNorm(self.n_out))
 
     def set_bias(self, bias_val=0):
         for l in self.rnn_lst:
@@ -633,10 +637,36 @@ class SRU(nn.Module):
         lstc = []
         for i, rnn in enumerate(self.rnn_lst):
             h, c = rnn(prevx, c0[i])
-            prevx = h
+            prevx = self.ln_lst[i](h) if self.use_layer_norm else h
             lstc.append(c)
 
         if return_hidden:
             return prevx, torch.stack(lstc)
         else:
             return prevx
+
+class LayerNorm(nn.Module):
+    '''
+    Layer normalization module modified from:
+    https://github.com/OpenNMT/OpenNMT-py/blob/master/onmt/modules/UtilClass.py
+    '''
+
+    def __init__(self, hidden_size, eps=1e-6):
+        super(LayerNorm, self).__init__()
+        self.eps = eps
+        self.a = nn.Parameter(torch.ones(hidden_size), requires_grad=True)
+        self.b = nn.Parameter(torch.zeros(hidden_size), requires_grad=True)
+
+    def forward(self, x):
+        if x.size(1) == 1:
+            return x
+        mu = torch.mean(x, dim=-1)
+        sigma = torch.std(x, dim=-1)
+        # HACK. PyTorch is changing behavior
+        if mu.dim() == x.dim()-1:
+            mu = mu.unsqueeze(mu.dim())
+            sigma = sigma.unsqueeze(sigma.dim())
+        output = (x - mu.expand_as(x)) / (sigma.expand_as(x) + self.eps)
+        output = output.mul(self.a.expand_as(output)) \
+            + self.b.expand_as(output)
+        return output
