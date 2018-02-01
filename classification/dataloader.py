@@ -27,10 +27,10 @@ def clean_str(string, TREC=False):
     string = re.sub(r"\s{2,}", " ", string)
     return string.strip() if TREC else string.strip().lower()
 
-def read_corpus(path, clean=True, TREC=False):
+def read_corpus(path, clean=True, TREC=False, encoding='utf8'):
     data = []
     labels = []
-    with open(path) as fin:
+    with open(path, encoding=encoding) as fin:
         for line in fin:
             label, sep, text = line.partition(' ')
             label = int(label)
@@ -41,9 +41,9 @@ def read_corpus(path, clean=True, TREC=False):
 
 def read_MR(path, seed=1234):
     file_path = os.path.join(path, "rt-polarity.all")
-    data, labels = read_corpus(file_path)
+    data, labels = read_corpus(file_path, encoding='latin-1')
     random.seed(seed)
-    perm = range(len(data))
+    perm = list(range(len(data)))
     random.shuffle(perm)
     data = [ data[i] for i in perm ]
     labels = [ labels[i] for i in perm ]
@@ -53,7 +53,7 @@ def read_SUBJ(path, seed=1234):
     file_path = os.path.join(path, "subj.all")
     data, labels = read_corpus(file_path)
     random.seed(seed)
-    perm = range(len(data))
+    perm = list(range(len(data)))
     random.shuffle(perm)
     data = [ data[i] for i in perm ]
     labels = [ labels[i] for i in perm ]
@@ -63,7 +63,7 @@ def read_CR(path, seed=1234):
     file_path = os.path.join(path, "custrev.all")
     data, labels = read_corpus(file_path)
     random.seed(seed)
-    perm = range(len(data))
+    perm = list(range(len(data)))
     random.shuffle(perm)
     data = [ data[i] for i in perm ]
     labels = [ labels[i] for i in perm ]
@@ -73,7 +73,7 @@ def read_MPQA(path, seed=1234):
     file_path = os.path.join(path, "mpqa.all")
     data, labels = read_corpus(file_path)
     random.seed(seed)
-    perm = range(len(data))
+    perm = list(range(len(data)))
     random.shuffle(perm)
     data = [ data[i] for i in perm ]
     labels = [ labels[i] for i in perm ]
@@ -85,7 +85,7 @@ def read_TREC(path, seed=1234):
     train_x, train_y = read_corpus(train_path, TREC=True)
     test_x, test_y = read_corpus(test_path, TREC=True)
     random.seed(seed)
-    perm = range(len(train_x))
+    perm = list(range(len(train_x)))
     random.shuffle(perm)
     train_x = [ train_x[i] for i in perm ]
     train_y = [ train_y[i] for i in perm ]
@@ -99,7 +99,7 @@ def read_SST(path, seed=1234):
     valid_x, valid_y = read_corpus(valid_path, False)
     test_x, test_y = read_corpus(test_path, False)
     random.seed(seed)
-    perm = range(len(train_x))
+    perm = list(range(len(train_x)))
     random.shuffle(perm)
     train_x = [ train_x[i] for i in perm ]
     train_y = [ train_y[i] for i in perm ]
@@ -111,7 +111,7 @@ def cv_split(data, labels, nfold, test_id):
     lst_y = [ y for i, y in enumerate(labels) if i%nfold != test_id ]
     test_x = [ x for i, x in enumerate(data) if i%nfold == test_id ]
     test_y = [ y for i, y in enumerate(labels) if i%nfold == test_id ]
-    perm = range(len(lst_x))
+    perm = list(range(len(lst_x)))
     random.shuffle(perm)
     M = int(len(lst_x)*0.9)
     train_x = [ lst_x[i] for i in perm[:M] ]
@@ -187,7 +187,7 @@ def create_batches(x, y, batch_size, map2id, perm=None, sort=False):
 
 def load_embedding_npz(path):
     data = np.load(path)
-    return [ str(w) for w in data['words'] ], data['vals']
+    return [ w.decode('utf8') for w in data['words'] ], data['vals']
 
 def load_embedding_txt(path):
     file_open = gzip.open if path.endswith(".gz") else open
