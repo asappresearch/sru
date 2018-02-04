@@ -17,6 +17,7 @@ from tensorboardX import SummaryWriter
 import cuda_functional as MF
 import dataloader
 import modules
+from metrics.grad_utils import EffectiveRank
 
 class Model(nn.Module):
     def __init__(self, args, emb_layer, nclasses=2):
@@ -45,6 +46,7 @@ class Model(nn.Module):
                 args.depth,
                 dropout = args.dropout,
                 use_tanh = 1,
+                layer_norm=1
             )
             d_out = args.d
         self.out = nn.Linear(d_out, nclasses)
@@ -85,7 +87,7 @@ def eval_model(niter, model, valid_x, valid_y):
 def train_model(epoch, model, optimizer,
         train_x, train_y, valid_x, valid_y,
         test_x, test_y,
-        best_valid, test_err, writer):
+        best_valid, test_err, writer, metric):
 
     model.train()
     args = model.args
@@ -93,6 +95,9 @@ def train_model(epoch, model, optimizer,
     niter = epoch*len(train_x)
     criterion = nn.CrossEntropyLoss()
     params = [ p for p in model.parameters() if p.requires_grad ]
+    rparams = [ model.encoder.rnn_lst[0].weight,
+                model.encoder.rnn_lst[-1].weight ]
+    #rparams = [ p for p in model.encoder.parameters() if p.dim()==2 ]
 
     cnt = 0
     for x, y in zip(train_x, train_y):
@@ -108,7 +113,8 @@ def train_model(epoch, model, optimizer,
             [ p.grad for p in params ]
         )
         writer.add_scalar('grad_norm', pvec.norm(), niter)
-        writer.add_histogram('grad', pvec.clone().cpu().data.numpy(), niter, bins='sturges')
+        #writer.add_histogram('grad', pvec.clone().cpu().data.numpy(), niter, bins='sturges')
+        metric.add_params(rparams, niter)
 
         optimizer.step()
 
@@ -130,6 +136,7 @@ def train_model(epoch, model, optimizer,
 def main(args):
     log_path = args.log+"_{}".format(random.randint(1,1000))
     writer = SummaryWriter(log_dir=log_path)
+    metric = EffectiveRank(256, 2, writer)
 
     if args.dataset == 'mr':
         data, label = dataloader.read_MR(args.path)
@@ -204,7 +211,7 @@ def main(args):
             valid_x, valid_y,
             test_x, test_y,
             best_valid, test_err,
-            writer
+            writer, metric
         )
         if args.lr_decay>0:
             optimizer.param_groups[0]['lr'] *= args.lr_decay
