@@ -62,12 +62,15 @@ class EmbeddingLayer(nn.Module):
         self.oovid = word2id[oov]
         self.padid = word2id[pad]
         self.embedding = nn.Embedding(self.n_V, n_d)
-        self.embedding.weight.data.uniform_(-0.25, 0.25)
 
         if embs is not None:
             weight  = self.embedding.weight
             weight.data[:len(embwords)].copy_(torch.from_numpy(embvecs))
+            weight.data[len(embwords):].uniform_(-0.25, 0.25)
             sys.stdout.write("embedding shape: {}\n".format(weight.size()))
+        else:
+            self.embedding.weight.data.uniform_(-0.25, 0.25)
+
 
         if normalize:
             weight = self.embedding.weight
