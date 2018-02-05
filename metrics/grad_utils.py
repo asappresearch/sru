@@ -1,5 +1,43 @@
+import math
 
 import torch
+import torch.optim as optim
+
+def write_grad_norm(writer, params, step):
+    for i, p in enumerate(params):
+        assert p.grad is not None
+        writer.add_scalar("grad_norm/{}".format(i),
+            p.grad.norm(), step
+        )
+
+def write_grad_hist(writer, params, step):
+    for i, p in enumerate(params):
+        assert p.grad is not None
+        writer.add_histogram("grad_hist/{}".format(i),
+            p.grad.clone().cpu().data.numpy(),
+            step, bins='sturges'
+        )
+
+def write_adam_update(writer, params, opt, step):
+    assert isinstance(opt, optim.Adam)
+    states = opt.state
+    group = opt.param_groups[0]
+    #assert not group['amsgrad']
+    beta1, beta2 = group['betas']
+    eps = group['eps']
+    for i, p in enumerate(params):
+        assert p.grad is not None
+        state = states[p]
+        step = state['step']
+        bias_correction1 = 1 - beta1 ** step
+        bias_correction2 = 1 - beta2 ** step
+        exp_avg, exp_avg_sq = state['exp_avg'], state['exp_avg_sq']
+        denom = exp_avg_sq.sqrt().add_(eps)
+        update = exp_avg/denom * (math.sqrt(bias_correction2)/bias_correction1)
+        writer.add_scalar("adam_update/{}".format(i),
+            update.abs().mean(), step
+        )
+
 
 class EffectiveRank(object):
     def __init__(self, sample_size, n, writer):

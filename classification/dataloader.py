@@ -27,7 +27,7 @@ def clean_str(string, TREC=False):
     string = re.sub(r"\s{2,}", " ", string)
     return string.strip() if TREC else string.strip().lower()
 
-def read_corpus(path, clean=True, TREC=False, encoding='utf8'):
+def read_corpus(path, clean=True, TREC=False, encoding='latin-1'):
     data = []
     labels = []
     with open(path, encoding=encoding) as fin:

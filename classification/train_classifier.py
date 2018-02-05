@@ -17,6 +17,7 @@ from tensorboardX import SummaryWriter
 import cuda_functional as MF
 import dataloader
 import modules
+import metrics.grad_utils as gutils
 from metrics.grad_utils import EffectiveRank
 
 class Model(nn.Module):
@@ -46,7 +47,7 @@ class Model(nn.Module):
                 args.depth,
                 dropout = args.dropout,
                 use_tanh = 1,
-                layer_norm=1
+                layer_norm=0
             )
             d_out = args.d
         self.out = nn.Linear(d_out, nclasses)
@@ -109,14 +110,12 @@ def train_model(epoch, model, optimizer,
         loss = criterion(output, y)
         loss.backward()
 
-        pvec = parameters_to_vector(
-            [ p.grad for p in params ]
-        )
-        writer.add_scalar('grad_norm', pvec.norm(), niter)
-        #writer.add_histogram('grad', pvec.clone().cpu().data.numpy(), niter, bins='sturges')
+        gutils.write_grad_norm(writer, rparams, niter)
+        #gutils.write_grad_hist(writer, rparams, niter)
         metric.add_params(rparams, niter)
 
         optimizer.step()
+        gutils.write_adam_update(writer, rparams, optimizer, niter)
 
     valid_err = eval_model(niter, model, valid_x, valid_y)
 
@@ -136,7 +135,7 @@ def train_model(epoch, model, optimizer,
 def main(args):
     log_path = args.log+"_{}".format(random.randint(1,1000))
     writer = SummaryWriter(log_dir=log_path)
-    metric = EffectiveRank(256, 2, writer)
+    metric = EffectiveRank(128, 2, writer)
 
     if args.dataset == 'mr':
         data, label = dataloader.read_MR(args.path)
@@ -200,7 +199,8 @@ def main(args):
     need_grad = lambda x: x.requires_grad
     optimizer = optim.Adam(
         filter(need_grad, model.parameters()),
-        lr = args.lr
+        lr = args.lr,
+        #betas = (0.9, 0.99)
     )
 
     best_valid = 1e+8
@@ -235,7 +235,7 @@ if __name__ == "__main__":
     argparser.add_argument("--dataset", type=str, default="mr", help="which dataset")
     argparser.add_argument("--path", type=str, required=True, help="path to corpus directory")
     argparser.add_argument("--embedding", type=str, required=True, help="word vectors")
-    argparser.add_argument("--batch_size", "--batch", type=int, default=64)
+    argparser.add_argument("--batch_size", "--batch", type=int, default=32)
     argparser.add_argument("--max_epoch", type=int, default=10)
     argparser.add_argument("--d", type=int, default=128)
     argparser.add_argument("--dropout", type=float, default=0.5)

@@ -585,7 +585,7 @@ class SRUCell(nn.Module):
 
     def get_dropout_mask_(self, size, p):
         w = self.weight.data
-        return Variable(w.new(*size).bernoulli_(1-p).div_(1-p))
+        return Variable(w.new(*size).bernoulli_(1-p).div_((1-p)**0.5))
 
 
 class SRU(nn.Module):
@@ -644,6 +644,7 @@ class SRU(nn.Module):
             return prevx, torch.stack(lstc)
         else:
             return prevx
+
 
 class LayerNorm(nn.Module):
     '''
