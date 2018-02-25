@@ -18,7 +18,6 @@ import cuda_functional as MF
 import dataloader
 import modules
 import metrics.grad_utils as gutils
-from metrics.grad_utils import EffectiveRank
 
 class Model(nn.Module):
     def __init__(self, args, emb_layer, nclasses=2):
@@ -46,8 +45,10 @@ class Model(nn.Module):
                 args.d,
                 args.depth,
                 dropout = args.dropout,
-                use_tanh = 1,
-                layer_norm=0
+                use_tanh = 0,
+                layer_norm=False,
+                weight_norm=False,
+                #highway_bias=-2
             )
             d_out = args.d
         self.out = nn.Linear(d_out, nclasses)
@@ -65,7 +66,7 @@ class Model(nn.Module):
             output = output[-1]
 
         output = self.drop(output)
-        return self.out(output)
+        return self.out(output), hidden
 
 def eval_model(niter, model, valid_x, valid_y):
     model.eval()
@@ -76,7 +77,7 @@ def eval_model(niter, model, valid_x, valid_y):
     total_loss = 0.0
     for x, y in zip(valid_x, valid_y):
         x, y = Variable(x, volatile=True), Variable(y)
-        output = model(x)
+        output, hidden = model(x)
         loss = criterion(output, y)
         total_loss += loss.data[0]*x.size(1)
         pred = output.data.max(1)[1]
@@ -88,7 +89,7 @@ def eval_model(niter, model, valid_x, valid_y):
 def train_model(epoch, model, optimizer,
         train_x, train_y, valid_x, valid_y,
         test_x, test_y,
-        best_valid, test_err, writer, metric):
+        best_valid, test_err, writer):
 
     model.train()
     args = model.args
@@ -97,8 +98,8 @@ def train_model(epoch, model, optimizer,
     criterion = nn.CrossEntropyLoss()
     params = [ p for p in model.parameters() if p.requires_grad ]
     rparams = [ model.encoder.rnn_lst[0].weight,
-                model.encoder.rnn_lst[-1].weight ]
-    #rparams = [ p for p in model.encoder.parameters() if p.dim()==2 ]
+                model.encoder.rnn_lst[-1].weight,
+                model.out.weight ]
 
     cnt = 0
     for x, y in zip(train_x, train_y):
@@ -106,18 +107,36 @@ def train_model(epoch, model, optimizer,
         cnt += 1
         model.zero_grad()
         x, y = Variable(x), Variable(y)
-        output = model(x)
+        output, hidden = model(x)
         loss = criterion(output, y)
         loss.backward()
 
-        gutils.write_grad_norm(writer, rparams, niter)
-        #gutils.write_grad_hist(writer, rparams, niter)
-        metric.add_params(rparams, niter)
+        writer.add_scalar('train_loss', loss.data[0], niter)
+        gutils.write_param_stats(writer, params, niter)
+        gutils.write_grad_stats(writer, params, niter)
+        gutils.write_scalar(writer,
+            [ r.var_h/r.var_x for r in model.encoder.rnn_lst ],
+            niter, "var_h_x"
+        )
+        gutils.write_scalar(writer,
+            [ r.var_c/r.var_x for r in model.encoder.rnn_lst ],
+            niter, "var_c_x"
+        )
+        gutils.write_scalar(writer,
+            [ r.var_h for r in model.encoder.rnn_lst ],
+            niter, "var_h"
+        )
 
         optimizer.step()
         gutils.write_adam_update(writer, rparams, optimizer, niter)
 
+    gutils.write_hist(writer,
+        [ r.tmp for r in model.encoder.rnn_lst ],
+        niter
+    )
+
     valid_err = eval_model(niter, model, valid_x, valid_y)
+    writer.add_scalar('valid_err', valid_err, niter)
 
     sys.stdout.write("Epoch={} iter={} lr={:.6f} train_loss={:.6f} valid_err={:.6f}\n".format(
         epoch, niter,
@@ -135,7 +154,6 @@ def train_model(epoch, model, optimizer,
 def main(args):
     log_path = args.log+"_{}".format(random.randint(1,1000))
     writer = SummaryWriter(log_dir=log_path)
-    metric = EffectiveRank(128, 2, writer)
 
     if args.dataset == 'mr':
         data, label = dataloader.read_MR(args.path)
@@ -199,8 +217,7 @@ def main(args):
     need_grad = lambda x: x.requires_grad
     optimizer = optim.Adam(
         filter(need_grad, model.parameters()),
-        lr = args.lr,
-        #betas = (0.9, 0.99)
+        lr = args.lr
     )
 
     best_valid = 1e+8
@@ -211,10 +228,11 @@ def main(args):
             valid_x, valid_y,
             test_x, test_y,
             best_valid, test_err,
-            writer, metric
+            writer
         )
         if args.lr_decay>0:
             optimizer.param_groups[0]['lr'] *= args.lr_decay
+        #if (epoch+1)*len(train_x) >= 1000: break
 
     sys.stdout.write("best_valid: {:.6f}\n".format(
         best_valid

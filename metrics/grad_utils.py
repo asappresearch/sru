@@ -3,18 +3,68 @@ import math
 import torch
 import torch.optim as optim
 
-def write_grad_norm(writer, params, step):
-    for i, p in enumerate(params):
-        assert p.grad is not None
+def write_grad_stats(writer, params, step):
+    tot = 0
+    i = 0
+    for p in params:
+        if p.grad is None: continue
+        gnorm = p.grad.norm()
+        tot += gnorm**2
+        if p.grad.dim() != 2: continue
+        i += 1
+        if i>3 and i%10 != 0: continue
         writer.add_scalar("grad_norm/{}".format(i),
-            p.grad.norm(), step
+            gnorm, step
+        )
+    writer.add_scalar("grad_norm/all", tot**0.5, step)
+
+def write_param_stats(writer, params, step):
+    tot = 0
+    i = 0
+    for p in params:
+        pnorm = p.norm()
+        tot += pnorm**2
+        if p.dim() != 2: continue
+        i += 1
+        if i>3 and i%10 != 0: continue
+        writer.add_scalar("param_norm/{}".format(i),
+            pnorm, step
+        )
+    writer.add_scalar("param_norm/all", tot**0.5, step)
+
+def write_cstate_stats(writer, hidden, step):
+    depth = hidden.size(0)
+    for i in range(depth):
+        #if i>2 and (i+1)%10 != 0: continue
+        writer.add_scalar("state_var/{}".format(i),
+            hidden[i].var(), step
+        )
+        writer.add_scalar("state_mean/{}".format(i),
+            hidden[i].mean(), step
         )
 
-def write_grad_hist(writer, params, step):
-    for i, p in enumerate(params):
-        assert p.grad is not None
-        writer.add_histogram("grad_hist/{}".format(i),
-            p.grad.clone().cpu().data.numpy(),
+def write_output_stats(writer, outputs, step):
+    for i, output in enumerate(outputs):
+        #if i>2 and (i+1)%10 != 0: continue
+        writer.add_scalar("output_var/{}".format(i),
+            output.var(), step
+        )
+        writer.add_scalar("output_mean/{}".format(i),
+            output.mean(), step
+        )
+
+def write_scalar(writer, data, step, name):
+    for i, val in enumerate(data):
+        writer.add_scalar("{}/{}".format(name, i),
+            val, step
+        )
+
+def write_hist(writer, data, step):
+    for i, p in enumerate(data):
+        assert p is not None
+        if i>3 and (i+1)%10 != 0: continue
+        writer.add_histogram("data_hist/{}".format(i),
+            p.clone().cpu().numpy(),
             step, bins='sturges'
         )
 
@@ -26,7 +76,8 @@ def write_adam_update(writer, params, opt, step):
     beta1, beta2 = group['betas']
     eps = group['eps']
     for i, p in enumerate(params):
-        assert p.grad is not None
+        if p.grad is None: continue
+        if p not in states: continue
         state = states[p]
         step = state['step']
         bias_correction1 = 1 - beta1 ** step

@@ -47,6 +47,12 @@ class EmbeddingLayer(nn.Module):
                 ))
                 n_d = len(embvecs[0])
 
+            sigma = float(embvecs.std())
+            mu = float(embvecs.mean())
+            sys.stdout.write("embedding mean: {:.4f} std: {:.4f}\n".format(
+                mu, sigma
+            ))
+
         for w in deep_iter(words):
             if w not in word2id:
                 word2id[w] = len(word2id)
@@ -66,11 +72,13 @@ class EmbeddingLayer(nn.Module):
         if embs is not None:
             weight  = self.embedding.weight
             weight.data[:len(embwords)].copy_(torch.from_numpy(embvecs))
-            weight.data[len(embwords):].uniform_(-0.25, 0.25)
+            weight.data[len(embwords):].normal_(mu, sigma)
+            #weight.data[len(embwords):].uniform_(-sigma*(3**0.5)+mu, sigma*(3**0.5)+mu)
             sys.stdout.write("embedding shape: {}\n".format(weight.size()))
         else:
-            self.embedding.weight.data.uniform_(-0.25, 0.25)
-
+            self.embedding.weight.data.uniform_(-(3.0/n_d)**0.5, (3.0/n_d)**0.5)
+            mu = 0
+            sigma = (1.0/n_d)**0.5
 
         if normalize:
             weight = self.embedding.weight
@@ -78,6 +86,9 @@ class EmbeddingLayer(nn.Module):
             if norms.dim() == 1:
                 norms = norms.unsqueeze(1)
             weight.data.div_(norms.expand_as(weight.data))
+            sys.stdout.write("embedding mean: {:.4f} std: {:.4f}\n".format(
+                weight.data.mean(), weight.data.std()
+            ))
 
         if fix_emb:
             self.embedding.weight.requires_grad = False
