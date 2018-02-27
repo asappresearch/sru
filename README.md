@@ -48,7 +48,10 @@ rnn = SRU(input_size, hidden_size,
     rnn_dropout = 0.0,       # variational dropout applied on linear transformation
     use_tanh = 1,            # use tanh?
     use_relu = 0,            # use ReLU?
-    bidirectional = False    # bidirectional RNN ?
+    bidirectional = False,   # bidirectional RNN ?
+    weight_norm = False,     # apply weight normalization on parameters
+    layer_norm = False,      # apply layer normalization on the output of each layer
+    highway_bias = 0         # initial bias of highway gate (<= 0)
 )
 rnn.cuda()
 
@@ -90,6 +93,8 @@ https://github.com/taolei87/sru/graphs/contributors
 ## To-do
   - [x] ReLU activation
   - [x] support multi-GPU via `nn.DataParallel` (see example [here](/misc/test_multigpu.py))
-  - [ ] Layer normalization, residual, batch norm, etc
+  - [x] layer normalization
+  - [x] weight normalization
+  - [ ] residual
   - [ ] support packed sequence
   
