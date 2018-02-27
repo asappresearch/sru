@@ -1,5 +1,7 @@
 #from builtins import bytes
 import time
+import math
+import warnings
 
 import numpy as np
 import torch
@@ -328,11 +330,12 @@ class SRU_Compute_GPU(Function):
     _SRU_PTX = _SRU_PROG.compile()
     _DEVICE2FUNC = {}
 
-    def __init__(self, activation_type, d_out, bidirectional=False):
+    def __init__(self, activation_type, d_out, bidirectional=False, scale_x=1):
         super(SRU_Compute_GPU, self).__init__()
         self.activation_type = activation_type
         self.d_out = d_out
         self.bidirectional = bidirectional
+        self.scale_x = scale_x
 
     def compile_functions(self):
         device = torch.cuda.current_device()
@@ -372,11 +375,18 @@ class SRU_Compute_GPU(Function):
         c = x.new(*size)
         h = x.new(*size)
 
+        scale_x = self.scale_x
+        if k_ == 3:
+            x_ptr = x.contiguous()*scale_x if scale_x != 1 else x.contiguous()
+            x_ptr = x_ptr.data_ptr()
+        else:
+            x_ptr = 0
+
         stream, fwd_func, bifwd_func, _, _ = self.get_functions()
         FUNC = fwd_func if not self.bidirectional else bifwd_func
         FUNC(args=[
             u.contiguous().data_ptr(),
-            x.contiguous().data_ptr() if k_ == 3 else 0,
+            x_ptr,
             bias.data_ptr(),
             init_.contiguous().data_ptr(),
             mask_h.data_ptr() if mask_h is not None else 0,
@@ -405,6 +415,7 @@ class SRU_Compute_GPU(Function):
         bidir = 2 if self.bidirectional else 1
         u, x, bias, init, mask_h = self.saved_tensors
         c = self.intermediate
+        scale_x = self.scale_x
         length = x.size(0) if x.dim() == 3 else 1
         batch = x.size(-2)
         d = self.d_out
@@ -426,11 +437,17 @@ class SRU_Compute_GPU(Function):
         # Normal use
         grad_x = x.new(*x.size()) if k_ == 3 else None
 
+        if k_ == 3:
+            x_ptr = x.contiguous()*scale_x if scale_x != 1 else x.contiguous()
+            x_ptr = x_ptr.data_ptr()
+        else:
+            x_ptr = 0
+
         stream, _, _, bwd_func, bibwd_func = self.get_functions()
         FUNC = bwd_func if not self.bidirectional else bibwd_func
         FUNC(args=[
             u.contiguous().data_ptr(),
-            x.contiguous().data_ptr() if k_ == 3 else 0,
+            x_ptr,
             bias.data_ptr(),
             init_.contiguous().data_ptr(),
             mask_h.data_ptr() if mask_h is not None else 0,
@@ -449,10 +466,13 @@ class SRU_Compute_GPU(Function):
             block = (thread_per_block,1,1), grid = (num_block,1,1),
             stream=stream
         )
+
+        if k_ == 3 and scale_x != 1:
+            grad_x.mul_(scale_x)
         return grad_u, grad_x, grad_bias.sum(1).view(-1), grad_init, None
 
 
-def SRU_Compute_CPU(activation_type, d, bidirectional=False):
+def SRU_Compute_CPU(activation_type, d, bidirectional=False, scale_x=1):
     """CPU version of the core SRU computation.
 
     Has the same interface as SRU_Compute_GPU() but is a regular Python function
@@ -478,6 +498,7 @@ def SRU_Compute_CPU(activation_type, d, bidirectional=False):
 
         if k == 3:
             x_prime = x.view(length, batch, bidir, d)
+            x_prime = x_prime*scale_x if scale_x != 1 else x_prime
         else:
             x_prime = u[..., 3]
 
@@ -519,8 +540,8 @@ def SRU_Compute_CPU(activation_type, d, bidirectional=False):
 
 
 class SRUCell(nn.Module):
-    def __init__(self, n_in, n_out, dropout=0, rnn_dropout=0,
-                bidirectional=False, use_tanh=1, use_relu=0):
+    def __init__(self, n_in, n_out, dropout=0, rnn_dropout=0, bidirectional=False,
+            use_tanh=1, use_relu=0, weight_norm=False, layer_norm=False, highway_bias=0, index=-1):
         super(SRUCell, self).__init__()
         self.n_in = n_in
         self.n_out = n_out
@@ -528,9 +549,14 @@ class SRUCell(nn.Module):
         self.dropout = dropout
         self.bidirectional = bidirectional
         self.activation_type = 2 if use_relu else (1 if use_tanh else 0)
+        self.weight_norm = weight_norm
+        self.layer_norm = layer_norm
+        self.highway_bias = highway_bias
+        self.index = index
 
         out_size = n_out*2 if bidirectional else n_out
         k = 4 if n_in != out_size else 3
+        self.k = k
         self.size_per_dir = n_out*k
         self.weight = nn.Parameter(torch.Tensor(
             n_in,
@@ -541,17 +567,62 @@ class SRUCell(nn.Module):
         ))
         self.init_weight()
 
-    def init_weight(self):
+    def init_weight(self, rescale=True):
+        # initialize weights such that E[w_ij]=0 and Var[w_ij]=1/d
         val_range = (3.0/self.n_in)**0.5
         self.weight.data.uniform_(-val_range, val_range)
-        self.bias.data.zero_()
 
-    def set_bias(self, bias_val=0):
-        n_out = self.n_out
+        # initialize bias
+        self.bias.data.zero_()
+        bias_val, n_out = self.highway_bias, self.n_out
         if self.bidirectional:
             self.bias.data[n_out*2:].zero_().add_(bias_val)
         else:
             self.bias.data[n_out:].zero_().add_(bias_val)
+
+        self.scale_x = 1
+        if not rescale:
+            return
+        self.scale_x = (1+math.exp(bias_val)*2)**0.5
+
+        # re-scale weights in case there's dropout and / or layer normalization
+        w = self.weight.data.view(self.n_in, -1, self.n_out, self.k)
+        if self.dropout>0:
+            w[:,:,:,0].mul_((1-self.dropout)**0.5)
+        if self.rnn_dropout>0:
+            w.mul_((1-self.rnn_dropout)**0.5)
+        if self.layer_norm:
+            w[:,:,:,1].mul_(0.1)
+            w[:,:,:,2].mul_(0.1)
+        if self.k == 4:
+            w[:,:,:,3].mul_(self.scale_x)
+
+        # re-parameterize when weight normalization is enabled
+        if self.weight_norm:
+            self.init_weight_norm()
+
+    def init_weight_norm(self):
+        weight = self.weight.data
+        g = weight.norm(2, 0)
+        self.gain = nn.Parameter(g)
+
+    def apply_weight_norm(self, eps=0):
+        wnorm = self.weight.norm(2, 0)#, keepdim=True)
+        return self.gain.expand_as(self.weight).mul(
+            self.weight / (wnorm.expand_as(self.weight) + eps)
+        )
+
+    def set_bias(self, bias_val=0):
+        warnings.warn("set_bias() is deprecated. use `highway_bias` option"
+            + " in SRUCell() constructor."
+        )
+        self.highway_bias = bias_val
+        self.init_weight()
+        #n_out = self.n_out
+        #if self.bidirectional:
+        #    self.bias.data[n_out*2:].zero_().add_(bias_val)
+        #else:
+        #    self.bias.data[n_out:].zero_().add_(bias_val)
 
     def forward(self, input, c0=None):
         assert input.dim() == 2 or input.dim() == 3
@@ -569,12 +640,13 @@ class SRUCell(nn.Module):
             x = input
 
         x_2d = x if x.dim() == 2 else x.contiguous().view(-1, n_in)
-        u = x_2d.mm(self.weight)
+        weight = self.weight if not self.weight_norm else self.apply_weight_norm()
+        u = x_2d.mm(weight)
 
         if input.is_cuda:
-            SRU_Compute = SRU_Compute_GPU(self.activation_type, n_out, self.bidirectional)
+            SRU_Compute = SRU_Compute_GPU(self.activation_type, n_out, self.bidirectional, self.scale_x)
         else:
-            SRU_Compute = SRU_Compute_CPU(self.activation_type, n_out, self.bidirectional)
+            SRU_Compute = SRU_Compute_CPU(self.activation_type, n_out, self.bidirectional, self.scale_x)
 
         if self.training and (self.dropout>0):
             bidir = 2 if self.bidirectional else 1
@@ -589,8 +661,8 @@ class SRUCell(nn.Module):
 
 
 class SRU(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers=2, dropout=0, rnn_dropout=0,
-                bidirectional=False, use_tanh=1, use_relu=0, layer_norm=0):
+    def __init__(self, input_size, hidden_size, num_layers=2, dropout=0, rnn_dropout=0, bidirectional=False,
+            use_tanh=1, use_relu=0, weight_norm=False, layer_norm=False, highway_bias=0):
         super(SRU, self).__init__()
         self.n_in = input_size
         self.n_out = hidden_size
@@ -601,6 +673,7 @@ class SRU(nn.Module):
         self.ln_lst = nn.ModuleList()
         self.bidirectional = bidirectional
         self.use_layer_norm = layer_norm
+        self.use_wieght_norm = weight_norm
         self.out_size = hidden_size*2 if bidirectional else hidden_size
 
         for i in range(num_layers):
@@ -612,6 +685,10 @@ class SRU(nn.Module):
                 bidirectional = bidirectional,
                 use_tanh = use_tanh,
                 use_relu = use_relu,
+                weight_norm = weight_norm,
+                layer_norm = layer_norm,
+                highway_bias = highway_bias,
+                index = i+1
             )
             self.rnn_lst.append(l)
             if layer_norm:
@@ -645,6 +722,7 @@ class SRU(nn.Module):
         else:
             return prevx
 
+
 class LayerNorm(nn.Module):
     '''
     Layer normalization module modified from:
@@ -658,10 +736,10 @@ class LayerNorm(nn.Module):
         self.b = nn.Parameter(torch.zeros(hidden_size), requires_grad=True)
 
     def forward(self, x):
-        if x.size(1) == 1:
+        if x.size(-1) == 1:
             return x
         mu = torch.mean(x, dim=-1)
-        sigma = torch.std(x, dim=-1)
+        sigma = torch.std(x, dim=-1, unbiased=False)
         # HACK. PyTorch is changing behavior
         if mu.dim() == x.dim()-1:
             mu = mu.unsqueeze(mu.dim())
