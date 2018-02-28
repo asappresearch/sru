@@ -25,6 +25,44 @@ extern "C" {
         return (x > 0.f) ? x : 0.f;
     }
 
+    __forceinline__ __device__ float seluf(float x)
+    {
+        return 1.0507009873554804934193349852946f * (
+            (x > 0.f) ? x : 1.6732632423543772848170429916717f * (expf(x)-1.f)
+        );
+    }
+
+    __forceinline__ __device__ float calc_activation(int type, float x)
+    {
+        switch (type) {
+            case 0:
+                return x;
+            case 1:
+                return tanh(x);
+            case 2:
+                return reluf(x);
+            case 3:
+                return seluf(x);
+        }
+        return x;
+    }
+
+    __forceinline__ __device__ float calc_grad_activation(int type, float x)
+    {
+        switch (type) {
+            case 0:
+                return 1.f;
+            case 1:
+                return 1.f-x*x;
+            case 2:
+                return (x > 0.f) ? 1.f : 0.f;
+            case 3:
+                return (x > 0.f) ? 1.0507009873554804934193349852946f :
+                    x + 1.7580993408473766f;
+        }
+        return 1.f;
+    }
+
     __global__ void sru_fwd(const float * __restrict__ u, const float * __restrict__ x,
                             const float * __restrict__ bias, const float * __restrict__ init,
                             const float * __restrict__ mask_h,
@@ -57,9 +95,7 @@ extern "C" {
             float g2 = sigmoidf((*(up+2))+bias2);
             cur = (cur-(*up))*g1 + (*up);
             *cp = cur;
-            float val = (activation_type == 1) ? tanh(cur) : (
-                (activation_type == 2) ? reluf(cur) : cur
-            );
+            float val = calc_activation(activation_type, cur);
             *hp = (val*mask-(*xp))*g2 + (*xp);
             up += ncols_u;
             xp += ncols_x;
@@ -107,9 +143,7 @@ extern "C" {
             const float g1 = sigmoidf((*(up+1))+bias1);
             const float g2 = sigmoidf((*(up+2))+bias2);
 
-            const float c_val = (activation_type == 1) ? tanh(*cp) : (
-                (activation_type == 2) ? reluf(*cp) : (*cp)
-            );
+            const float c_val = calc_activation(activation_type, *cp);
 
             const float x_val = *xp;
             const float u_val = *up;
@@ -129,9 +163,7 @@ extern "C" {
             gbias2 += gg2;
 
             // grad wrt c
-            const float tmp = (activation_type == 1) ? (g2*(1-c_val*c_val)) : (
-                ((activation_type == 0) || (c_val > 0)) ? g2 : 0.f
-            );
+            const float tmp = g2*calc_grad_activation(activation_type, c_val);
             const float gc = gh_val*mask*tmp + cur;
 
             // grad wrt u0
@@ -204,9 +236,7 @@ extern "C" {
             float g2 = sigmoidf((*(up+2))+bias2);
             cur = (cur-(*up))*g1 + (*up);
             *cp = cur;
-            float val = (activation_type == 1) ? tanh(cur) : (
-                (activation_type == 2) ? reluf(cur) : cur
-            );
+            float val = calc_activation(activation_type, cur);
             *hp = (val*mask-(*xp))*g2 + (*xp);
             up += ncols_u_;
             xp += ncols_x_;
@@ -271,9 +301,7 @@ extern "C" {
             const float g1 = sigmoidf((*(up+1))+bias1);
             const float g2 = sigmoidf((*(up+2))+bias2);
 
-            const float c_val = (activation_type == 1) ? tanh(*cp) : (
-                (activation_type == 2) ? reluf(*cp) : (*cp)
-            );
+            const float c_val = calc_activation(activation_type, *cp);
             const float x_val = *xp;
             const float u_val = *up;
             const float prev_c_val = (cnt<len-1) ? (*(cp-ncols_)) : (*(init+col));
@@ -292,9 +320,7 @@ extern "C" {
             gbias2 += gg2;
 
             // grad wrt c
-            const float tmp = (activation_type == 1) ? (g2*(1-c_val*c_val)) : (
-                ((activation_type == 0) || (c_val > 0)) ? g2 : 0.f
-            );
+            const float tmp = g2*calc_grad_activation(activation_type, c_val);
             const float gc = gh_val*mask*tmp + cur;
 
             // grad wrt u0
@@ -541,18 +567,24 @@ def SRU_Compute_CPU(activation_type, d, bidirectional=False, scale_x=1):
 
 class SRUCell(nn.Module):
     def __init__(self, n_in, n_out, dropout=0, rnn_dropout=0, bidirectional=False,
-            use_tanh=1, use_relu=0, weight_norm=False, layer_norm=False, highway_bias=0, index=-1):
+            use_tanh=1, use_relu=0, use_selu=0, weight_norm=False, layer_norm=False, highway_bias=0, index=-1):
         super(SRUCell, self).__init__()
         self.n_in = n_in
         self.n_out = n_out
         self.rnn_dropout = rnn_dropout
         self.dropout = dropout
         self.bidirectional = bidirectional
-        self.activation_type = 2 if use_relu else (1 if use_tanh else 0)
         self.weight_norm = weight_norm
         self.layer_norm = layer_norm
         self.highway_bias = highway_bias
         self.index = index
+        self.activation_type = 0
+        if use_tanh:
+            self.activation_type = 1
+        elif use_relu:
+            self.activation_type = 2
+        elif use_selu:
+            self.activation_type = 3
 
         out_size = n_out*2 if bidirectional else n_out
         k = 4 if n_in != out_size else 3
@@ -662,7 +694,7 @@ class SRUCell(nn.Module):
 
 class SRU(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers=2, dropout=0, rnn_dropout=0, bidirectional=False,
-            use_tanh=1, use_relu=0, weight_norm=False, layer_norm=False, highway_bias=0):
+            use_tanh=1, use_relu=0, use_selu=0, weight_norm=False, layer_norm=False, highway_bias=0):
         super(SRU, self).__init__()
         self.n_in = input_size
         self.n_out = hidden_size
@@ -685,6 +717,7 @@ class SRU(nn.Module):
                 bidirectional = bidirectional,
                 use_tanh = use_tanh,
                 use_relu = use_relu,
+                use_selu = use_selu,
                 weight_norm = weight_norm,
                 layer_norm = layer_norm,
                 highway_bias = highway_bias,
