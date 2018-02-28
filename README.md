@@ -48,6 +48,7 @@ rnn = SRU(input_size, hidden_size,
     rnn_dropout = 0.0,       # variational dropout applied on linear transformation
     use_tanh = 1,            # use tanh?
     use_relu = 0,            # use ReLU?
+    use_selu = 0,            # use SeLU?
     bidirectional = False,   # bidirectional RNN ?
     weight_norm = False,     # apply weight normalization on parameters
     layer_norm = False,      # apply layer normalization on the output of each layer
@@ -95,6 +96,7 @@ https://github.com/taolei87/sru/graphs/contributors
   - [x] support multi-GPU via `nn.DataParallel` (see example [here](/misc/test_multigpu.py))
   - [x] layer normalization
   - [x] weight normalization
+  - [x] SeLU activation
   - [ ] residual
   - [ ] support packed sequence
   
