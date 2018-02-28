@@ -1,7 +1,8 @@
 #from builtins import bytes
+import sys
 import time
 import math
-import warnings
+#import warnings
 
 import numpy as np
 import torch
@@ -645,8 +646,8 @@ class SRUCell(nn.Module):
         )
 
     def set_bias(self, bias_val=0):
-        warnings.warn("set_bias() is deprecated. use `highway_bias` option"
-            + " in SRUCell() constructor."
+        sys.stderr.write("\nWARNING: set_bias() is deprecated. use `highway_bias` option"
+            " in SRUCell() constructor.\n"
         )
         self.highway_bias = bias_val
         self.init_weight()
@@ -707,6 +708,10 @@ class SRU(nn.Module):
         self.use_layer_norm = layer_norm
         self.use_wieght_norm = weight_norm
         self.out_size = hidden_size*2 if bidirectional else hidden_size
+        if use_tanh + use_relu + use_selu > 1:
+            sys.stderr.write("\nWARNING: More than one activation enabled in SRU"
+                " (tanh: {}  relu: {}  selu: {})\n".format(use_tanh, use_relu, use_selu)
+            )
 
         for i in range(num_layers):
             l = SRUCell(
