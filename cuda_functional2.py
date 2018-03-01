@@ -250,18 +250,18 @@ class SRUCell(nn.Module):
         out_size = n_out*2 if self.bidirectional else n_out
 
         if not self.bidirectional:
-            tilde_x = F.tanh(wx[0] + b[0])
-            forget = F.sigmoid(wx[1] + b[1])
-            reset = F.sigmoid(wx[2] + b[2])
+            tilde_x = F.tanh(wx[0] + b[0].expand_as(wx[0]))
+            forget = F.sigmoid(wx[1] + b[1].expand_as(wx[0]))
+            reset = F.sigmoid(wx[2] + b[2].expand_as(wx[0]))
             c = WeightedCumsum()((1-forget)*tilde_x, forget, c0)
             highway_x = input if n_in == out_size else wx[3]
         else:
-            tilde_x_1 = F.tanh(wx[0] + b[0])
-            forget_1 = F.sigmoid(wx[1] + b[1])
-            reset_1 = F.sigmoid(wx[2] + b[2])
-            tilde_x_2 = F.tanh(wx[3] + b[3])
-            forget_2 = F.sigmoid(wx[4] + b[4])
-            reset_2 = F.sigmoid(wx[5] + b[5])
+            tilde_x_1 = F.tanh(wx[0] + b[0].expand_as(wx[0]))
+            forget_1 = F.sigmoid(wx[1] + b[1].expand_as(wx[0]))
+            reset_1 = F.sigmoid(wx[2] + b[2].expand_as(wx[0]))
+            tilde_x_2 = F.tanh(wx[3] + b[3].expand_as(wx[0]))
+            forget_2 = F.sigmoid(wx[4] + b[4].expand_as(wx[0]))
+            reset_2 = F.sigmoid(wx[5] + b[5].expand_as(wx[0]))
             c_1 = WeightedCumsum(reverse=0)((1-forget_1)*tilde_x_1, forget_1, c0[:,:n_out])
             c_2 = WeightedCumsum(reverse=1)((1-forget_2)*tilde_x_2, forget_2, c0[:,n_out:])
             # (length, batch, n_out*2)
