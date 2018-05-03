@@ -91,7 +91,7 @@ extern "C" {
 
         for (int row = 0; row < len; ++row)
         {
-            if ((pad_p == NULL) || (*pad_p)) {
+            if ((pad_p == NULL) || !(*pad_p)) {
                 float g1 = sigmoidf((*(up+1)) + wc1*cur + bias1);
                 float g2 = sigmoidf((*(up+2)) + wc2*cur + bias2);
                 cur = (cur-(*up))*g1 + (*up);
@@ -168,7 +168,7 @@ extern "C" {
 
         for (int row = len-1; row >= 0; --row)
         {
-            if ((pad_p == NULL) || (*pad_p)) {
+            if ((pad_p == NULL) || !(*pad_p)) {
                 const float prev_c_val = (row>0) ? (*(cp-ncols)) : (*(init+col));
                 const float g1 = sigmoidf((*(up+1)) + wc1*prev_c_val + bias1);
                 const float g2 = sigmoidf((*(up+2)) + wc2*prev_c_val + bias2);
@@ -279,7 +279,7 @@ extern "C" {
 
         for (int cnt = 0; cnt < len; ++cnt)
         {
-            if ((pad_p == NULL) || (*pad_p)) {
+            if ((pad_p == NULL) || !(*pad_p)) {
                 float g1 = sigmoidf((*(up+1)) + wc1*cur + bias1);
                 float g2 = sigmoidf((*(up+2)) + wc2*cur + bias2);
                 cur = (cur-(*up))*g1 + (*up);
@@ -373,7 +373,7 @@ extern "C" {
 
         for (int cnt = 0; cnt < len; ++cnt)
         {
-            if ((pad_p == NULL) || (*pad_p)) {
+            if ((pad_p == NULL) || !(*pad_p)) {
                 const float prev_c_val = (cnt<len-1) ? (*(cp-ncols_)) : (*(init+col));
                 const float g1 = sigmoidf((*(up+1)) + wc1*prev_c_val + bias1);
                 const float g2 = sigmoidf((*(up+2)) + wc2*prev_c_val + bias2);
@@ -452,6 +452,7 @@ class SRU_Compute_GPU(Function):
         self.bidirectional = bidirectional
         self.has_skip_term = has_skip_term
         self.scale_x = scale_x
+        self.mask_pad = None
 
     def compile_functions(self):
         device = torch.cuda.current_device()
@@ -475,12 +476,12 @@ class SRU_Compute_GPU(Function):
         res = self._DEVICE2FUNC.get(torch.cuda.current_device(), None)
         return res if res else self.compile_functions()
 
-    def forward(self, u, x, weight_c, bias,
-                init=None, mask_h=None, mask_pad=None):
+    def forward(self, u, x, weight_c, bias, init=None, mask_h=None):
         bidir = 2 if self.bidirectional else 1
         length = x.size(0) if x.dim() == 3 else 1
         batch = x.size(-2)
         d = self.d_out
+        mask_pad = self.mask_pad
         if mask_pad is not None:
             assert mask_pad.size(0) == length
             assert mask_pad.size(1) == batch
@@ -526,7 +527,7 @@ class SRU_Compute_GPU(Function):
             stream=stream
         )
 
-        self.save_for_backward(u, x, weight_c, bias, init, mask_h, mask_pad)
+        self.save_for_backward(u, x, weight_c, bias, init, mask_h)
         self.intermediate = c
         if x.dim() == 2:
             last_hidden = c
@@ -538,9 +539,10 @@ class SRU_Compute_GPU(Function):
 
     def backward(self, grad_h, grad_last):
         bidir = 2 if self.bidirectional else 1
-        u, x, weight_c, bias, init, mask_h, mask_pad = self.saved_tensors
+        u, x, weight_c, bias, init, mask_h = self.saved_tensors
         c = self.intermediate
         scale_x = self.scale_x
+        mask_pad = self.mask_pad
         length = x.size(0) if x.dim() == 3 else 1
         batch = x.size(-2)
         d = self.d_out
@@ -552,7 +554,7 @@ class SRU_Compute_GPU(Function):
         num_block = (ncols-1)//thread_per_block+1
 
         init_ = x.new(ncols).zero_() if init is None else init
-        grad_u = u.new(*u.size())
+        grad_u = u.new(*u.size()).zero_()
         grad_wc = x.new(2, batch, d*bidir)
         grad_bias = x.new(2, batch, d*bidir)
         grad_init = x.new(batch, d*bidir)
@@ -562,7 +564,7 @@ class SRU_Compute_GPU(Function):
         #  grad_x = x.new(*x.size()) if k_ == 3 else x.new(*size).zero_()
 
         #  Normal use
-        grad_x = x.new(*x.size()) if skip_type > 0 and k_ == 3 else None
+        grad_x = x.new(*x.size()).zero_() if skip_type > 0 and k_ == 3 else None
 
         if skip_type > 0 and k_ == 3:
             x_ptr = x.contiguous()*scale_x if scale_x != 1 else x.contiguous()
@@ -601,4 +603,4 @@ class SRU_Compute_GPU(Function):
 
         if skip_type > 0 and k_ == 3 and scale_x != 1:
             grad_x.mul_(scale_x)
-        return grad_u, grad_x, grad_wc.sum(1).view(-1), grad_bias.sum(1).view(-1), grad_init, None, None
+        return grad_u, grad_x, grad_wc.sum(1).view(-1), grad_bias.sum(1).view(-1), grad_init, None
