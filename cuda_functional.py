@@ -56,6 +56,7 @@ extern "C" {
                             const float * __restrict__ bias,
                             const float * __restrict__ init,
                             const float * __restrict__ mask_h,
+                            const char * __restrict__ mask_pad,
                             const int len,
                             const int batch,
                             const int d,
@@ -69,12 +70,12 @@ extern "C" {
         assert ((skip_type != 1) || (k == 3));
         assert ((skip_type != 2) || (k == 4));
 
-        int ncols = batch*d;
-        int col = blockIdx.x * blockDim.x + threadIdx.x;
+        const int ncols = batch*d;
+        const int col = blockIdx.x * blockDim.x + threadIdx.x;
         if (col >= ncols) return;
 
-        int ncols_u = ncols*k;
-        int ncols_x = (k == 3) ? ncols : ncols_u;
+        const int ncols_u = ncols*k;
+        const int ncols_x = (k == 3) ? ncols : ncols_u;
 
         const float wc1 = *(weight_c + (col%d));
         const float wc2 = *(weight_c + (col%d) + d);
@@ -84,24 +85,28 @@ extern "C" {
         float cur = *(init + col);
         const float *up = u + (col*k);
         const float *xp = (skip_type == 0) ? NULL : ((skip_type == 1) ? (x + col) : (up + 3));
+        const char *pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col/d));
         float *cp = c + col;
         float *hp = h + col;
 
         for (int row = 0; row < len; ++row)
         {
-            float g1 = sigmoidf((*(up+1)) + wc1*cur + bias1);
-            float g2 = sigmoidf((*(up+2)) + wc2*cur + bias2);
-            cur = (cur-(*up))*g1 + (*up);
-            *cp = cur;
-            float val = calc_activation(activation_type, cur);
-            if (skip_type)
-                *hp = (val*mask-(*xp))*g2 + (*xp);
-            else
-                *hp = val*mask*g2;
+            if ((pad_p == NULL) || (*pad_p)) {
+                float g1 = sigmoidf((*(up+1)) + wc1*cur + bias1);
+                float g2 = sigmoidf((*(up+2)) + wc2*cur + bias2);
+                cur = (cur-(*up))*g1 + (*up);
+                float val = calc_activation(activation_type, cur);
+                if (skip_type)
+                    *hp = (val*mask-(*xp))*g2 + (*xp);
+                else
+                    *hp = val*mask*g2;
+            }
+            *cp = cur;  // useful for backward
             up += ncols_u;
             cp += ncols;
             hp += ncols;
             if (skip_type) xp += ncols_x;
+            if (pad_p) pad_p += batch;
         }
     }
 
@@ -111,6 +116,7 @@ extern "C" {
                             const float * __restrict__ bias,
                             const float * __restrict__ init,
                             const float * __restrict__ mask_h,
+                            const char * __restrict__ mask_pad,
                             const float * __restrict__ c,
                             const float * __restrict__ grad_h,
                             const float * __restrict__ grad_last,
@@ -130,12 +136,12 @@ extern "C" {
         assert ((skip_type != 1) || (k == 3));
         assert ((skip_type != 2) || (k == 4));
 
-        int ncols = batch*d;
-        int col = blockIdx.x * blockDim.x + threadIdx.x;
+        const int ncols = batch*d;
+        const int col = blockIdx.x * blockDim.x + threadIdx.x;
         if (col >= ncols) return;
 
-        int ncols_u = ncols*k;
-        int ncols_x = (k == 3) ? ncols : ncols_u;
+        const int ncols_u = ncols*k;
+        const int ncols_x = (k == 3) ? ncols : ncols_u;
 
         const float wc1 = *(weight_c + (col%d));
         const float wc2 = *(weight_c + (col%d) + d);
@@ -154,6 +160,7 @@ extern "C" {
         );
         const float *cp = c + col + (len-1)*ncols;
         const float *ghp = grad_h + col + (len-1)*ncols;
+        const char *pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col/d) + (len-1)*batch);
         float *gup = grad_u + (col*k) + (len-1)*ncols_u;
         float *gxp = (skip_type == 0) ? NULL : (
             (skip_type == 1) ? (grad_x + col + (len-1)*ncols) : (gup + 3)
@@ -161,42 +168,44 @@ extern "C" {
 
         for (int row = len-1; row >= 0; --row)
         {
-            const float prev_c_val = (row>0) ? (*(cp-ncols)) : (*(init+col));
-            const float g1 = sigmoidf((*(up+1)) + wc1*prev_c_val + bias1);
-            const float g2 = sigmoidf((*(up+2)) + wc2*prev_c_val + bias2);
-            const float c_val = calc_activation(activation_type, *cp);
-            const float x_val = (skip_type) ? (*xp) : 0;
-            const float u_val = *up;
-            const float gh_val = *ghp;
+            if ((pad_p == NULL) || (*pad_p)) {
+                const float prev_c_val = (row>0) ? (*(cp-ncols)) : (*(init+col));
+                const float g1 = sigmoidf((*(up+1)) + wc1*prev_c_val + bias1);
+                const float g2 = sigmoidf((*(up+2)) + wc2*prev_c_val + bias2);
+                const float c_val = calc_activation(activation_type, *cp);
+                const float x_val = (skip_type) ? (*xp) : 0;
+                const float u_val = *up;
+                const float gh_val = *ghp;
 
-            // h = c*g2 + x*(1-g2) = (c-x)*g2 + x
-            // c = c'*g1 + u0*(1-g1) = (c'-u0)*g1 + g0
+                // h = c*g2 + x*(1-g2) = (c-x)*g2 + x
+                // c = c'*g1 + u0*(1-g1) = (c'-u0)*g1 + g0
 
-            // gradient with respect to x[t]
-            if (skip_type)
-                *gxp = gh_val*(1-g2);
+                // gradient with respect to x[t]
+                if (skip_type)
+                    *gxp = gh_val*(1-g2);
 
-            // gradient with respect to values in the second gate g2
-            float gg2 = gh_val*(c_val*mask-x_val)*(g2*(1-g2));
-            *(gup+2) = gg2;
-            gbias2 += gg2;
-            gwc2 += gg2*prev_c_val;
+                // gradient with respect to values in the second gate g2
+                float gg2 = gh_val*(c_val*mask-x_val)*(g2*(1-g2));
+                *(gup+2) = gg2;
+                gbias2 += gg2;
+                gwc2 += gg2*prev_c_val;
 
-            // gradient with respect to c[t]
-            const float tmp = g2*calc_grad_activation(activation_type, c_val);
-            const float gc = gh_val*mask*tmp + cur;
+                // gradient with respect to c[t]
+                const float tmp = g2*calc_grad_activation(activation_type, c_val);
+                const float gc = gh_val*mask*tmp + cur;
 
-            // gradient with respect to current input u0=W*x[t]
-            *gup = gc*(1-g1);
+                // gradient with respect to current input u0=W*x[t]
+                *gup = gc*(1-g1);
 
-            // gradient with respect to values in the first gate g1
-            float gg1 = gc*(prev_c_val-u_val)*(g1*(1-g1));
-            *(gup+1) = gg1;
-            gbias1 += gg1;
-            gwc1 += gg1*prev_c_val;
+                // gradient with respect to values in the first gate g1
+                float gg1 = gc*(prev_c_val-u_val)*(g1*(1-g1));
+                *(gup+1) = gg1;
+                gbias1 += gg1;
+                gwc1 += gg1*prev_c_val;
 
-            // gradient with respect to c[t-1]
-            cur = gc*g1 + gg1*wc1 + gg2*wc2;
+                // gradient with respect to c[t-1]
+                cur = gc*g1 + gg1*wc1 + gg2*wc2;
+            }
 
             up -= ncols_u;
             cp -= ncols;
@@ -206,6 +215,7 @@ extern "C" {
                 xp -= ncols_x;
                 gxp -= ncols_x;
             }
+            if (pad_p) pad_p -= batch;
         }
 
         *(grad_wc + col) = gwc1;
@@ -221,6 +231,7 @@ extern "C" {
                             const float * __restrict__ bias,
                             const float * __restrict__ init,
                             const float * __restrict__ mask_h,
+                            const char * __restrict__ mask_pad,
                             const int len,
                             const int batch,
                             const int d,
@@ -234,12 +245,12 @@ extern "C" {
         assert ((skip_type != 1) || (k == 3));
         assert ((skip_type != 2) || (k == 4));
 
-        int ncols = batch*d*2;
-        int col = blockIdx.x * blockDim.x + threadIdx.x;
+        const int ncols = batch*d*2;
+        const int col = blockIdx.x * blockDim.x + threadIdx.x;
         if (col >= ncols) return;
 
-        int ncols_u = ncols*k;
-        int ncols_x = (k == 3) ? ncols : ncols_u;
+        const int ncols_u = ncols*k;
+        const int ncols_x = (k == 3) ? ncols : ncols_u;
         const float mask = (mask_h == NULL) ? 1.0 : (*(mask_h + col));
         float cur = *(init + col);
         const int d2 = d*2;
@@ -250,6 +261,7 @@ extern "C" {
 
         const float *up = u + (col*k);
         const float *xp = (skip_type == 0) ? NULL : ((skip_type == 1) ? (x + col) : (up + 3));
+        const char *pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col/d2));
         float *cp = c + col;
         float *hp = h + col;
         const bool flip = (col%d2) >= d;
@@ -257,28 +269,32 @@ extern "C" {
             up += (len-1)*ncols_u;
             cp += (len-1)*ncols;
             hp += (len-1)*ncols;
-            if (skip_type)
-                xp += (len-1)*ncols_x;
+            if (skip_type) xp += (len-1)*ncols_x;
+            if (pad_p) pad_p += (len-1)*batch;
         }
-        int ncols_u_ = flip ? -ncols_u : ncols_u;
-        int ncols_x_ = flip ? -ncols_x : ncols_x;
-        int ncols_ = flip ? -ncols : ncols;
+        const int ncols_u_ = flip ? -ncols_u : ncols_u;
+        const int ncols_x_ = flip ? -ncols_x : ncols_x;
+        const int ncols_ = flip ? -ncols : ncols;
+        const int batch_ = flip ? -batch : batch;
 
         for (int cnt = 0; cnt < len; ++cnt)
         {
-            float g1 = sigmoidf((*(up+1)) + wc1*cur + bias1);
-            float g2 = sigmoidf((*(up+2)) + wc2*cur + bias2);
-            cur = (cur-(*up))*g1 + (*up);
-            *cp = cur;
-            float val = calc_activation(activation_type, cur);
-            if (skip_type)
-                *hp = (val*mask-(*xp))*g2 + (*xp);
-            else
-                *hp = val*mask*g2;
+            if ((pad_p == NULL) || (*pad_p)) {
+                float g1 = sigmoidf((*(up+1)) + wc1*cur + bias1);
+                float g2 = sigmoidf((*(up+2)) + wc2*cur + bias2);
+                cur = (cur-(*up))*g1 + (*up);
+                float val = calc_activation(activation_type, cur);
+                if (skip_type)
+                    *hp = (val*mask-(*xp))*g2 + (*xp);
+                else
+                    *hp = val*mask*g2;
+            }
+            *cp = cur;  // useful for backward
             up += ncols_u_;
             cp += ncols_;
             hp += ncols_;
             if (skip_type) xp += ncols_x_;
+            if (pad_p) pad_p += batch_;
         }
     }
 
@@ -288,6 +304,7 @@ extern "C" {
                                const float * __restrict__ bias,
                                const float * __restrict__ init,
                                const float * __restrict__ mask_h,
+                               const char * __restrict__ mask_pad,
                                const float * __restrict__ c,
                                const float * __restrict__ grad_h,
                                const float * __restrict__ grad_last,
@@ -327,13 +344,14 @@ extern "C" {
 
         const float *up = u + (col*k);
         const float *xp = (skip_type == 0) ? NULL : (
-            (skip_type == 1) ? (x + col + (len-1)*ncols) : (up + 3)
+            (skip_type == 1) ? (x + col) : (up + 3)
         );
         const float *cp = c + col;
         const float *ghp = grad_h + col;
+        const char *pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col/d2));
         float *gup = grad_u + (col*k);
         float *gxp = (skip_type == 0) ? NULL : (
-            (skip_type == 1) ? (grad_x + col + (len-1)*ncols) : (gup + 3)
+            (skip_type == 1) ? (grad_x + col) : (gup + 3)
         );
 
         const bool flip = ((col%d2) >= d);
@@ -346,49 +364,53 @@ extern "C" {
                 xp += (len-1)*ncols_x;
                 gxp += (len-1)*ncols_x;
             }
+            if (pad_p) pad_p += (len-1)*batch;
         }
-        int ncols_u_ = flip ? -ncols_u : ncols_u;
-        int ncols_x_ = flip ? -ncols_x : ncols_x;
-        int ncols_ = flip ? -ncols : ncols;
+        const int ncols_u_ = flip ? -ncols_u : ncols_u;
+        const int ncols_x_ = flip ? -ncols_x : ncols_x;
+        const int ncols_ = flip ? -ncols : ncols;
+        const int batch_ = flip ? -batch : batch;
 
         for (int cnt = 0; cnt < len; ++cnt)
         {
-            const float prev_c_val = (cnt<len-1) ? (*(cp-ncols_)) : (*(init+col));
-            const float g1 = sigmoidf((*(up+1)) + wc1*prev_c_val + bias1);
-            const float g2 = sigmoidf((*(up+2)) + wc2*prev_c_val + bias2);
-            const float c_val = calc_activation(activation_type, *cp);
-            const float x_val = (skip_type) ? (*xp) : 0;
-            const float u_val = *up;
-            const float gh_val = *ghp;
+            if ((pad_p == NULL) || (*pad_p)) {
+                const float prev_c_val = (cnt<len-1) ? (*(cp-ncols_)) : (*(init+col));
+                const float g1 = sigmoidf((*(up+1)) + wc1*prev_c_val + bias1);
+                const float g2 = sigmoidf((*(up+2)) + wc2*prev_c_val + bias2);
+                const float c_val = calc_activation(activation_type, *cp);
+                const float x_val = (skip_type) ? (*xp) : 0;
+                const float u_val = *up;
+                const float gh_val = *ghp;
 
-            // h = c*g2 + x*(1-g2) = (c-x)*g2 + x
-            // c = c'*g1 + u0*(1-g1) = (c'-u0)*g1 + u0
+                // h = c*g2 + x*(1-g2) = (c-x)*g2 + x
+                // c = c'*g1 + u0*(1-g1) = (c'-u0)*g1 + u0
 
-            // gradient with respect to x[t]
-            if (skip_type)
-                *gxp = gh_val*(1-g2);
+                // gradient with respect to x[t]
+                if (skip_type)
+                    *gxp = gh_val*(1-g2);
 
-            // gradient with respect to values in the second gate g2
-            float gg2 = gh_val*(c_val*mask-x_val)*(g2*(1-g2));
-            *(gup+2) = gg2;
-            gbias2 += gg2;
-            gwc2 += gg2*prev_c_val;
+                // gradient with respect to values in the second gate g2
+                float gg2 = gh_val*(c_val*mask-x_val)*(g2*(1-g2));
+                *(gup+2) = gg2;
+                gbias2 += gg2;
+                gwc2 += gg2*prev_c_val;
 
-            // gradient with respect to c[t]
-            const float tmp = g2*calc_grad_activation(activation_type, c_val);
-            const float gc = gh_val*mask*tmp + cur;
+                // gradient with respect to c[t]
+                const float tmp = g2*calc_grad_activation(activation_type, c_val);
+                const float gc = gh_val*mask*tmp + cur;
 
-            // gradient with respect to u[0]=W*x[t]
-            *gup = gc*(1-g1);
+                // gradient with respect to u[0]=W*x[t]
+                *gup = gc*(1-g1);
 
-            // gradient with respect to values in the first gate g1
-            float gg1 = gc*(prev_c_val-u_val)*(g1*(1-g1));
-            *(gup+1) = gg1;
-            gbias1 += gg1;
-            gwc1 += gg1*prev_c_val;
+                // gradient with respect to values in the first gate g1
+                float gg1 = gc*(prev_c_val-u_val)*(g1*(1-g1));
+                *(gup+1) = gg1;
+                gbias1 += gg1;
+                gwc1 += gg1*prev_c_val;
 
-            // gradient with respect to c[t-1]
-            cur = gc*g1 + gg1*wc1 + gg2*wc2;
+                // gradient with respect to c[t-1]
+                cur = gc*g1 + gg1*wc1 + gg2*wc2;
+            }
 
             up -= ncols_u_;
             cp -= ncols_;
@@ -398,6 +420,7 @@ extern "C" {
                 xp -= ncols_x_;
                 gxp -= ncols_x_;
             }
+            if (pad_p) pad_p -= batch_;
         }
 
         *(grad_wc + col) = gwc1;
@@ -452,26 +475,30 @@ class SRU_Compute_GPU(Function):
         res = self._DEVICE2FUNC.get(torch.cuda.current_device(), None)
         return res if res else self.compile_functions()
 
-    def forward(self, u, x, weight_c, bias, init=None, mask_h=None):
+    def forward(self, u, x, weight_c, bias,
+                init=None, mask_h=None, mask_pad=None):
         bidir = 2 if self.bidirectional else 1
         length = x.size(0) if x.dim() == 3 else 1
         batch = x.size(-2)
         d = self.d_out
+        if mask_pad is not None:
+            assert mask_pad.size(0) == length
+            assert mask_pad.size(1) == batch
         k = u.size(-1) // d
-        k_ = k//2 if self.bidirectional else k
+        k_ = k // 2 if self.bidirectional else k
         skip_type = 0 if not self.has_skip_term else (1 if k_ == 3 else 2)
         ncols = batch*d*bidir
         thread_per_block = min(512, ncols)
-        num_block = (ncols-1)//thread_per_block+1
+        num_block = (ncols-1) // thread_per_block + 1
 
         init_ = x.new(ncols).zero_() if init is None else init
-        size = (length, batch, d*bidir) if x.dim() == 3 else (batch, d*bidir)
+        size = (length, batch, d * bidir) if x.dim() == 3 else (batch, d * bidir)
         c = x.new(*size)
         h = x.new(*size)
 
         scale_x = self.scale_x
         if skip_type > 0 and k_ == 3:
-            x_ptr = x.contiguous()*scale_x if scale_x != 1 else x.contiguous()
+            x_ptr = x.contiguous() * scale_x if scale_x != 1 else x.contiguous()
             x_ptr = x_ptr.data_ptr()
         else:
             x_ptr = 0
@@ -485,6 +512,7 @@ class SRU_Compute_GPU(Function):
             bias.data_ptr(),
             init_.contiguous().data_ptr(),
             mask_h.data_ptr() if mask_h is not None else 0,
+            mask_pad.data_ptr() if mask_pad is not None else 0,
             length,
             batch,
             d,
@@ -498,7 +526,7 @@ class SRU_Compute_GPU(Function):
             stream=stream
         )
 
-        self.save_for_backward(u, x, weight_c, bias, init, mask_h)
+        self.save_for_backward(u, x, weight_c, bias, init, mask_h, mask_pad)
         self.intermediate = c
         if x.dim() == 2:
             last_hidden = c
@@ -510,7 +538,7 @@ class SRU_Compute_GPU(Function):
 
     def backward(self, grad_h, grad_last):
         bidir = 2 if self.bidirectional else 1
-        u, x, weight_c, bias, init, mask_h = self.saved_tensors
+        u, x, weight_c, bias, init, mask_h, mask_pad = self.saved_tensors
         c = self.intermediate
         scale_x = self.scale_x
         length = x.size(0) if x.dim() == 3 else 1
@@ -551,6 +579,7 @@ class SRU_Compute_GPU(Function):
             bias.data_ptr(),
             init_.contiguous().data_ptr(),
             mask_h.data_ptr() if mask_h is not None else 0,
+            mask_pad.data_ptr() if mask_pad is not None else 0,
             c.data_ptr(),
             grad_h.contiguous().data_ptr(),
             grad_last.contiguous().data_ptr(),
@@ -572,4 +601,4 @@ class SRU_Compute_GPU(Function):
 
         if skip_type > 0 and k_ == 3 and scale_x != 1:
             grad_x.mul_(scale_x)
-        return grad_u, grad_x, grad_wc.sum(1).view(-1), grad_bias.sum(1).view(-1), grad_init, None
+        return grad_u, grad_x, grad_wc.sum(1).view(-1), grad_bias.sum(1).view(-1), grad_init, None, None
