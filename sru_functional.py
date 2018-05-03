@@ -250,7 +250,7 @@ class SRUCell(nn.Module):
             self.weight / (wnorm.expand_as(self.weight) + eps)
         )
 
-    def forward(self, input, c0=None):
+    def forward(self, input, c0=None, mask_pad=None):
         """
         An SRU is a recurrent neural network cell comprised of 5 equations, enumerated
         (3) - (7) in "Training RNNs as Fast as CNNs" (https://arxiv.org/pdf/1709.02755.pdf).
@@ -292,6 +292,8 @@ class SRUCell(nn.Module):
         SRU_Compute = SRU_Compute_Class(
             self.activation_type, n_out, self.bidirectional, self.has_skip_term, scale_val
         )
+        # word-around
+        SRU_Compute.mask_pad = mask_pad
 
         if self.training and (self.dropout > 0):
             bidir = 2 if self.bidirectional else 1
@@ -394,7 +396,7 @@ class SRU(nn.Module):
         for l in self.rnn_lst:
             l.set_bias(bias_val)
 
-    def forward(self, input, c0=None, return_hidden=True):
+    def forward(self, input, c0=None, mask_pad=None, return_hidden=True):
         """
         Feeds `input` forward through `num_layers` `SRUCell`s, where `num_layers`
         is a parameter on the constructor of this class.
@@ -418,7 +420,7 @@ class SRU(nn.Module):
         prevx = input
         lstc = []
         for i, rnn in enumerate(self.rnn_lst):
-            h, c = rnn(prevx, c0[i])
+            h, c = rnn(prevx, c0[i], mask_pad=mask_pad)
             prevx = self.ln_lst[i](h) if self.use_layer_norm else h
             lstc.append(c)
 
