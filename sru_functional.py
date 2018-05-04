@@ -186,7 +186,7 @@ class SRUCell(nn.Module):
         self.bias = nn.Parameter(torch.Tensor(
             n_out*4 if bidirectional else n_out*2
         ))
-        self.scale_x = nn.Parameter(torch.ones(1), requires_grad=True)
+        self.scale_x = nn.Parameter(torch.ones(1), requires_grad=False)
         self.init_weight()
 
     def init_weight(self, rescale=True):

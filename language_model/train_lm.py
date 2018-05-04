@@ -11,7 +11,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 
-import cuda_functional as MF
+import sru_functional as MF
 
 
 def read_corpus(path, eos="</s>"):
@@ -72,19 +72,22 @@ class Model(nn.Module):
             self.rnn = MF.SRU(self.n_d, self.n_d, self.depth,
                 dropout = args.rnn_dropout,
                 rnn_dropout = args.rnn_dropout,
-                use_tanh = 0
+                use_tanh = 0,
+                highway_bias = args.bias
             )
         self.output_layer = nn.Linear(self.n_d, self.n_V)
         # tie weights
         self.output_layer.weight = self.embedding_layer.embedding.weight
 
         self.init_weights()
-        if not args.lstm:
-            self.rnn.set_bias(args.bias)
+        #if not args.lstm:
+        #    self.rnn.set_bias(args.bias)
 
     def init_weights(self):
         val_range = (3.0/self.n_d)**0.5
-        for p in self.parameters():
+        params = list(self.embedding_layer.parameters()) + list(self.output_layer.parameters()) \
+                + (list(self.rnn.parameters()) if self.args.lstm else [])
+        for p in params:
             if p.dim() > 1:  # matrix
                 p.data.uniform_(-val_range, val_range)
             else:
