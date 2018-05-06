@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 from pynvrtc.compiler import Program
 from torch.autograd import Function
 from collections import namedtuple
@@ -63,6 +64,7 @@ extern "C" {
                             const int k,
                             float * __restrict__ h,
                             float * __restrict__ c,
+                            const float scale_x,
                             const int activation_type,
                             const int skip_type)
     {
@@ -92,12 +94,12 @@ extern "C" {
         for (int row = 0; row < len; ++row)
         {
             if ((pad_p == NULL) || !(*pad_p)) {
-                float g1 = sigmoidf((*(up+1)) + wc1*cur + bias1);
-                float g2 = sigmoidf((*(up+2)) + wc2*cur + bias2);
+                const float g1 = sigmoidf((*(up+1)) + wc1*cur + bias1);
+                const float g2 = sigmoidf((*(up+2)) + wc2*cur + bias2);
                 cur = (cur-(*up))*g1 + (*up);
-                float val = calc_activation(activation_type, cur);
+                const float val = calc_activation(activation_type, cur);
                 if (skip_type)
-                    *hp = (val*mask-(*xp))*g2 + (*xp);
+                    *hp = (val*mask-(*xp)*scale_x)*g2 + (*xp)*scale_x;
                 else
                     *hp = val*mask*g2;
             }
@@ -129,6 +131,7 @@ extern "C" {
                             float * __restrict__ grad_wc,
                             float * __restrict__ grad_bias,
                             float * __restrict__ grad_init,
+                            const float scale_x,
                             const int activation_type,
                             const int skip_type)
     {
@@ -182,10 +185,10 @@ extern "C" {
 
                 // gradient with respect to x[t]
                 if (skip_type)
-                    *gxp = gh_val*(1-g2);
+                    *gxp = gh_val*(1-g2)*scale_x;
 
                 // gradient with respect to values in the second gate g2
-                float gg2 = gh_val*(c_val*mask-x_val)*(g2*(1-g2));
+                float gg2 = gh_val*(c_val*mask-x_val*scale_x)*(g2*(1-g2));
                 *(gup+2) = gg2;
                 gbias2 += gg2;
                 gwc2 += gg2*prev_c_val;
@@ -238,6 +241,7 @@ extern "C" {
                             const int k,
                             float * __restrict__ h,
                             float * __restrict__ c,
+                            const float scale_x,
                             const int activation_type,
                             const int skip_type)
     {
@@ -280,12 +284,12 @@ extern "C" {
         for (int cnt = 0; cnt < len; ++cnt)
         {
             if ((pad_p == NULL) || !(*pad_p)) {
-                float g1 = sigmoidf((*(up+1)) + wc1*cur + bias1);
-                float g2 = sigmoidf((*(up+2)) + wc2*cur + bias2);
+                const float g1 = sigmoidf((*(up+1)) + wc1*cur + bias1);
+                const float g2 = sigmoidf((*(up+2)) + wc2*cur + bias2);
                 cur = (cur-(*up))*g1 + (*up);
-                float val = calc_activation(activation_type, cur);
+                const float val = calc_activation(activation_type, cur);
                 if (skip_type)
-                    *hp = (val*mask-(*xp))*g2 + (*xp);
+                    *hp = (val*mask-(*xp)*scale_x)*g2 + (*xp)*scale_x;
                 else
                     *hp = val*mask*g2;
             }
@@ -317,6 +321,7 @@ extern "C" {
                                float * __restrict__ grad_wc,
                                float * __restrict__ grad_bias,
                                float * __restrict__ grad_init,
+                               const float scale_x,
                                const int activation_type,
                                const int skip_type)
     {
@@ -387,10 +392,10 @@ extern "C" {
 
                 // gradient with respect to x[t]
                 if (skip_type)
-                    *gxp = gh_val*(1-g2);
+                    *gxp = gh_val*(1-g2)*scale_x;
 
                 // gradient with respect to values in the second gate g2
-                float gg2 = gh_val*(c_val*mask-x_val)*(g2*(1-g2));
+                float gg2 = gh_val*(c_val*mask-x_val*scale_x)*(g2*(1-g2));
                 *(gup+2) = gg2;
                 gbias2 += gg2;
                 gwc2 += gg2*prev_c_val;
@@ -497,18 +502,11 @@ class SRU_Compute_GPU(Function):
         c = x.new(*size)
         h = x.new(*size)
 
-        scale_x = self.scale_x
-        if skip_type > 0 and k_ == 3:
-            x_ptr = x.contiguous() * scale_x if scale_x != 1 else x.contiguous()
-            x_ptr = x_ptr.data_ptr()
-        else:
-            x_ptr = 0
-
         stream, fwd_func, bifwd_func, _, _ = self.get_functions()
         FUNC = fwd_func if not self.bidirectional else bifwd_func
         FUNC(args=[
             u.contiguous().data_ptr(),
-            x_ptr,
+            x.contiguous().data_ptr() if skip_type > 0 and k_ == 3 else 0,
             weight_c.data_ptr(),
             bias.data_ptr(),
             init_.contiguous().data_ptr(),
@@ -520,6 +518,7 @@ class SRU_Compute_GPU(Function):
             k_,
             h.data_ptr(),
             c.data_ptr(),
+            np.float32(self.scale_x),
             self.activation_type,
             skip_type],
             block=(thread_per_block, 1, 1),
@@ -566,17 +565,11 @@ class SRU_Compute_GPU(Function):
         #  Normal use
         grad_x = x.new(*x.size()).zero_() if skip_type > 0 and k_ == 3 else None
 
-        if skip_type > 0 and k_ == 3:
-            x_ptr = x.contiguous()*scale_x if scale_x != 1 else x.contiguous()
-            x_ptr = x_ptr.data_ptr()
-        else:
-            x_ptr = 0
-
         stream, _, _, bwd_func, bibwd_func = self.get_functions()
         FUNC = bwd_func if not self.bidirectional else bibwd_func
         FUNC(args=[
             u.contiguous().data_ptr(),
-            x_ptr,
+            x.contiguous().data_ptr() if skip_type > 0 and k_ == 3 else 0,
             weight_c.data_ptr(),
             bias.data_ptr(),
             init_.contiguous().data_ptr(),
@@ -594,6 +587,7 @@ class SRU_Compute_GPU(Function):
             grad_wc.data_ptr(),
             grad_bias.data_ptr(),
             grad_init.data_ptr(),
+            np.float32(self.scale_x),
             self.activation_type,
             skip_type],
             block=(thread_per_block, 1, 1),
@@ -601,6 +595,4 @@ class SRU_Compute_GPU(Function):
             stream=stream
         )
 
-        if skip_type > 0 and k_ == 3 and scale_x != 1:
-            grad_x.mul_(scale_x)
         return grad_u, grad_x, grad_wc.sum(1).view(-1), grad_bias.sum(1).view(-1), grad_init, None

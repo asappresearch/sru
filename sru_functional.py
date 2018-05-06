@@ -217,13 +217,12 @@ class SRUCell(nn.Module):
         w[:, :, :, 2].mul_(0.5**0.5)
         self.weight_c.data.mul_(0.5**0.5)
 
+        self.scale_x.data[0] = 1
         if not rescale:
             return
         # scalar used to properly scale the highway output
         scale_val = (1+math.exp(bias_val)*2)**0.5
-        self.scale_x.data.mul_(scale_val)
-        if self.k == 4:
-            w[:, :, :, 3].mul_(scale_val)
+        self.scale_x.data[0] = scale_val
 
         # re-scale weights for dropout and normalized input for better gradient flow
         if self.dropout > 0:
