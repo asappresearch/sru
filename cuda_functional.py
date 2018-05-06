@@ -567,11 +567,14 @@ def SRU_Compute_CPU(activation_type, d, bidirectional=False, scale_x=1):
 
 
 class SRUCell(nn.Module):
-    def __init__(self, n_in, n_out, dropout=0, rnn_dropout=0, bidirectional=False,
-            use_tanh=1, use_relu=0, use_selu=0, weight_norm=False, layer_norm=False, highway_bias=0, index=-1):
+    def __init__(self, n_in, n_out, dropout=0, rnn_dropout=0,
+                 bidirectional=False, use_tanh=1, use_relu=0, use_selu=0,
+                 weight_norm=False, layer_norm=False, highway_bias=0, index=-1,
+                 rescale=True):
         super(SRUCell, self).__init__()
         self.n_in = n_in
         self.n_out = n_out
+        self.rescale = rescale
         self.rnn_dropout = rnn_dropout
         self.dropout = dropout
         self.bidirectional = bidirectional
@@ -600,7 +603,7 @@ class SRUCell(nn.Module):
         ))
         self.init_weight()
 
-    def init_weight(self, rescale=True):
+    def init_weight(self):
         # initialize weights such that E[w_ij]=0 and Var[w_ij]=1/d
         val_range = (3.0/self.n_in)**0.5
         self.weight.data.uniform_(-val_range, val_range)
@@ -614,7 +617,7 @@ class SRUCell(nn.Module):
             self.bias.data[n_out:].zero_().add_(bias_val)
 
         self.scale_x = 1
-        if not rescale:
+        if not self.rescale:
             return
         self.scale_x = (1+math.exp(bias_val)*2)**0.5
 
@@ -694,8 +697,10 @@ class SRUCell(nn.Module):
 
 
 class SRU(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers=2, dropout=0, rnn_dropout=0, bidirectional=False,
-            use_tanh=1, use_relu=0, use_selu=0, weight_norm=False, layer_norm=False, highway_bias=0):
+    def __init__(self, input_size, hidden_size, num_layers=2, dropout=0,
+                 rnn_dropout=0, bidirectional=False, use_tanh=1, use_relu=0,
+                 use_selu=0, weight_norm=False, layer_norm=False,
+                 highway_bias=0, rescale=True):
         super(SRU, self).__init__()
         self.n_in = input_size
         self.n_out = hidden_size
@@ -726,7 +731,8 @@ class SRU(nn.Module):
                 weight_norm = weight_norm,
                 layer_norm = layer_norm,
                 highway_bias = highway_bias,
-                index = i+1
+                index = i+1,
+                rescale=rescale
             )
             self.rnn_lst.append(l)
             if layer_norm:
