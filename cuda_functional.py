@@ -12,7 +12,6 @@ from cupy.cuda import function
 from pynvrtc.compiler import Program
 from collections import namedtuple
 
-
 SRU_CODE = """
 extern "C" {
 
@@ -186,8 +185,9 @@ extern "C" {
             ghp -= ncols;
         }
 
-        *(grad_bias + col) = gbias1;
-        *(grad_bias + col + ncols) = gbias2;
+        int bias_idx = col % d;
+        atomicAdd(grad_bias + bias_idx, gbias1);
+        atomicAdd(grad_bias + bias_idx + d, gbias2);
         *(grad_init +col) = cur;
     }
 
@@ -343,8 +343,9 @@ extern "C" {
             ghp -= ncols_;
         }
 
-        *(grad_bias + col) = gbias1;
-        *(grad_bias + col + ncols) = gbias2;
+        int bias_idx = col % d2;
+        atomicAdd(grad_bias + bias_idx, gbias1);
+        atomicAdd(grad_bias + bias_idx + d2, gbias2);
         *(grad_init +col) = cur;
     }
 }
@@ -454,7 +455,7 @@ class SRU_Compute_GPU(Function):
 
         init_ = x.new(ncols).zero_() if init is None else init
         grad_u = u.new(*u.size())
-        grad_bias = x.new(2, batch, d*bidir)
+        grad_bias = x.new(2, d*bidir).zero_()
         grad_init = x.new(batch, d*bidir)
 
         # For DEBUG
@@ -496,7 +497,7 @@ class SRU_Compute_GPU(Function):
 
         if k_ == 3 and scale_x != 1:
             grad_x.mul_(scale_x)
-        return grad_u, grad_x, grad_bias.sum(1).view(-1), grad_init, None
+        return grad_u, grad_x, grad_bias, grad_init, None
 
 
 def SRU_Compute_CPU(activation_type, d, bidirectional=False, scale_x=1):
