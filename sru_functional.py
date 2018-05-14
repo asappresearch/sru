@@ -55,13 +55,7 @@ def SRU_Compute_CPU(activation_type,
         batch = x.size(-2)
         k = u.size(-1) // d // bidir
 
-        if mask_h is None:
-            mask_h = 1
-
         u = u.view(length, batch, bidir, d, k)
-
-        x_tilde = u[..., 0]
-
         forget_wc, reset_wc = weight_c.view(2, bidir, d)
         forget_bias, reset_bias = bias.view(2, bidir, d)
 
@@ -87,11 +81,18 @@ def SRU_Compute_CPU(activation_type,
             else:
                 time_seq = range(length - 1, -1, -1)
 
+            mask_h_ = 1 if mask_h is None else mask_h.view(batch, bidir, d)[:, di, :]
             c_prev = c_init[:, di, :]
+            fb, rb = forget_bias[di], reset_bias[di]
+            fw, rw = forget_wc[di].expand(batch, d), reset_wc[di].expand(batch, d)
+            u0 = u[:, :, di, :, 0].chunk(length)
+            u1 = (u[:, :, di, :, 1] + fb).chunk(length)
+            u2 = (u[:, :, di, :, 2] + rb).chunk(length)
+            xp = x_prime[:, :, di, :].chunk(length)
             for t in time_seq:
-                forget_t = (u[t, :, di, :, 1] + c_prev*forget_wc[di] + forget_bias[di]).sigmoid()
-                reset_t = (u[t, :, di, :, 2] + c_prev*reset_wc[di] + reset_bias[di]).sigmoid()
-                c_t = (c_prev - x_tilde[t, :, di, :]) * forget_t + x_tilde[t, :, di, :]
+                forget_t = (u1[t] + c_prev*fw).sigmoid()
+                reset_t = (u2[t] + c_prev*rw).sigmoid()
+                c_t = u0[t] + (c_prev - u0[t]) * forget_t
                 c_prev = c_t
 
                 if activation_type == 0:
@@ -103,13 +104,12 @@ def SRU_Compute_CPU(activation_type,
                 else:
                     raise ValueError('Activation type must be 0, 1, or 2, not {}'.format(activation_type))
 
-                if x_prime:
-                    h[t, :, di, :] = (g_c_t * mask_h - x_prime[t, :, di, :]) * reset_t + x_prime[t, :, di, :]
+                if x_prime is not None:
+                    h[t, :, di, :] = xp[t] + (g_c_t * mask_h_ - xp[t]) * reset_t
                 else:
-                    h[t, :, di, :] = g_c_t * mask_h * reset_t
+                    h[t, :, di, :] = g_c_t * mask_h_ * reset_t
 
             c_final.append(c_t)
-
         return h.view(length, batch, -1), torch.stack(c_final, dim=1).view(batch, -1)
 
     return sru_compute_cpu
