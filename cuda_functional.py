@@ -218,10 +218,11 @@ extern "C" {
             if (pad_p) pad_p -= batch;
         }
 
-        *(grad_wc + col) = gwc1;
-        *(grad_wc + col + ncols) = gwc2;
-        *(grad_bias + col) = gbias1;
-        *(grad_bias + col + ncols) = gbias2;
+        const int bias_idx = col % d;
+        atomicAdd(grad_wc + bias_idx, gwc1);
+        atomicAdd(grad_wc + bias_idx + d, gwc2);
+        atomicAdd(grad_bias + bias_idx, gbias1);
+        atomicAdd(grad_bias + bias_idx + d, gbias2);
         *(grad_init +col) = cur;
     }
 
@@ -423,10 +424,11 @@ extern "C" {
             if (pad_p) pad_p -= batch_;
         }
 
-        *(grad_wc + col) = gwc1;
-        *(grad_wc + col + ncols) = gwc2;
-        *(grad_bias + col) = gbias1;
-        *(grad_bias + col + ncols) = gbias2;
+        const int bias_idx = col % d2;
+        atomicAdd(grad_wc + bias_idx, gwc1);
+        atomicAdd(grad_wc + bias_idx + d2, gwc2);
+        atomicAdd(grad_bias + bias_idx, gbias1);
+        atomicAdd(grad_bias + bias_idx + d2, gbias2);
         *(grad_init +col) = cur;
     }
 }
@@ -547,7 +549,7 @@ class SRU_Compute_GPU(Function):
         batch = x.size(-2)
         d = self.d_out
         k = u.size(-1) // d
-        k_ = k//2 if self.bidirectional else k
+        k_ = k // 2 if self.bidirectional else k
         skip_type = 0 if not self.has_skip_term else (1 if k_ == 3 else 2)
         ncols = batch*d*bidir
         thread_per_block = min(512, ncols)
@@ -555,15 +557,9 @@ class SRU_Compute_GPU(Function):
 
         init_ = x.new(ncols).zero_() if init is None else init
         grad_u = u.new(*u.size()).zero_()
-        grad_wc = x.new(2, batch, d*bidir)
-        grad_bias = x.new(2, batch, d*bidir)
+        grad_wc = x.new(2*bidir*d).zero_()
+        grad_bias = x.new(2*bidir*d).zero_()
         grad_init = x.new(batch, d*bidir)
-
-        #  For DEBUG
-        #  size = (length, batch, x.size(-1)) if x.dim() == 3 else (batch, x.size(-1))
-        #  grad_x = x.new(*x.size()) if k_ == 3 else x.new(*size).zero_()
-
-        #  Normal use
         grad_x = x.new(*x.size()).zero_() if skip_type > 0 and k_ == 3 else None
 
         if skip_type > 0 and k_ == 3:
@@ -603,4 +599,4 @@ class SRU_Compute_GPU(Function):
 
         if skip_type > 0 and k_ == 3 and scale_x != 1:
             grad_x.mul_(scale_x)
-        return grad_u, grad_x, grad_wc.sum(1).view(-1), grad_bias.sum(1).view(-1), grad_init, None
+        return grad_u, grad_x, grad_wc, grad_bias, grad_init, None
