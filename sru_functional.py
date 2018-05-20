@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 if torch.cuda.device_count() > 0:
-    from cuda_functional import SRU_Compute_GPU
+    from .cuda_functional import SRU_Compute_GPU
 
 
 def SRU_Compute_CPU(activation_type,
@@ -187,9 +187,9 @@ class SRUCell(nn.Module):
             n_out*4 if bidirectional else n_out*2
         ))
         self.scale_x = nn.Parameter(torch.ones(1), requires_grad=False)
-        self.init_weight()
+        self.reset_parameters()
 
-    def init_weight(self, rescale=True):
+    def reset_parameters(self, rescale=True):
         """
         Properly initialize the weights of SRU, following the same recipe as:
             Xavier init:  http://proceedings.mlr.press/v9/glorot10a/glorot10a.pdf
@@ -238,9 +238,9 @@ class SRUCell(nn.Module):
 
         # re-parameterize when weight normalization is enabled
         if self.weight_norm:
-            self.init_weight_norm()
+            self.reset_weight_norm()
 
-    def init_weight_norm(self):
+    def reset_weight_norm(self):
         weight = self.weight.data
         g = weight.norm(2, 0)
         self.gain = nn.Parameter(g)
@@ -430,6 +430,12 @@ class SRU(nn.Module):
         else:
             return prevx
 
+    def reset_parameters(self):
+        for rnn in self.rnn_lst:
+            rnn.reset_parameters()
+        for ln in self.ln_lst:
+            ln.reset_parameters()
+
 
 class LayerNorm(nn.Module):
     """
@@ -457,3 +463,7 @@ class LayerNorm(nn.Module):
         var = x.var(-1, keepdim=True)
         std = (var + self.eps)**0.5
         return self.a * (x - mean) / (std) + self.b
+
+    def reset_parameters(self):
+        self.a.weight[:] = 1.0
+        self.b.weight[:] = 0.0
