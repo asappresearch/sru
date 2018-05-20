@@ -1,2 +1,2 @@
 from .version import __version__
-from .cuda_functional import *
+from .sru_functional import *
