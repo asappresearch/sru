@@ -4,7 +4,10 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 if torch.cuda.device_count() > 0:
-    from .cuda_functional import SRU_Compute_GPU
+    try:
+        from .cuda_functional import SRU_Compute_GPU
+    except:
+        from cuda_functional import SRU_Compute_GPU
 
 
 def SRU_Compute_CPU(activation_type,
