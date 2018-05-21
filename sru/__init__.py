@@ -1,2 +1,5 @@
 from .version import __version__
-from .cuda_functional import *
+try:
+    from .sru_functional import *
+except:
+    from sru_functional import *

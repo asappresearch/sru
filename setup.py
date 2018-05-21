@@ -35,7 +35,7 @@ def get_requirements():
 ################################################################################
 if not os.path.isfile('sru/cuda_functional.py'):
     shutil.copy('cuda_functional.py', 'sru')
-    needs_delete = True
+    cuda_needs_delete = True
 elif not filecmp.cmp(
         'sru/cuda_functional.py', 'cuda_functional.py', shallow=False
     ):
@@ -44,7 +44,20 @@ elif not filecmp.cmp(
         'present in "./cuda_functional.py", delete "sru/cuda_functional.py", '
         'and then try again.')
 else:
-    needs_delete = False
+    cuda_needs_delete = False
+
+if not os.path.isfile('sru/sru_functional.py'):
+    shutil.copy('sru_functional.py', 'sru')
+    sru_needs_delete = True
+elif not filecmp.cmp(
+        'sru/sru_functional.py', 'sru_functional.py', shallow=False
+    ):
+    raise ValueError('Running setup would overwrite the file '
+        '"sru/sru_functional.py". Ensure that any changes to the file are '
+        'present in "./sru_functional.py", delete "sru/sru_functional.py", '
+        'and then try again.')
+else:
+    sru_needs_delete = False
 
 try:
     setup(
@@ -79,7 +92,9 @@ try:
         zip_safe=False
     )
 finally:
-    if needs_delete:
+    if cuda_needs_delete:
         os.unlink('sru/cuda_functional.py')
 
+    if sru_needs_delete:
+        os.unlink('sru/sru_functional.py')
 #### EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF
