@@ -468,5 +468,5 @@ class LayerNorm(nn.Module):
         return self.a * (x - mean) / (std) + self.b
 
     def reset_parameters(self):
-        self.a.weight[:] = 1.0
-        self.b.weight[:] = 0.0
+        self.a.data[:] = 1.0
+        self.b.data[:] = 0.0
