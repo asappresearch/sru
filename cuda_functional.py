@@ -455,7 +455,7 @@ class SRU_Compute_GPU(Function):
 
         init_ = x.new(ncols).zero_() if init is None else init
         grad_u = u.new(*u.size())
-        grad_bias = x.new(2, d*bidir).zero_()
+        grad_bias = x.new(2*d*bidir).zero_()
         grad_init = x.new(batch, d*bidir)
 
         # For DEBUG
