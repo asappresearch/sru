@@ -72,7 +72,8 @@ class Model(nn.Module):
             self.rnn = MF.SRU(self.n_d, self.n_d, self.depth,
                 dropout = args.rnn_dropout,
                 rnn_dropout = args.rnn_dropout,
-                use_tanh = 0
+                use_tanh = 0,
+                rescale = False  # make sure the behavior is the same as before
             )
         self.output_layer = nn.Linear(self.n_d, self.n_V)
         # tie weights
