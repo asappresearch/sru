@@ -149,13 +149,15 @@ class SRUCell(nn.Module):
                  dropout=0,
                  rnn_dropout=0,
                  bidirectional=False,
-                 use_tanh=True,
+                 use_tanh=False,
                  use_relu=False,
                  use_selu=False,
                  weight_norm=False,
                  is_input_normalized=False,
                  highway_bias=0,
-                 has_skip_term=True):
+                 has_skip_term=True,
+                 rescale=True,
+                 v1=False):
 
         super(SRUCell, self).__init__()
         self.n_in = n_in
@@ -168,12 +170,17 @@ class SRUCell(nn.Module):
         self.highway_bias = highway_bias
         self.has_skip_term=has_skip_term
         self.activation_type = 0
+        self.v1 = v1
+        self.rescale = rescale
         if use_tanh:
             self.activation_type = 1
+            self.activation = 'tanh'
         elif use_relu:
             self.activation_type = 2
+            self.activation = 'ReLU'
         elif use_selu:
             self.activation_type = 3
+            self.activation = 'SeLU'
 
         out_size = n_out*2 if bidirectional else n_out
         k = 4 if has_skip_term and n_in != out_size else 3
@@ -192,7 +199,7 @@ class SRUCell(nn.Module):
         self.scale_x = nn.Parameter(torch.ones(1), requires_grad=False)
         self.reset_parameters()
 
-    def reset_parameters(self, rescale=True):
+    def reset_parameters(self):
         """
         Properly initialize the weights of SRU, following the same recipe as:
             Xavier init:  http://proceedings.mlr.press/v9/glorot10a/glorot10a.pdf
@@ -202,6 +209,7 @@ class SRUCell(nn.Module):
         # initialize weights such that E[w_ij]=0 and Var[w_ij]=1/d
         val_range = (3.0/self.n_in)**0.5
         self.weight.data.uniform_(-val_range, val_range)
+        w = self.weight.data.view(self.n_in, -1, self.n_out, self.k)
 
         # initialize bias
         self.bias.data.zero_()
@@ -211,17 +219,20 @@ class SRUCell(nn.Module):
         else:
             self.bias.data[n_out:].zero_().add_(bias_val)
 
-        # intialize weight_c such that E[w]=0 and Var[w]=1
-        self.weight_c.data.uniform_(-3.0**0.5, 3.0**0.5)
+        if not self.v1:
+            # intialize weight_c such that E[w]=0 and Var[w]=1
+            self.weight_c.data.uniform_(-3.0**0.5, 3.0**0.5)
 
-        # rescale weight_c and the weight of sigmoid gates with a factor of sqrt(0.5)
-        w = self.weight.data.view(self.n_in, -1, self.n_out, self.k)
-        w[:, :, :, 1].mul_(0.5**0.5)
-        w[:, :, :, 2].mul_(0.5**0.5)
-        self.weight_c.data.mul_(0.5**0.5)
+            # rescale weight_c and the weight of sigmoid gates with a factor of sqrt(0.5)
+            w[:, :, :, 1].mul_(0.5**0.5)
+            w[:, :, :, 2].mul_(0.5**0.5)
+            self.weight_c.data.mul_(0.5**0.5)
+        else:
+            self.weight_c.data.zero_()
+            self.weight_c.requires_grad = False
 
         self.scale_x.data[0] = 1
-        if not rescale:
+        if not self.rescale:
             return
         # scalar used to properly scale the highway output
         scale_val = (1+math.exp(bias_val)*2)**0.5
@@ -256,17 +267,6 @@ class SRUCell(nn.Module):
 
     def forward(self, input, c0=None, mask_pad=None):
         """
-        An SRU is a recurrent neural network cell comprised of 5 equations, enumerated
-        (3) - (7) in "Training RNNs as Fast as CNNs" (https://arxiv.org/pdf/1709.02755.pdf).
-
-        The first 3 of these equations each require a matrix-multiply component,
-        i.e. the input vector x_t dotted with a weight matrix W_i, where i is in
-        {0, 1, 2}.
-
-        As each weight matrix W is dotted with the same input x_t, we can fuse these
-        computations into a single matrix-multiply, i.e. `x_t <dot> stack([W_0, W_1, W_2])`.
-        We call the result of this computation `U`.
-
         This method computes `U`. In addition, it computes the remaining components
         in `SRU_Compute_GPU` or `SRU_Compute_CPU` and return the results.
         """
@@ -313,6 +313,31 @@ class SRUCell(nn.Module):
         w = self.weight.data
         return Variable(w.new(*size).bernoulli_(1-p).div_(1-p))
 
+    def extra_repr(self):
+        s = "{n_in}, {n_out}"
+        if self.dropout > 0:
+            s += ", dropout={dropout}"
+        if self.rnn_dropout > 0:
+            s += ", rnn_dropout={rnn_dropout}"
+        if self.bidirectional:
+            s += ", bidirectional={bidirectional}"
+        if self.highway_bias != 0:
+            s += ", highway_bias={highway_bias}"
+        if self.weight_norm:
+            s += ", weight_norm={weight_norm}"
+        if self.activation_type != 0:
+            s += ", activation={activation}"
+        if self.v1:
+            s += ", v1={v1}"
+        if not self.rescale:
+            s += ", rescale={rescale}"
+        if not self.has_skip_term:
+            s += ", has_skip_term={has_skip_term}"
+        return s.format(**self.__dict__)
+
+    def __repr__(self):
+        return "{}({})".format(self.__class__.__name__, self.extra_repr())
+
 
 class SRU(nn.Module):
     """
@@ -349,14 +374,16 @@ class SRU(nn.Module):
                  dropout=0,
                  rnn_dropout=0,
                  bidirectional=False,
-                 use_tanh=True,
+                 use_tanh=False,
                  use_relu=False,
                  use_selu=False,
                  weight_norm=False,
                  layer_norm=False,
                  is_input_normalized=False,
                  highway_bias=0,
-                 has_skip_term=True):
+                 has_skip_term=True,
+                 rescale=True,
+                 v1=False):
 
         super(SRU, self).__init__()
         self.n_in = input_size
@@ -390,7 +417,9 @@ class SRU(nn.Module):
                 weight_norm=weight_norm,
                 is_input_normalized=is_input_normalized or (i > 0 and self.use_layer_norm),
                 highway_bias=highway_bias,
-                has_skip_term=has_skip_term
+                has_skip_term=has_skip_term,
+                rescale=rescale,
+                v1=v1
             )
             self.rnn_lst.append(l)
             if layer_norm:
@@ -470,3 +499,9 @@ class LayerNorm(nn.Module):
     def reset_parameters(self):
         self.a.data[:] = 1.0
         self.b.data[:] = 0.0
+
+    def extra_repr(self):
+        return "{}, eps={}".format(self.a.numel(), self.eps)
+
+    def __repr__(self):
+        return "{}({})".format(self.__class__.__name__, self.extra_repr())
