@@ -149,6 +149,7 @@ class SRUCell(nn.Module):
                  dropout=0,
                  rnn_dropout=0,
                  bidirectional=False,
+                 n_proj=0,
                  use_tanh=False,
                  use_relu=False,
                  use_selu=False,
@@ -158,6 +159,11 @@ class SRUCell(nn.Module):
                  has_skip_term=True,
                  rescale=True,
                  v1=False):
+
+        if weight_norm and n_proj > 0:
+            raise ValueError(
+                "Weight norm is not supported with projection enabled"
+            )
 
         super(SRUCell, self).__init__()
         self.n_in = n_in
@@ -182,14 +188,25 @@ class SRUCell(nn.Module):
             self.activation_type = 3
             self.activation = 'SeLU'
 
+        self.n_proj = 0
+        if n_proj > 0 and n_proj < n_in and n_proj < n_out:
+            self.n_proj = n_proj
+
         out_size = n_out*2 if bidirectional else n_out
         k = 4 if has_skip_term and n_in != out_size else 3
         self.k = k
         self.size_per_dir = n_out*k
-        self.weight = nn.Parameter(torch.Tensor(
-            n_in,
-            self.size_per_dir*2 if bidirectional else self.size_per_dir
-        ))
+        if self.n_proj == 0:
+            self.weight = nn.Parameter(torch.Tensor(
+                n_in,
+                self.size_per_dir*2 if bidirectional else self.size_per_dir
+            ))
+        else:
+            self.weight_proj = nn.Parameter(torch.Tensor(n_in, self.n_proj))
+            self.weight = nn.Parameter(torch.Tensor(
+                self.n_proj,
+                self.size_per_dir*2 if bidirectional else self.size_per_dir
+            ))
         self.weight_c = nn.Parameter(torch.Tensor(
             n_out*4 if bidirectional else n_out*2
         ))
@@ -207,9 +224,13 @@ class SRUCell(nn.Module):
 
         """
         # initialize weights such that E[w_ij]=0 and Var[w_ij]=1/d
-        val_range = (3.0/self.n_in)**0.5
+        d = self.weight.size(0)
+        val_range = (3.0/d)**0.5
         self.weight.data.uniform_(-val_range, val_range)
-        w = self.weight.data.view(self.n_in, -1, self.n_out, self.k)
+        w = self.weight.data.view(d, -1, self.n_out, self.k)
+        if self.n_proj > 0:
+            val_range_2 = (3.0/self.weight_proj.size(0))**0.5
+            self.weight_proj.data.uniform_(-val_range_2, val_range_2)
 
         # initialize bias
         self.bias.data.zero_()
@@ -265,6 +286,15 @@ class SRUCell(nn.Module):
             self.weight / (wnorm.expand_as(self.weight) + eps)
         )
 
+    def compute_u(self, x_2d):
+        if self.n_proj > 0:
+            x_projected = x_2d.mm(self.weight_proj)  # (-1, n_proj)
+            u = x_projected.mm(self.weight)  # (-1, n_out)
+        else:
+            weight = self.weight if not self.weight_norm else self.apply_weight_norm()
+            u = x_2d.mm(weight)  # (-1, n_out)
+        return u
+
     def forward(self, input, c0=None, mask_pad=None):
         """
         This method computes `U`. In addition, it computes the remaining components
@@ -287,8 +317,7 @@ class SRUCell(nn.Module):
             x = input
 
         x_2d = x if x.dim() == 2 else x.contiguous().view(-1, n_in)
-        weight = self.weight if not self.weight_norm else self.apply_weight_norm()
-        u = x_2d.mm(weight)
+        u = self.compute_u(x_2d)
 
         # get the scaling constant; scale_x is a scalar
         scale_val = self.scale_x.data[0]
@@ -315,6 +344,8 @@ class SRUCell(nn.Module):
 
     def extra_repr(self):
         s = "{n_in}, {n_out}"
+        if self.n_proj > 0:
+            s += ", n_proj={n_proj}"
         if self.dropout > 0:
             s += ", dropout={dropout}"
         if self.rnn_dropout > 0:
@@ -374,6 +405,7 @@ class SRU(nn.Module):
                  dropout=0,
                  rnn_dropout=0,
                  bidirectional=False,
+                 n_proj=0,
                  use_tanh=False,
                  use_relu=False,
                  use_selu=False,
@@ -391,6 +423,7 @@ class SRU(nn.Module):
         self.depth = num_layers
         self.dropout = dropout
         self.rnn_dropout = rnn_dropout
+        self.n_proj = n_proj
         self.rnn_lst = nn.ModuleList()
         self.ln_lst = nn.ModuleList()
         self.bidirectional = bidirectional
@@ -411,6 +444,7 @@ class SRU(nn.Module):
                 dropout=dropout if i+1 != num_layers else 0,
                 rnn_dropout=rnn_dropout,
                 bidirectional=bidirectional,
+                n_proj=n_proj,
                 use_tanh=use_tanh,
                 use_relu=use_relu,
                 use_selu=use_selu,

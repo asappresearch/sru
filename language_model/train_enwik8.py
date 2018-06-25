@@ -42,6 +42,7 @@ class Model(nn.Module):
         self.n_e = len(words) if len(words) < args.n_d else args.n_d
         self.n_d = args.n_d
         self.depth = args.depth
+        self.drop_emb = nn.Dropout(0.1)
         self.drop = nn.Dropout(args.dropout)
         self.embedding_layer = nn.Embedding(len(words), self.n_e)
         self.n_V = len(words)
@@ -54,6 +55,7 @@ class Model(nn.Module):
             self.rnn = MF.SRU(self.n_e, self.n_d, self.depth,
                 dropout = args.rnn_dropout,
                 #rnn_dropout = args.rnn_dropout,
+                n_proj=512,
                 use_tanh = 0,
                 highway_bias = args.bias,
                 layer_norm = args.layer_norm
@@ -73,7 +75,7 @@ class Model(nn.Module):
                 p.data.zero_()
 
     def forward(self, x, hidden):
-        emb = self.drop(self.embedding_layer(x))
+        emb = self.drop_emb(self.embedding_layer(x))
         output, hidden = self.rnn(emb, hidden)
         output = self.drop(output)
         output = output.view(-1, output.size(2))
@@ -150,6 +152,7 @@ def main(args):
     sys.stdout.write("num of parameters: {}\n".format(
         sum(x.numel() for x in model.parameters() if x.requires_grad)
     ))
+    sys.stdout.write("{}\n".format(model))
     sys.stdout.write("\n")
 
     dev_, test_ = dev, test
@@ -280,7 +283,7 @@ if __name__ == "__main__":
     argparser.add_argument("--depth", type=int, default=6)
     argparser.add_argument("--lr", type=float, default=0.001)
     argparser.add_argument("--weight_decay", type=float, default=1e-7)
-    argparser.add_argument("--clip_grad", type=float, default=-1)
+    argparser.add_argument("--clip_grad", type=float, default=0.2)
     argparser.add_argument("--log_period", type=int, default=400)
 
     args = argparser.parse_args()
