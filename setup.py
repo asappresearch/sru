@@ -3,6 +3,7 @@ from setuptools import setup, find_packages
 import shutil
 import os
 import filecmp
+import codecs
 
 PACKAGE = 'sru'
 
@@ -10,7 +11,7 @@ PACKAGE = 'sru'
 def readme():
     """ Return the README text.
     """
-    with open('README.md') as fh:
+    with codecs.open('README.md', encoding='utf-8') as fh:
         return fh.read()
 
 ################################################################################
