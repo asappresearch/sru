@@ -283,7 +283,7 @@ if __name__ == "__main__":
     argparser.add_argument("--depth", type=int, default=6)
     argparser.add_argument("--lr", type=float, default=0.001)
     argparser.add_argument("--weight_decay", type=float, default=1e-7)
-    argparser.add_argument("--clip_grad", type=float, default=0.2)
+    argparser.add_argument("--clip_grad", type=float, default=0.3)
     argparser.add_argument("--log_period", type=int, default=400)
 
     args = argparser.parse_args()
