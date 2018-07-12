@@ -99,6 +99,8 @@ extern "C" {
                     *hp = (val*mask-(*xp))*g2 + (*xp);
                 else
                     *hp = val*mask*g2;
+            } else {
+                *hp = 0;  // output 0 for a pad token
             }
             *cp = cur;  // useful for backward
             up += ncols_u;
@@ -288,6 +290,8 @@ extern "C" {
                     *hp = (val*mask-(*xp))*g2 + (*xp);
                 else
                     *hp = val*mask*g2;
+            } else {
+                *hp = 0;  // ouptut 0 for a pad token
             }
             *cp = cur;  // useful for backward
             up += ncols_u_;
