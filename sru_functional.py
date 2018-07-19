@@ -423,7 +423,7 @@ class SRU(nn.Module):
             )
             self.rnn_lst.append(l)
             if layer_norm:
-                self.ln_lst.append(LayerNorm(self.n_out))
+                self.ln_lst.append(LayerNorm(self.out_size))
 
     def set_bias(self, bias_val=0):
         for l in self.rnn_lst:
