@@ -171,7 +171,7 @@ class SRUCell(nn.Module):
         self.has_skip_term=has_skip_term
         self.activation_type = 0
         self.v1 = v1
-        self.rescale = rescale and v1
+        self.rescale = rescale
         if use_tanh:
             self.activation_type = 1
             self.activation = 'tanh'

@@ -73,7 +73,8 @@ class Model(nn.Module):
                 dropout = args.rnn_dropout,
                 rnn_dropout = args.rnn_dropout,
                 use_tanh = 0,
-                rescale = False  # make sure the behavior is the same as before
+                rescale = False,  # make sure the behavior is the same as before
+                v1 = True,        #
                 highway_bias = args.bias
             )
         self.output_layer = nn.Linear(self.n_d, self.n_V)
