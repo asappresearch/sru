@@ -12,7 +12,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.autograd import Variable
 
-import sru_functional as MF
+import sru
 import dataloader
 import modules
 
@@ -37,7 +37,7 @@ class Model(nn.Module):
             )
             d_out = args.d
         else:
-            self.encoder = MF.SRU(
+            self.encoder = SRU(
                 emb_layer.n_d,
                 args.d,
                 args.depth,

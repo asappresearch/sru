@@ -11,7 +11,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 
-import sru_functional as MF
+import sru
 
 
 def read_corpus(path, eos="</s>"):
@@ -69,7 +69,7 @@ class Model(nn.Module):
                 dropout = args.rnn_dropout
             )
         else:
-            self.rnn = MF.SRU(self.n_d, self.n_d, self.depth,
+            self.rnn = sru.SRU(self.n_d, self.n_d, self.depth,
                 dropout = args.rnn_dropout,
                 rnn_dropout = args.rnn_dropout,
                 use_tanh = 0,

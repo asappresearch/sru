@@ -13,8 +13,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 from tensorboardX import SummaryWriter
 
-import sru_functional as MF
-
+import sru
 
 def read_corpus(path, num_test_symbols=5000000):
     raw_data = open(path).read()
@@ -51,7 +50,7 @@ class Model(nn.Module):
                 dropout = args.rnn_dropout
             )
         else:
-            self.rnn = MF.SRU(self.n_e, self.n_d, self.depth,
+            self.rnn = sru.SRU(self.n_e, self.n_d, self.depth,
                 dropout = args.rnn_dropout,
                 #rnn_dropout = args.rnn_dropout,
                 use_tanh = 0,
