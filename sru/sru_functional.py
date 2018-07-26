@@ -296,8 +296,8 @@ class SRUCell(nn.Module):
         SRU_Compute = SRU_Compute_Class(
             self.activation_type, n_out, self.bidirectional, self.has_skip_term, scale_val
         )
-        # word-around
-        SRU_Compute.mask_pad = mask_pad
+        # work-around
+        SRU_Compute.mask_pad = mask_pad.byte() if mask_pad else None
 
         if self.training and (self.dropout > 0):
             bidir = 2 if self.bidirectional else 1
