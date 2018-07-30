@@ -53,6 +53,7 @@ class Model(nn.Module):
             self.rnn = sru.SRU(self.n_e, self.n_d, self.depth,
                 dropout = args.rnn_dropout,
                 #rnn_dropout = args.rnn_dropout,
+                n_proj = args.n_proj,
                 use_tanh = 0,
                 highway_bias = args.bias,
                 layer_norm = args.layer_norm
@@ -267,6 +268,7 @@ if __name__ == "__main__":
     argparser.add_argument("--unroll_size", type=int, default=100)
     argparser.add_argument("--max_epoch", type=int, default=100)
     argparser.add_argument("--n_d", "--d", type=int, default=1024)
+    argparser.add_argument("--n_proj", type=int, default=0)
     argparser.add_argument("--dropout", type=float, default=0.1,
         help="dropout of word embeddings and softmax output"
     )
@@ -279,7 +281,7 @@ if __name__ == "__main__":
     argparser.add_argument("--depth", type=int, default=6)
     argparser.add_argument("--lr", type=float, default=0.001)
     argparser.add_argument("--weight_decay", type=float, default=1e-7)
-    argparser.add_argument("--clip_grad", type=float, default=-1)
+    argparser.add_argument("--clip_grad", type=float, default=0.3)
     argparser.add_argument("--log_period", type=int, default=400)
 
     args = argparser.parse_args()
