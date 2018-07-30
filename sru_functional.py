@@ -286,16 +286,7 @@ class SRUCell(nn.Module):
             self.weight / (wnorm.expand_as(self.weight) + eps)
         )
 
-    def compute_u(self, x_2d):
-        if self.n_proj > 0:
-            x_projected = x_2d.mm(self.weight_proj)  # (-1, n_proj)
-            u = x_projected.mm(self.weight)  # (-1, n_out)
-        else:
-            weight = self.weight if not self.weight_norm else self.apply_weight_norm()
-            u = x_2d.mm(weight)  # (-1, n_out)
-        return u
-
-    def forward(self, input, c0=None, mask_pad=None):
+    def forward(self, input, c0=None, mask_pad=None, return_proj=False):
         """
         This method computes `U`. In addition, it computes the remaining components
         in `SRU_Compute_GPU` or `SRU_Compute_CPU` and return the results.
@@ -303,6 +294,9 @@ class SRUCell(nn.Module):
 
         if input.dim() != 2 and input.dim() != 3:
             raise ValueError("Input must be 2 or 3 dimensional")
+        #if return_proj and not self.n_proj == 0:
+        #    raise ValueError("Down projection is not enabled")
+
         n_in, n_out = self.n_in, self.n_out
         batch = input.size(-2)
         if c0 is None:
@@ -310,14 +304,23 @@ class SRUCell(nn.Module):
                 batch, n_out if not self.bidirectional else n_out*2
             ).zero_())
 
+        # apply dropout for multiplication
         if self.training and (self.rnn_dropout > 0):
             mask = self.get_dropout_mask_((batch, n_in), self.rnn_dropout)
             x = input * mask.expand_as(input)
         else:
             x = input
 
+        # compute U
         x_2d = x if x.dim() == 2 else x.contiguous().view(-1, n_in)
-        u = self.compute_u(x_2d)
+        weight = self.weight if not self.weight_norm else self.apply_weight_norm()
+        if self.n_proj > 0:
+            x_projected = x_2d.mm(self.weight_proj)  # down-proj to n_proj
+            u = x_projected.mm(weight)
+            x_projected = x_projected.view(-1, batch, self.n_proj)
+        else:
+            x_projected = input
+            u = x_2d.mm(weight)
 
         # get the scaling constant; scale_x is a scalar
         scale_val = self.scale_x.data[0]
@@ -331,9 +334,14 @@ class SRUCell(nn.Module):
         if self.training and (self.dropout > 0):
             bidir = 2 if self.bidirectional else 1
             mask_h = self.get_dropout_mask_((batch, n_out*bidir), self.dropout)
-            return SRU_Compute(u, input, self.weight_c, self.bias, c0, mask_h)
+            h, c = SRU_Compute(u, input, self.weight_c, self.bias, c0, mask_h)
         else:
-            return SRU_Compute(u, input, self.weight_c, self.bias, c0)
+            h, c = SRU_Compute(u, input, self.weight_c, self.bias, c0)
+
+        if return_proj:
+            return h, c, x_projected
+        else:
+            return h, c
 
     def get_dropout_mask_(self, size, p):
         """
