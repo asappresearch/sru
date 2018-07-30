@@ -440,7 +440,8 @@ extern "C" {
 
 class SRU_Compute_GPU(Function):
 
-    _SRU_PROG = Program(SRU_CODE.encode('utf-8'), 'sru_prog.cu'.encode())
+    #_SRU_PROG = Program(SRU_CODE.encode('utf-8'), 'sru_prog.cu'.encode())  # for pynvrtc < 9.0
+    _SRU_PROG = Program(SRU_CODE, 'sru_prog.cu')  # for pynvrtc >= 9.0
     _SRU_PTX = _SRU_PROG.compile()
     _DEVICE2FUNC = {}
 
