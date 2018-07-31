@@ -315,7 +315,6 @@ class SRUCell(nn.Module):
             x_projected = x_2d.mm(self.weight_proj)  # down-proj to n_proj
             u = x_projected.mm(weight)
         else:
-            x_projected = input
             u = x_2d.mm(weight)
 
         # get the scaling constant; scale_x is a scalar
@@ -325,7 +324,7 @@ class SRUCell(nn.Module):
             self.activation_type, n_out, self.bidirectional, self.has_skip_term, scale_val
         )
         # work-around
-        SRU_Compute.mask_pad = mask_pad.byte() if mask_pad else None
+        SRU_Compute.mask_pad = mask_pad.byte() if mask_pad is not None else None
 
         if self.training and (self.dropout > 0):
             bidir = 2 if self.bidirectional else 1
@@ -335,7 +334,8 @@ class SRUCell(nn.Module):
             h, c = SRU_Compute(u, input, self.weight_c, self.bias, c0)
 
         if return_proj:
-            return h, c, x_projected.view(-1, batch, self.n_proj)
+            x_projected = x_projected.view(-1, batch, self.n_proj) if self.n_proj else input
+            return h, c, x_projected
         else:
             return h, c
 
