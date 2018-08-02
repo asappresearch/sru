@@ -450,7 +450,8 @@ class SRU_Compute_GPU(Function):
                  d_out,
                  bidirectional=False,
                  has_skip_term=True,
-                 scale_x=1):
+                 scale_x=1,
+                 mask_pad=None):
 
         super(SRU_Compute_GPU, self).__init__()
         self.activation_type = activation_type
@@ -458,6 +459,7 @@ class SRU_Compute_GPU(Function):
         self.bidirectional = bidirectional
         self.has_skip_term = has_skip_term
         self.scale_x = scale_x
+        self.mask_pad = mask_pad
 
     def compile_functions(self):
         device = torch.cuda.current_device()
@@ -481,11 +483,12 @@ class SRU_Compute_GPU(Function):
         res = self._DEVICE2FUNC.get(torch.cuda.current_device(), None)
         return res if res else self.compile_functions()
 
-    def forward(self, u, x, weight_c, bias, init=None, mask_c=None, mask_pad=None):
+    def forward(self, u, x, weight_c, bias, init=None, mask_c=None):
         bidir = 2 if self.bidirectional else 1
         length = x.size(0) if x.dim() == 3 else 1
         batch = x.size(-2)
         d = self.d_out
+        mask_pad = self.mask_pad
         if mask_pad is not None:
             assert mask_pad.size(0) == length
             assert mask_pad.size(1) == batch
@@ -531,7 +534,7 @@ class SRU_Compute_GPU(Function):
             stream=stream
         )
 
-        self.save_for_backward(u, x, weight_c, bias, init, mask_c, mask_pad)
+        self.save_for_backward(u, x, weight_c, bias, init, mask_c)
         self.intermediate = c
         if x.dim() == 2:
             last_hidden = c
@@ -543,9 +546,10 @@ class SRU_Compute_GPU(Function):
 
     def backward(self, grad_h, grad_last):
         bidir = 2 if self.bidirectional else 1
-        u, x, weight_c, bias, init, mask_c, mask_pad = self.saved_tensors
+        u, x, weight_c, bias, init, mask_c = self.saved_tensors
         c = self.intermediate
         scale_x = self.scale_x
+        mask_pad = self.mask_pad
         length = x.size(0) if x.dim() == 3 else 1
         batch = x.size(-2)
         d = self.d_out
