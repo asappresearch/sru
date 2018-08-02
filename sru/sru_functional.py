@@ -33,7 +33,7 @@ def SRU_Compute_CPU(activation_type,
         scale_x (float) : scaling constant on the highway connection
     """
 
-    def sru_compute_cpu(u, x, weight_c, bias, init=None, mask_h=None):
+    def sru_compute_cpu(u, x, weight_c, bias, init=None, mask_c=None, mask_pad=None):
         """
         An SRU is a recurrent neural network cell comprised of 5 equations, enumerated
         (3) - (7) in "Training RNNs as Fast as CNNs" (https://arxiv.org/pdf/1709.02755.pdf).
@@ -58,6 +58,7 @@ def SRU_Compute_CPU(activation_type,
         batch = x.size(-2)
         k = u.size(-1) // d // bidir
 
+        mask_pad = mask_pad.view(length, batch, 1) if mask_pad is not None else mask_pad
         u = u.view(length, batch, bidir, d, k)
         forget_wc, reset_wc = weight_c.view(2, bidir, d)
         forget_bias, reset_bias = bias.view(2, bidir, d)
@@ -84,7 +85,7 @@ def SRU_Compute_CPU(activation_type,
             else:
                 time_seq = range(length - 1, -1, -1)
 
-            mask_h_ = 1 if mask_h is None else mask_h.view(batch, bidir, d)[:, di, :]
+            mask_c_ = 1 if mask_c is None else mask_c.view(batch, bidir, d)[:, di, :]
             c_prev = c_init[:, di, :]
             fb, rb = forget_bias[di], reset_bias[di]
             fw, rw = forget_wc[di].expand(batch, d), reset_wc[di].expand(batch, d)
@@ -96,6 +97,8 @@ def SRU_Compute_CPU(activation_type,
                 forget_t = (u1[t] + c_prev*fw).sigmoid()
                 reset_t = (u2[t] + c_prev*rw).sigmoid()
                 c_t = u0[t] + (c_prev - u0[t]) * forget_t
+                if mask_pad is not None:
+                    c_t = c_t * (1-mask_pad[t]) + c_prev * mask_pad[t]
                 c_prev = c_t
 
                 if activation_type == 0:
@@ -108,9 +111,12 @@ def SRU_Compute_CPU(activation_type,
                     raise ValueError('Activation type must be 0, 1, or 2, not {}'.format(activation_type))
 
                 if x_prime is not None:
-                    h[t, :, di, :] = xp[t] + (g_c_t * mask_h_ - xp[t]) * reset_t
+                    h_t = xp[t] + (g_c_t * mask_c_ - xp[t]) * reset_t
                 else:
-                    h[t, :, di, :] = g_c_t * mask_h_ * reset_t
+                    h_t = g_c_t * mask_c_ * reset_t
+                if mask_pad is not None:
+                    h_t = h_t * (1-mask_pad[t])
+                h[t, :, di, :] = h_t
 
             c_final.append(c_t)
         return h.view(length, batch, -1), torch.stack(c_final, dim=1).view(batch, -1)
@@ -323,15 +329,19 @@ class SRUCell(nn.Module):
         SRU_Compute = SRU_Compute_Class(
             self.activation_type, n_out, self.bidirectional, self.has_skip_term, scale_val
         )
-        # work-around
-        SRU_Compute.mask_pad = mask_pad.byte() if mask_pad is not None else None
 
+        # ensure mask_pad is a byte tensor
+        mask_pad = mask_pad.byte() if mask_pad is not None else None
+
+        # compute dropout mask for states c[]
         if self.training and (self.dropout > 0):
             bidir = 2 if self.bidirectional else 1
-            mask_h = self.get_dropout_mask_((batch, n_out*bidir), self.dropout)
-            h, c = SRU_Compute(u, input, self.weight_c, self.bias, c0, mask_h)
+            mask_c = self.get_dropout_mask_((batch, n_out*bidir), self.dropout)
         else:
-            h, c = SRU_Compute(u, input, self.weight_c, self.bias, c0)
+            mask_c = None
+
+        # compute all element-wise operations
+        h, c = SRU_Compute(u, input, self.weight_c, self.bias, c0, mask_c, mask_pad)
 
         if return_proj:
             x_projected = x_projected.view(-1, batch, self.n_proj) if self.n_proj else input

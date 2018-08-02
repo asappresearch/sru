@@ -54,7 +54,7 @@ extern "C" {
                             const float * __restrict__ weight_c,
                             const float * __restrict__ bias,
                             const float * __restrict__ init,
-                            const float * __restrict__ mask_h,
+                            const float * __restrict__ mask_c,
                             const char * __restrict__ mask_pad,
                             const int len,
                             const int batch,
@@ -80,7 +80,7 @@ extern "C" {
         const float wc2 = *(weight_c + (col%d) + d);
         const float bias1 = *(bias + (col%d));
         const float bias2 = *(bias + (col%d) + d);
-        const float mask = (mask_h == NULL) ? 1.0 : (*(mask_h + col));
+        const float mask = (mask_c == NULL) ? 1.0 : (*(mask_c + col));
         float cur = *(init + col);
         const float *up = u + (col*k);
         const float *xp = (skip_type == 0) ? NULL : ((skip_type == 1) ? (x + col) : (up + 3));
@@ -116,7 +116,7 @@ extern "C" {
                             const float * __restrict__ weight_c,
                             const float * __restrict__ bias,
                             const float * __restrict__ init,
-                            const float * __restrict__ mask_h,
+                            const float * __restrict__ mask_c,
                             const char * __restrict__ mask_pad,
                             const float * __restrict__ c,
                             const float * __restrict__ grad_h,
@@ -148,7 +148,7 @@ extern "C" {
         const float wc2 = *(weight_c + (col%d) + d);
         const float bias1 = *(bias + (col%d));
         const float bias2 = *(bias + (col%d) + d);
-        const float mask = (mask_h == NULL) ? 1.0 : (*(mask_h + col));
+        const float mask = (mask_c == NULL) ? 1.0 : (*(mask_c + col));
         float gwc1 = 0;
         float gwc2 = 0;
         float gbias1 = 0;
@@ -232,7 +232,7 @@ extern "C" {
                             const float * __restrict__ weight_c,
                             const float * __restrict__ bias,
                             const float * __restrict__ init,
-                            const float * __restrict__ mask_h,
+                            const float * __restrict__ mask_c,
                             const char * __restrict__ mask_pad,
                             const int len,
                             const int batch,
@@ -253,7 +253,7 @@ extern "C" {
 
         const int ncols_u = ncols*k;
         const int ncols_x = (k == 3) ? ncols : ncols_u;
-        const float mask = (mask_h == NULL) ? 1.0 : (*(mask_h + col));
+        const float mask = (mask_c == NULL) ? 1.0 : (*(mask_c + col));
         float cur = *(init + col);
         const int d2 = d*2;
         const float wc1 = *(weight_c + (col%d2));
@@ -307,7 +307,7 @@ extern "C" {
                                const float * __restrict__ weight_c,
                                const float * __restrict__ bias,
                                const float * __restrict__ init,
-                               const float * __restrict__ mask_h,
+                               const float * __restrict__ mask_c,
                                const char * __restrict__ mask_pad,
                                const float * __restrict__ c,
                                const float * __restrict__ grad_h,
@@ -334,7 +334,7 @@ extern "C" {
 
         int ncols_u = ncols*k;
         int ncols_x = (k == 3) ? ncols : ncols_u;
-        const float mask = (mask_h == NULL) ? 1.0 : (*(mask_h + col));
+        const float mask = (mask_c == NULL) ? 1.0 : (*(mask_c + col));
         float gwc1 = 0;
         float gwc2 = 0;
         float gbias1 = 0;
@@ -458,7 +458,6 @@ class SRU_Compute_GPU(Function):
         self.bidirectional = bidirectional
         self.has_skip_term = has_skip_term
         self.scale_x = scale_x
-        self.mask_pad = None
 
     def compile_functions(self):
         device = torch.cuda.current_device()
@@ -482,12 +481,11 @@ class SRU_Compute_GPU(Function):
         res = self._DEVICE2FUNC.get(torch.cuda.current_device(), None)
         return res if res else self.compile_functions()
 
-    def forward(self, u, x, weight_c, bias, init=None, mask_h=None):
+    def forward(self, u, x, weight_c, bias, init=None, mask_c=None, mask_pad=None):
         bidir = 2 if self.bidirectional else 1
         length = x.size(0) if x.dim() == 3 else 1
         batch = x.size(-2)
         d = self.d_out
-        mask_pad = self.mask_pad
         if mask_pad is not None:
             assert mask_pad.size(0) == length
             assert mask_pad.size(1) == batch
@@ -518,7 +516,7 @@ class SRU_Compute_GPU(Function):
             weight_c.data_ptr(),
             bias.data_ptr(),
             init_.contiguous().data_ptr(),
-            mask_h.data_ptr() if mask_h is not None else 0,
+            mask_c.data_ptr() if mask_c is not None else 0,
             mask_pad.contiguous().data_ptr() if mask_pad is not None else 0,
             length,
             batch,
@@ -533,7 +531,7 @@ class SRU_Compute_GPU(Function):
             stream=stream
         )
 
-        self.save_for_backward(u, x, weight_c, bias, init, mask_h)
+        self.save_for_backward(u, x, weight_c, bias, init, mask_c, mask_pad)
         self.intermediate = c
         if x.dim() == 2:
             last_hidden = c
@@ -545,10 +543,9 @@ class SRU_Compute_GPU(Function):
 
     def backward(self, grad_h, grad_last):
         bidir = 2 if self.bidirectional else 1
-        u, x, weight_c, bias, init, mask_h = self.saved_tensors
+        u, x, weight_c, bias, init, mask_c, mask_pad = self.saved_tensors
         c = self.intermediate
         scale_x = self.scale_x
-        mask_pad = self.mask_pad
         length = x.size(0) if x.dim() == 3 else 1
         batch = x.size(-2)
         d = self.d_out
@@ -580,7 +577,7 @@ class SRU_Compute_GPU(Function):
             weight_c.data_ptr(),
             bias.data_ptr(),
             init_.contiguous().data_ptr(),
-            mask_h.data_ptr() if mask_h is not None else 0,
+            mask_c.data_ptr() if mask_c is not None else 0,
             mask_pad.contiguous().data_ptr() if mask_pad is not None else 0,
             c.data_ptr(),
             grad_h.contiguous().data_ptr(),
