@@ -59,7 +59,7 @@ def SRU_Compute_CPU(activation_type,
         batch = x.size(-2)
         k = u.size(-1) // d // bidir
 
-        mask_pad_ = mask_pad.view(length, batch, 1) if mask_pad is not None else mask_pad
+        mask_pad_ = mask_pad.view(length, batch, 1).float() if mask_pad is not None else mask_pad
         u = u.view(length, batch, bidir, d, k)
         forget_wc, reset_wc = weight_c.view(2, bidir, d)
         forget_bias, reset_bias = bias.view(2, bidir, d)
