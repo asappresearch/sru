@@ -34,53 +34,61 @@ def get_requirements():
     return [line for line in lines if line]
 
 ################################################################################
-if not os.path.isfile('sru/cuda_functional.py'):
-    shutil.copy('cuda_functional.py', 'sru')
-    needs_delete = True
-elif not filecmp.cmp(
-        'sru/cuda_functional.py', 'cuda_functional.py', shallow=False
-    ):
-    raise ValueError('Running setup would overwrite the file '
-        '"sru/cuda_functional.py". Ensure that any changes to the file are '
-        'present in "./cuda_functional.py", delete "sru/cuda_functional.py", '
-        'and then try again.')
-else:
-    needs_delete = False
+#if not os.path.isfile('sru/cuda_functional.py'):
+#    shutil.copy('cuda_functional.py', 'sru')
+#    cuda_needs_delete = True
+#elif not filecmp.cmp(
+#        'sru/cuda_functional.py', 'cuda_functional.py', shallow=False
+#    ):
+#    raise ValueError('Running setup would overwrite the file '
+#        '"sru/cuda_functional.py". Ensure that any changes to the file are '
+#        'present in "./cuda_functional.py", delete "sru/cuda_functional.py", '
+#        'and then try again.')
+#else:
+#    cuda_needs_delete = False
+#
+#if not os.path.isfile('sru/sru_functional.py'):
+#    shutil.copy('sru_functional.py', 'sru')
+#    sru_needs_delete = True
+#elif not filecmp.cmp(
+#        'sru/sru_functional.py', 'sru_functional.py', shallow=False
+#    ):
+#    raise ValueError('Running setup would overwrite the file '
+#        '"sru/sru_functional.py". Ensure that any changes to the file are '
+#        'present in "./sru_functional.py", delete "sru/sru_functional.py", '
+#        'and then try again.')
+#else:
+#    sru_needs_delete = False
 
-try:
-    setup(
-        # Package information
-        name=PACKAGE,
-        version=get_version(),
-        description='Training RNNs as Fast as CNNs',
-        long_description=readme(),
-        keywords='deep learning rnn lstm cudnn sru fast',
-        classifiers=[
-        ],
+setup(
+    # Package information
+    name=PACKAGE,
+    version=get_version(),
+    description='Training RNNs as Fast as CNNs',
+    long_description=readme(),
+    keywords='deep learning rnn lstm cudnn sru fast',
+    classifiers=[
+    ],
 
-        # Author information
-        url='https://github.com/taolei87/sru',
-        author='Tao Lei, Yu Zhang',
-        author_email='tao@asapp.com',
-        license='MIT',
+    # Author information
+    url='https://github.com/taolei87/sru',
+    author='Tao Lei, Yu Zhang',
+    author_email='tao@asapp.com',
+    license='MIT',
 
-        # What is packaged here.
-        packages=['sru'],
+    # What is packaged here.
+    packages=['sru'],
 
-        # What to include
-        package_data={
-            '': ['*.txt', '*.rst', '*.md']
-        },
+    # What to include
+    package_data={
+        '': ['*.txt', '*.rst', '*.md']
+    },
 
-        # Dependencies
-        install_requires=get_requirements(),
-        dependency_links=[
-        ],
+    # Dependencies
+    install_requires=get_requirements(),
+    dependency_links=[
+    ],
 
-        zip_safe=False
-    )
-finally:
-    if needs_delete:
-        os.unlink('sru/cuda_functional.py')
-
+    zip_safe=False
+)
 #### EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF

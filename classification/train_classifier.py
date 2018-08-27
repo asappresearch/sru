@@ -12,7 +12,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.autograd import Variable
 
-import cuda_functional as MF
+import sru
 import dataloader
 import modules
 
@@ -37,7 +37,7 @@ class Model(nn.Module):
             )
             d_out = args.d
         else:
-            self.encoder = MF.SRU(
+            self.encoder = SRU(
                 emb_layer.n_d,
                 args.d,
                 args.depth,
@@ -161,19 +161,16 @@ def main(args):
         train_x, train_y,
         args.batch_size,
         emb_layer.word2id,
-        sort = args.dataset == 'sst'
     )
     valid_x, valid_y = dataloader.create_batches(
         valid_x, valid_y,
         args.batch_size,
         emb_layer.word2id,
-        sort = args.dataset == 'sst'
     )
     test_x, test_y = dataloader.create_batches(
         test_x, test_y,
         args.batch_size,
         emb_layer.word2id,
-        sort = args.dataset == 'sst'
     )
 
     model = Model(args, emb_layer, nclasses).cuda()

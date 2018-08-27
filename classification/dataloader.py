@@ -51,7 +51,7 @@ def read_MR(path, seed=1234):
 
 def read_SUBJ(path, seed=1234):
     file_path = os.path.join(path, "subj.all")
-    data, labels = read_corpus(file_path)
+    data, labels = read_corpus(file_path, encoding='latin-1')
     random.seed(seed)
     perm = list(range(len(data)))
     random.shuffle(perm)
@@ -82,8 +82,8 @@ def read_MPQA(path, seed=1234):
 def read_TREC(path, seed=1234):
     train_path = os.path.join(path, "TREC.train.all")
     test_path = os.path.join(path, "TREC.test.all")
-    train_x, train_y = read_corpus(train_path, TREC=True)
-    test_x, test_y = read_corpus(test_path, TREC=True)
+    train_x, train_y = read_corpus(train_path, TREC=True, encoding='latin-1')
+    test_x, test_y = read_corpus(test_path, TREC=True, encoding='latin-1')
     random.seed(seed)
     perm = list(range(len(train_x)))
     random.shuffle(perm)
@@ -173,7 +173,7 @@ def create_batches(x, y, batch_size, map2id, perm=None, sort=False):
         batches_y.append(by)
 
     if sort:
-        perm = range(nbatch)
+        perm = list(range(nbatch))
         random.shuffle(perm)
         batches_x = [ batches_x[i] for i in perm ]
         batches_y = [ batches_y[i] for i in perm ]

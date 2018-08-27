@@ -35,7 +35,7 @@ The usage of SRU is similar to `nn.LSTM`. SRU likely requires more stacking laye
 ```python
 import torch
 from torch.autograd import Variable
-from cuda_functional import SRU, SRUCell
+from sru import SRU, SRUCell
 
 # input has length 20, batch size 32 and dimension 128
 x = Variable(torch.FloatTensor(20, 32, 128).cuda())
@@ -62,7 +62,7 @@ output_states, c_states = rnn(x)      # forward pass
 # c_states is (layers, batch size, number of directions * hidden size)
 
 ```
-Make sure `cuda_functional.py` and the shared library `cuda/lib64` can be found by the system, e.g. 
+Make sure this repo and the shared library `cuda/lib64` can be found by the system, e.g. 
 ```
 export LD_LIBRARY_PATH=/usr/local/cuda/lib64
 export PYTHONPATH=path_to_repo/sru
