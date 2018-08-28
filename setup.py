@@ -1,20 +1,17 @@
-###############################################################################
-from setuptools import setup, find_packages
-import shutil
+from setuptools import setup
 import os
-import filecmp
 import codecs
 
 PACKAGE = 'sru'
 
-################################################################################
+
 def readme():
     """ Return the README text.
     """
     with codecs.open('README.md', encoding='utf-8') as fh:
         return fh.read()
 
-################################################################################
+
 def get_version():
     """ Gets the current version of the package.
     """
@@ -26,39 +23,13 @@ def get_version():
                     .replace('"', '').replace("'", '')
     raise ValueError('Failed to parse version from: {}'.format(version_py))
 
-################################################################################
+
 def get_requirements():
     with open('requirements.txt') as fh:
         lines = fh.readlines()
     lines = [line.strip() for line in lines]
     return [line for line in lines if line]
 
-################################################################################
-#if not os.path.isfile('sru/cuda_functional.py'):
-#    shutil.copy('cuda_functional.py', 'sru')
-#    cuda_needs_delete = True
-#elif not filecmp.cmp(
-#        'sru/cuda_functional.py', 'cuda_functional.py', shallow=False
-#    ):
-#    raise ValueError('Running setup would overwrite the file '
-#        '"sru/cuda_functional.py". Ensure that any changes to the file are '
-#        'present in "./cuda_functional.py", delete "sru/cuda_functional.py", '
-#        'and then try again.')
-#else:
-#    cuda_needs_delete = False
-#
-#if not os.path.isfile('sru/sru_functional.py'):
-#    shutil.copy('sru_functional.py', 'sru')
-#    sru_needs_delete = True
-#elif not filecmp.cmp(
-#        'sru/sru_functional.py', 'sru_functional.py', shallow=False
-#    ):
-#    raise ValueError('Running setup would overwrite the file '
-#        '"sru/sru_functional.py". Ensure that any changes to the file are '
-#        'present in "./sru_functional.py", delete "sru/sru_functional.py", '
-#        'and then try again.')
-#else:
-#    sru_needs_delete = False
 
 setup(
     # Package information
@@ -73,7 +44,7 @@ setup(
 
     # Author information
     url='https://github.com/taolei87/sru',
-    author='Tao Lei, Yu Zhang',
+    author='Tao Lei, Yu Zhang, Sida I. Wang, Hui Dai and Yoav Artzi',
     author_email='tao@asapp.com',
     license='MIT',
 
@@ -87,11 +58,10 @@ setup(
 
     # Dependencies
     extras_require={
-        'cuda':  ["cupy", "pynvrtc"],
+        'cuda': ["cupy", "pynvrtc"],
     },
     dependency_links=[
     ],
 
     zip_safe=False
 )
-#### EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF.EOF
