@@ -66,6 +66,7 @@ setup(
     version=get_version(),
     description='Training RNNs as Fast as CNNs',
     long_description=readme(),
+    long_description_content_type="text/markdown",  # make pypi render long description as markdown
     keywords='deep learning rnn lstm cudnn sru fast',
     classifiers=[
     ],
@@ -85,7 +86,9 @@ setup(
     },
 
     # Dependencies
-    install_requires=get_requirements(),
+    extras_require={
+        'cuda':  ["cupy", "pynvrtc"],
+    },
     dependency_links=[
     ],
 
