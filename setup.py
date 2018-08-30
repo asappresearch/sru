@@ -35,10 +35,10 @@ setup(
     # Package information
     name=PACKAGE,
     version=get_version(),
-    description='Training RNNs as Fast as CNNs',
+    description='Simple Recurrent Units for Highly Parallelizable Recurrence',
     long_description=readme(),
     long_description_content_type="text/markdown",  # make pypi render long description as markdown
-    keywords='deep learning rnn lstm cudnn sru fast',
+    keywords='deep learning rnn lstm cudnn sru fast pytorch torch',
     classifiers=[
     ],
 

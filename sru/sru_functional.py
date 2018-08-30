@@ -36,8 +36,8 @@ def SRU_Compute_CPU(activation_type,
 
     def sru_compute_cpu(u, x, weight_c, bias, init=None, mask_c=None):
         """
-        An SRU is a recurrent neural network cell comprised of 5 equations, enumerated
-        (3) - (7) in "Training RNNs as Fast as CNNs" (https://arxiv.org/pdf/1709.02755.pdf).
+        An SRU is a recurrent neural network cell comprised of 5 equations, described
+        in "Simple Recurrent Units for Highly Parallelizable Recurrence."
 
         The first 3 of these equations each require a matrix-multiply component,
         i.e. the input vector x_t dotted with a weight matrix W_i, where i is in
