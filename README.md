@@ -44,6 +44,8 @@ export PYTHONPATH=path_to_repo/sru
 export LD_LIBRARY_PATH=/usr/local/cuda/lib64
 ```
 
+<br>
+
 ## Examples
 The usage of SRU is similar to `nn.LSTM`. SRU likely requires more stacking layers than LSTM. We recommend starting by 2 layers and use more if necessary (see our report for more experimental details).
 ```python
