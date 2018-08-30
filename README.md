@@ -3,7 +3,7 @@
 
 **SRU** is a recurrent unit that can run over 10 times faster than cuDNN LSTM, without loss of accuracy tested on many tasks. 
 <p align="center">
-<img width=620 src="https://github.com/taolei87/sru/blob/master/imgs/speed.png"><br>
+<img width=620 src="https://raw.githubusercontent.com/taolei87/sru/master/imgs/speed.png"><br>
 <i>Average processing time of LSTM, conv2d and SRU, tested on GTX 1070</i><br>
 </p>
 For example, the figure above presents the processing time of a single mini-batch of 32 samples. SRU achieves 10 to 16 times speed-up compared to LSTM, and operates as fast as (or faster than) word-level convolution using conv2d. 
