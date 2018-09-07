@@ -42,7 +42,6 @@ class Model(nn.Module):
                 args.d,
                 args.depth,
                 dropout = args.dropout,
-                use_tanh = 1,
             )
             d_out = args.d
         self.out = nn.Linear(d_out, nclasses)

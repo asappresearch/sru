@@ -38,7 +38,10 @@ class Model(nn.Module):
     def __init__(self, words, args):
         super(Model, self).__init__()
         self.args = args
-        self.n_e = len(words) if len(words) < args.n_d else args.n_d
+        if args.n_e:
+            self.n_e = args.n_e
+        else:
+            self.n_e = len(words) if len(words) < args.n_d else args.n_d
         self.n_d = args.n_d
         self.depth = args.depth
         self.drop = nn.Dropout(args.dropout)
@@ -47,14 +50,13 @@ class Model(nn.Module):
         if args.lstm:
             self.rnn = nn.LSTM(self.n_e, self.n_d,
                 self.depth,
-                dropout = args.rnn_dropout
+                dropout = args.dropout
             )
         else:
             self.rnn = sru.SRU(self.n_e, self.n_d, self.depth,
-                dropout = args.rnn_dropout,
-                #rnn_dropout = args.rnn_dropout,
+                dropout = args.dropout,
                 n_proj = args.n_proj,
-                use_tanh = 0,
+                #use_tanh = 0,
                 highway_bias = args.bias,
                 layer_norm = args.layer_norm
             )
@@ -144,6 +146,7 @@ def main(args):
 
     model = Model(words, args)
     model.cuda()
+    print (model)
     sys.stdout.write("vocab size: {}\n".format(
         model.n_V
     ))
@@ -216,15 +219,13 @@ def main(args):
             if niter%args.log_period == 0:
                 elapsed_time = (time.time()-start_time)/60.0
                 dev_ppl, dev_loss = eval_model(model, dev)
-                test_ppl, test_loss = eval_model(model, test)
                 sys.stdout.write("\rIter={}  lr={:.5f}  train_loss={:.4f}  dev_loss={:.4f}"
-                        "  dev_bpc={:.2f} {:.2f}\teta={:.1f}m\t[{:.1f}m]\n".format(
+                        "  dev_bpc={:.2f}\teta={:.1f}m\t[{:.1f}m]\n".format(
                     niter,
                     optimizer.param_groups[0]['lr'],
                     loss.data[0],
                     dev_loss,
                     np.log2(dev_ppl),
-                    np.log2(test_ppl),
                     elapsed_time*N/(i+1),
                     elapsed_time
                 ))
@@ -260,29 +261,27 @@ if __name__ == "__main__":
     argparser = argparse.ArgumentParser(sys.argv[0], conflict_handler='resolve')
     argparser.add_argument("--log", type=str, required=True)
     argparser.add_argument("--noam", action="store_true")
-    argparser.add_argument("--warmup_steps", type=int, default=8000)
+    argparser.add_argument("--warmup_steps", type=int, default=32000)
     argparser.add_argument("--layer_norm", action="store_true")
     argparser.add_argument("--lstm", action="store_true")
     argparser.add_argument("--data", type=str, required=True, help="training file")
     argparser.add_argument("--batch_size", "--batch", type=int, default=128)
     argparser.add_argument("--unroll_size", type=int, default=100)
     argparser.add_argument("--max_epoch", type=int, default=100)
+    argparser.add_argument("--n_e", type=int, default=0)
     argparser.add_argument("--n_d", "--d", type=int, default=1024)
     argparser.add_argument("--n_proj", type=int, default=0)
-    argparser.add_argument("--dropout", type=float, default=0.1,
-        help="dropout of word embeddings and softmax output"
+    argparser.add_argument("--dropout", type=float, default=0.2,
+        help="dropout probability"
     )
-    argparser.add_argument("--rnn_dropout", type=float, default=0.1,
-        help="dropout of RNN layers"
-    )
-    argparser.add_argument("--bias", type=float, default=-2,
+    argparser.add_argument("--bias", type=float, default=-3,
         help="intial bias of highway gates",
     )
     argparser.add_argument("--depth", type=int, default=6)
     argparser.add_argument("--lr", type=float, default=0.001)
     argparser.add_argument("--weight_decay", type=float, default=1e-7)
     argparser.add_argument("--clip_grad", type=float, default=0.3)
-    argparser.add_argument("--log_period", type=int, default=400)
+    argparser.add_argument("--log_period", type=int, default=3000)
 
     args = argparser.parse_args()
     print (args)

@@ -1,16 +1,31 @@
 
 Code used for language modeling. 
-In the experiments, we used identity activation `--use_tanh 0` and set highway gate bias to `-3`.
-These choices are found to produce better results.
 
-## How to run
-  - Download the dataset from https://github.com/yoonkim/lstm-char-cnn/tree/master/data/ptb
+## Train Enwik8
+  - Download the dataset from http://mattmahoney.net/dc/enwik8.zip and unzip the file
   
-  - Make sure CUDA library path and `cuda_functional.py` is available to python. For example,
-  ```python
-    export LD_LIBRARY_PATH=/usr/local/cuda/lib64
-    export PYTHONPATH=../../sru/
+  - Run **train_enwik8.py** and get the results.
   ```
+    python train_enwik8.py --help           # see all running options
+  
+    python train_enwik8.py -data enwik8 -log tensorboard_log_directory
+      --noam --lr 3
+  ```
+  
+  - Options for runs reported in the paper
+  ```
+    --depth 8 --d 1312                      #  8 layers (with 37m param budget)
+    --depth 10 --d 1152                     # 10 layers (with 37m param budget)
+
+    --depth 8 --d 3056 --n_proj 512 --dropout 0.3
+                                            # 8 layers (with 47m param budget)
+
+    --depth 12 --d 2048 --n_proj 512 --dropout 0.3 --unroll 256 --batch_size 64 --n_e 256
+                                            # 12 layers (with 47m param budget)
+  ```
+
+## Train PTB
+  - Download the dataset from https://github.com/yoonkim/lstm-char-cnn/tree/master/data/ptb
   
   - Run **train_lm.py** and get the results.
   ```
