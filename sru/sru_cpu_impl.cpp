@@ -11,7 +11,7 @@ std::vector<at::Tensor> cpu_forward(
         const at::Tensor & mask_pad,
         const int64_t length, 
         const int64_t batch_size, 
-        const int64_t out_dim, 
+        const int64_t hidden_size, 
         const int64_t k,
         const int64_t activation_type,
         const bool has_skip_term, 
@@ -26,7 +26,7 @@ std::vector<at::Tensor> cpu_bi_forward(
         const at::Tensor & mask_pad,
         const int64_t length, 
         const int64_t batch_size, 
-        const int64_t out_dim, 
+        const int64_t hidden_size, 
         const int64_t k,
         const int64_t activation_type,
         const bool has_skip_term, 
@@ -53,8 +53,8 @@ std::vector<at::Tensor> cpu_forward(
         const at::Tensor & mask_pad,
         const int64_t length, 
         const int64_t batch_size, 
-        const int64_t out_dim, 
-        const int64_t k,  // U is [length, batch_size, out_dim*k]
+        const int64_t hidden_size, 
+        const int64_t k,  // U is [length, batch_size, hidden_size*k]
         const int64_t activation_type,
         const bool has_skip_term, 
         const double scale_x) {
@@ -67,20 +67,20 @@ std::vector<at::Tensor> cpu_forward(
     CHECK_CONTIGUOUS(c_init);
     CHECK_CONTIGUOUS(mask_pad);
     
-    const int ncols = batch_size * out_dim;
-    const int ncols_u = batch_size * out_dim * k;
+    const int ncols = batch_size * hidden_size;
+    const int ncols_u = batch_size * hidden_size * k;
 
     // pointers to parameters
     const float* forget_w_ptr = weight_c.data<float>();
-    const float* reset_w_ptr = forget_w_ptr + out_dim;
+    const float* reset_w_ptr = forget_w_ptr + hidden_size;
     const float* forget_b_ptr = bias.data<float>();
-    const float* reset_b_ptr = forget_b_ptr + out_dim;
+    const float* reset_b_ptr = forget_b_ptr + hidden_size;
     const float* U_ptr = U.data<float>();
     const float* x_ptr = x.data<float>();
     const float* pad_ptr = (mask_pad.numel() == 0) ? NULL : 
                                     mask_pad.data<float>();
 
-    auto h = at::zeros({length, batch_size, out_dim}, U.options());
+    auto h = at::zeros({length, batch_size, hidden_size}, U.options());
     auto c = c_init.clone();
     auto h_ptr = h.data<float>();
     auto c_ptr = c.data<float>();
@@ -88,22 +88,22 @@ std::vector<at::Tensor> cpu_forward(
     for (int l = 0; l < length; l++) {
         for (int i = 0; i < batch_size; i++) {
             // skip pad tokens
-            if (pad_ptr && (*(pad_ptr + l*batch_size))) continue;
-            for (int j = 0; j < out_dim; j++) {
-                const int offset = i*out_dim+j;
+            if (pad_ptr && pad_ptr[l*batch_size]) continue;
+            for (int j = 0; j < hidden_size; j++) {
+                const int offset = i*hidden_size+j;
 
                 // U[l,i,j,*]
                 const float* u = U_ptr + l*ncols_u + offset*k;
-                const float u0 = *(u);
-                const float u1 = *(u+1);
-                const float u2 = *(u+2);
+                const float u0 = u[0];
+                const float u1 = u[1];
+                const float u2 = u[2];
 
-                const float fw = *(forget_w_ptr + j);
-                const float rw = *(reset_w_ptr + j);
-                const float fb = *(forget_b_ptr + j);
-                const float rb = *(reset_b_ptr + j);
+                const float fw = forget_w_ptr[j];
+                const float rw = reset_w_ptr[j];
+                const float fb = forget_b_ptr[j];
+                const float rb = reset_b_ptr[j];
 
-                const float prev_c = *(c_ptr + offset);
+                const float prev_c = c_ptr[offset];
 
                 // forget gate
                 const float fg = sigmoidf(u1 + fw*prev_c + fb);
@@ -113,11 +113,11 @@ std::vector<at::Tensor> cpu_forward(
                 const float c_val = (prev_c - u0) * fg + u0; // prev_c * fg + u0 * (1 - fg);
                 const float gc_val = apply_activation(activation_type, c_val);
                 
-                const float x_val = has_skip_term ? ((k == 4) ? *(u + 3) : (*(x_ptr + l*ncols + offset))*scale_x) : 0;
+                const float x_val = has_skip_term ? ((k == 4) ? u[3] : x_ptr[l*ncols + offset]*scale_x) : 0;
                 const float h_val = (gc_val - x_val) * rg + x_val; // gc_val * rg + x_val * (1 - rg);
 
-                *(h_ptr + l*ncols + offset) = h_val;
-                *(c_ptr + offset) = c_val; 
+                h_ptr[l*ncols + offset] = h_val;
+                c_ptr[offset] = c_val; 
             }
         }
     }
@@ -133,8 +133,8 @@ std::vector<at::Tensor> cpu_bi_forward(
         const at::Tensor & mask_pad,
         const int64_t length, 
         const int64_t batch_size, 
-        const int64_t out_dim, 
-        const int64_t k,  // U is [length, batch_size, 2*out_dim*k]
+        const int64_t hidden_size, 
+        const int64_t k,  // U is [length, batch_size, 2*hidden_size*k]
         const int64_t activation_type,
         const bool has_skip_term, 
         const double scale_x) {
@@ -147,46 +147,45 @@ std::vector<at::Tensor> cpu_bi_forward(
     CHECK_CONTIGUOUS(c_init);
     CHECK_CONTIGUOUS(mask_pad);
 
-    const int d2 = out_dim * 2; 
-    const int ncols = batch_size * d2;
-    const int ncols_u = batch_size * d2 * k;
+    const int ncols = batch_size * hidden_size * 2;
+    const int ncols_u = batch_size * hidden_size * 2 * k;
 
     // pointers to parameters
     const float* forget_w_ptr = weight_c.data<float>();
-    const float* reset_w_ptr = forget_w_ptr + d2;
+    const float* reset_w_ptr = forget_w_ptr + hidden_size*2;
     const float* forget_b_ptr = bias.data<float>();
-    const float* reset_b_ptr = forget_b_ptr + d2;
+    const float* reset_b_ptr = forget_b_ptr + hidden_size*2;
     const float* U_ptr = U.data<float>();
     const float* x_ptr = x.data<float>();
     const float* pad_ptr = (mask_pad.numel() == 0) ? NULL : 
                                     mask_pad.data<float>();
 
-    auto h = at::zeros({length, batch_size, d2}, U.options());
+    auto h = at::zeros({length, batch_size, hidden_size*2}, U.options());
     auto c = c_init.clone();
     auto h_ptr = h.data<float>();
     auto c_ptr = c.data<float>();
 
     for (int l = 0; l < length; l++) {
         for (int i = 0; i < batch_size; i++) {
-            for (int j = 0; j < d2; j++) {
+            for (int j = 0; j < hidden_size*2; j++) {
                 // skip pad tokens
-                int l_ = (j < out_dim) ? l : (length - l - 1);
-                if (pad_ptr && (*(pad_ptr + l_*batch_size))) continue;
+                int l_ = (j < hidden_size) ? l : (length - l - 1);
+                if (pad_ptr && pad_ptr[l_*batch_size]) continue;
                 
-                const int offset = i*d2+j;
+                const int offset = i*hidden_size*2+j;
 
                 // U[l_,i,j,*]
                 const float* u = U_ptr + l_*ncols_u + offset*k;
-                const float u0 = *(u);
-                const float u1 = *(u+1);
-                const float u2 = *(u+2);
+                const float u0 = u[0];
+                const float u1 = u[1];
+                const float u2 = u[2];
 
-                const float fw = *(forget_w_ptr + j);
-                const float rw = *(reset_w_ptr + j);
-                const float fb = *(forget_b_ptr + j);
-                const float rb = *(reset_b_ptr + j);
+                const float fw = forget_w_ptr[j];
+                const float rw = reset_w_ptr[j];
+                const float fb = forget_b_ptr[j];
+                const float rb = reset_b_ptr[j];
 
-                const float prev_c = *(c_ptr + offset);
+                const float prev_c = c_ptr[offset];
 
                 // forget gate
                 const float fg = sigmoidf(u1 + fw*prev_c + fb);
@@ -196,11 +195,11 @@ std::vector<at::Tensor> cpu_bi_forward(
                 const float c_val = (prev_c - u0) * fg + u0; // prev_c * fg + u0 * (1 - fg);
                 const float gc_val = apply_activation(activation_type, c_val);
                 
-                const float x_val = has_skip_term ? ((k == 4) ? *(u + 3) : (*(x_ptr + l_*ncols + offset))*scale_x) : 0;
+                const float x_val = has_skip_term ? ((k == 4) ? u[3] : x_ptr[l_*ncols + offset]*scale_x) : 0;
                 const float h_val = (gc_val - x_val) * rg + x_val; // gc_val * rg + x_val * (1 - rg);
-
-                *(h_ptr + l_*ncols + offset) = h_val;
-                *(c_ptr + offset) = c_val; 
+                
+                h_ptr[l_*ncols + offset] = h_val;
+                c_ptr[offset] = c_val;
             }
         }
     }
