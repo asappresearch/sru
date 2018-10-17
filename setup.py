@@ -53,10 +53,11 @@ setup(
 
     # What to include
     package_data={
-        '': ['*.txt', '*.rst', '*.md']
+        '': ['*.txt', '*.rst', '*.md', '*.cpp']
     },
 
     # Dependencies
+    install_requires=['torch>=0.4.1', 'ninja'],
     extras_require={
         'cuda': ["cupy", "pynvrtc"],
     },
