@@ -1,3 +1,4 @@
+import os
 import sys
 import math
 import torch
@@ -11,7 +12,8 @@ if torch.cuda.device_count() > 0:
 
 from torch.utils.cpp_extension import load
 
-sru_cpu_impl = load(name="sru_cpu_impl", sources=["sru/sru_cpu_impl.cpp"])
+cpu_source = os.path.join(os.path.dirname(__file__), "sru_cpu_impl.cpp")
+sru_cpu_impl = load(name="sru_cpu_impl", sources=[cpu_source])
 
 
 def SRU_Compute_CPU(activation_type,
