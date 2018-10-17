@@ -71,7 +71,10 @@ def SRU_Compute_CPU(activation_type,
                           sru_cpu_impl.cpu_forward
             mask_pad_ = torch.FloatTensor() if mask_pad is None else mask_pad.float()
             return cpu_forward(
-                u, x, weight_c, bias,
+                u,
+                x.contiguous(),
+                weight_c,
+                bias,
                 init,
                 mask_pad_,
                 length,
@@ -350,9 +353,6 @@ class SRUCell(nn.Module):
 
         # get the scaling constant; scale_x is a scalar
         scale_val = self.scale_x.data[0].item()
-
-        # ensure mask_pad is a byte tensor
-        mask_pad = mask_pad.byte() if mask_pad is not None else None
 
         # Pytorch Function() doesn't accept NoneType in forward() call.
         # So we put mask_pad as class attribute as a work around
