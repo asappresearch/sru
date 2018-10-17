@@ -31,17 +31,16 @@ def test_bi_fwd():
     print (out_2)
 
 def profile_speed():
-    bcell = SRUCell(600, 300, bidirectional=True)
+    bcell = SRUCell(400, 200, bidirectional=True)
     bcell.eval()
-    mask = torch.zeros(500, 1)
-    x = torch.randn(500, 1, 600)
+    mask = torch.zeros(200, 1)
+    x = torch.randn(200, 1, 400)
     pr = cProfile.Profile()
     pr.enable()
     with torch.no_grad():
         for i in range(10):
              r = bcell(x, mask_pad=mask)
     pr.disable()
-    print (r[0].size())
     s = io.StringIO()
     sortby = 'cumulative'
     ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
@@ -54,7 +53,6 @@ def profile_speed():
     for i in range(10):
         r = bcell(x, mask_pad=mask)
     pr.disable()
-    print (r[0].size())
     s = io.StringIO()
     sortby = 'cumulative'
     ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
