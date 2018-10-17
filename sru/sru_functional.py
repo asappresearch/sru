@@ -1,5 +1,6 @@
 import os
 import sys
+import warnings
 import math
 import torch
 import torch.nn as nn
@@ -85,6 +86,8 @@ def SRU_Compute_CPU(activation_type,
                 has_skip_term,
                 scale_x
             )
+        else:
+            warnings.warn("Running SRU on CPU with grad_enabled=True. Are you sure?")
 
         mask_pad_ = mask_pad.view(length, batch, 1).float() if mask_pad is not None else mask_pad
         u = u.view(length, batch, bidir, d, k)
