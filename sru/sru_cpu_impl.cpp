@@ -2,6 +2,7 @@
 #include <torch/torch.h>
 #include <vector>
 
+//  unidirectional forward()
 std::vector<at::Tensor> cpu_forward(
         const at::Tensor & U,
         const at::Tensor & x,
@@ -16,7 +17,11 @@ std::vector<at::Tensor> cpu_forward(
         const int64_t activation_type,
         const bool has_skip_term, 
         const double scale_x);
+//  k: the number of sub-matrices in grouped multiplication
+//  U: the result of grouped multiplication
+//  The size of U is [length, batch_size, hidden_size, k]
 
+//  bidirectional forward()
 std::vector<at::Tensor> cpu_bi_forward(
         const at::Tensor & U,
         const at::Tensor & x,
@@ -31,6 +36,10 @@ std::vector<at::Tensor> cpu_bi_forward(
         const int64_t activation_type,
         const bool has_skip_term, 
         const double scale_x);
+//  k: the number of sub-matrices in grouped multiplication
+//  U: the result of grouped multiplication
+//  The size of U is [length, batch_size, 2*hidden_size, k]
+
 
 float sigmoidf(float x);
 float reluf(float x);
@@ -42,7 +51,6 @@ float apply_activation(int64_t type, float x);
 
 #define CHECK_CONTIGUOUS(x) AT_ASSERTM(x.is_contiguous(), #x " must be contiguous")
 #define CHECK_FLOAT(x) AT_ASSERTM(x.type().scalarType() == at::ScalarType::Float, #x " must be float")
-
 
 std::vector<at::Tensor> cpu_forward(
         const at::Tensor & U,
