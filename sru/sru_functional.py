@@ -1,3 +1,4 @@
+import os
 import sys
 import math
 import torch
@@ -8,6 +9,11 @@ if torch.cuda.device_count() > 0:
         from .cuda_functional import SRU_Compute_GPU
     except:
         from cuda_functional import SRU_Compute_GPU
+
+from torch.utils.cpp_extension import load
+
+cpu_source = os.path.join(os.path.dirname(__file__), "sru_cpu_impl.cpp")
+sru_cpu_impl = load(name="sru_cpu_impl", sources=[cpu_source])
 
 
 def SRU_Compute_CPU(activation_type,
@@ -58,6 +64,27 @@ def SRU_Compute_CPU(activation_type,
         length = x.size(0) if x.dim() == 3 else 1
         batch = x.size(-2)
         k = u.size(-1) // d // bidir
+
+        if not torch.is_grad_enabled():
+            assert mask_c is None
+            cpu_forward = sru_cpu_impl.cpu_bi_forward if bidirectional else \
+                          sru_cpu_impl.cpu_forward
+            mask_pad_ = torch.FloatTensor() if mask_pad is None else mask_pad.float()
+            return cpu_forward(
+                u,
+                x.contiguous(),
+                weight_c,
+                bias,
+                init,
+                mask_pad_,
+                length,
+                batch,
+                d,
+                k,
+                activation_type,
+                has_skip_term,
+                scale_x
+            )
 
         mask_pad_ = mask_pad.view(length, batch, 1).float() if mask_pad is not None else mask_pad
         u = u.view(length, batch, bidir, d, k)
@@ -325,10 +352,7 @@ class SRUCell(nn.Module):
             u = x_2d.mm(weight)
 
         # get the scaling constant; scale_x is a scalar
-        scale_val = self.scale_x.data[0]
-
-        # ensure mask_pad is a byte tensor
-        mask_pad = mask_pad.byte() if mask_pad is not None else None
+        scale_val = self.scale_x.data[0].item()
 
         # Pytorch Function() doesn't accept NoneType in forward() call.
         # So we put mask_pad as class attribute as a work around

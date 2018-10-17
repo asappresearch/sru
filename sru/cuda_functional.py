@@ -459,6 +459,8 @@ class SRU_Compute_GPU(Function):
         self.bidirectional = bidirectional
         self.has_skip_term = has_skip_term
         self.scale_x = scale_x
+        # ensure mask_pad is a byte tensor
+        mask_pad = mask_pad.byte() if mask_pad is not None else None
         self.mask_pad = mask_pad
 
     def compile_functions(self):
