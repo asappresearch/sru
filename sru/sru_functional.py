@@ -5,12 +5,8 @@ import math
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
-if torch.cuda.device_count() > 0:
-    try:
-        from .cuda_functional import SRU_Compute_GPU
-    except:
-        from cuda_functional import SRU_Compute_GPU
 
+# load C++ implementation for CPU computation
 try:
     from torch.utils.cpp_extension import load
     cpu_source = os.path.join(os.path.dirname(__file__), "sru_cpu_impl.cpp")
@@ -19,8 +15,23 @@ except:
     sru_cpu_impl = None
     warnings.warn("Failed to load the C++ implementation of SRU for CPU inference.")
 
+SRU_GPU_class = None
 
-def SRU_Compute_CPU(activation_type,
+# load C++ implementation for GPU computation
+def _lazy_load_cuda_class():
+    global SRU_GPU_class
+    if SRU_GPU_class is not None:
+        return SRU_GPU_class
+    try:
+        from .cuda_functional import SRU_Compute_GPU
+        SRU_GPU_class = SRU_Compute_GPU
+    except:
+        from cuda_functional import SRU_Compute_GPU
+        SRU_GPU_class = SRU_Compute_GPU
+    return SRU_GPU_class
+
+
+def SRU_CPU_class(activation_type,
                     d,
                     bidirectional=False,
                     has_skip_term=True,
@@ -363,7 +374,7 @@ class SRUCell(nn.Module):
 
         # Pytorch Function() doesn't accept NoneType in forward() call.
         # So we put mask_pad as class attribute as a work around
-        SRU_Compute_Class = SRU_Compute_GPU if input.is_cuda else SRU_Compute_CPU
+        SRU_Compute_Class = _lazy_load_cuda_class() if input.is_cuda else SRU_CPU_class
         SRU_Compute = SRU_Compute_Class(
             self.activation_type, n_out, self.bidirectional, self.has_skip_term,
             scale_val, mask_pad
