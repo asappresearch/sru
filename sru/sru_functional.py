@@ -11,10 +11,13 @@ if torch.cuda.device_count() > 0:
     except:
         from cuda_functional import SRU_Compute_GPU
 
-from torch.utils.cpp_extension import load
-
-cpu_source = os.path.join(os.path.dirname(__file__), "sru_cpu_impl.cpp")
-sru_cpu_impl = load(name="sru_cpu_impl", sources=[cpu_source])
+try:
+    from torch.utils.cpp_extension import load
+    cpu_source = os.path.join(os.path.dirname(__file__), "sru_cpu_impl.cpp")
+    sru_cpu_impl = load(name="sru_cpu_impl", sources=[cpu_source])
+except:
+    sru_cpu_impl = None
+    warnings.warn("Failed to load the C++ implementation of SRU for CPU inference.")
 
 
 def SRU_Compute_CPU(activation_type,
@@ -66,28 +69,29 @@ def SRU_Compute_CPU(activation_type,
         batch = x.size(-2)
         k = u.size(-1) // d // bidir
 
-        if not torch.is_grad_enabled():
-            assert mask_c is None
-            cpu_forward = sru_cpu_impl.cpu_bi_forward if bidirectional else \
-                          sru_cpu_impl.cpu_forward
-            mask_pad_ = torch.FloatTensor() if mask_pad is None else mask_pad.float()
-            return cpu_forward(
-                u,
-                x.contiguous(),
-                weight_c,
-                bias,
-                init,
-                mask_pad_,
-                length,
-                batch,
-                d,
-                k,
-                activation_type,
-                has_skip_term,
-                scale_x
-            )
-        else:
-            warnings.warn("Running SRU on CPU with grad_enabled=True. Are you sure?")
+        if sru_cpu_impl is not None:
+            if not torch.is_grad_enabled():
+                assert mask_c is None
+                cpu_forward = sru_cpu_impl.cpu_bi_forward if bidirectional else \
+                              sru_cpu_impl.cpu_forward
+                mask_pad_ = torch.FloatTensor() if mask_pad is None else mask_pad.float()
+                return cpu_forward(
+                    u,
+                    x.contiguous(),
+                    weight_c,
+                    bias,
+                    init,
+                    mask_pad_,
+                    length,
+                    batch,
+                    d,
+                    k,
+                    activation_type,
+                    has_skip_term,
+                    scale_x
+                )
+            else:
+                warnings.warn("Running SRU on CPU with grad_enabled=True. Are you sure?")
 
         mask_pad_ = mask_pad.view(length, batch, 1).float() if mask_pad is not None else mask_pad
         u = u.view(length, batch, bidir, d, k)
