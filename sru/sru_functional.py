@@ -21,6 +21,7 @@ def _lazy_load_cpu_kernel():
     except:
         # use Python version instead
         SRU_CPU_kernel = False
+    return SRU_CPU_kernel
 
 # load C++ implementation for GPU computation
 def _lazy_load_cuda_kernel():
@@ -86,6 +87,7 @@ def SRU_CPU_class(activation_type,
         k = u.size(-1) // d // bidir
 
         sru_cpu_impl = _lazy_load_cpu_kernel()
+        print (sru_cpu_impl)
         if (sru_cpu_impl is not None) and (sru_cpu_impl != False):
             if not torch.is_grad_enabled():
                 assert mask_c is None
