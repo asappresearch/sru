@@ -13,7 +13,6 @@ try:
     sru_cpu_impl = load(name="sru_cpu_impl", sources=[cpu_source])
 except:
     sru_cpu_impl = None
-    warnings.warn("Failed to load the C++ implementation of SRU for CPU inference.")
 
 SRU_GPU_class = None
 
@@ -103,6 +102,10 @@ def SRU_CPU_class(activation_type,
                 )
             else:
                 warnings.warn("Running SRU on CPU with grad_enabled=True. Are you sure?")
+        else:
+            warnings.warn("C++ kernel for SRU CPU inference was not loaded. "
+                          "Use Python version instead.")
+
 
         mask_pad_ = mask_pad.view(length, batch, 1).float() if mask_pad is not None else mask_pad
         u = u.view(length, batch, bidir, d, k)
