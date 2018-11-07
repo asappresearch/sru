@@ -87,7 +87,6 @@ def SRU_CPU_class(activation_type,
         k = u.size(-1) // d // bidir
 
         sru_cpu_impl = _lazy_load_cpu_kernel()
-        print (sru_cpu_impl)
         if (sru_cpu_impl is not None) and (sru_cpu_impl != False):
             if not torch.is_grad_enabled():
                 assert mask_c is None
