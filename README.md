@@ -21,10 +21,11 @@ Simple Recurrent Units for Highly Parallelizable Recurrence
 <br>
 
 ## Requirements
- - [PyTorch](http://pytorch.org/) >=0.4 recommended
+ - [PyTorch](http://pytorch.org/) >=0.4.1 recommended
  - [CuPy](https://cupy.chainer.org/)
  - [pynvrtc](https://github.com/NVIDIA/pynvrtc)
- 
+ - [ninja](https://ninja-build.org/) (optional) for compiling CPU kernel for fast inference.
+
 Install requirements via `pip install -r requirements.txt`. CuPy and pynvrtc needed to support training / testing on GPU.
 
 <br>
@@ -36,6 +37,11 @@ SRU can be installed as a regular package via `python setup.py install` or `pip 
 
 #### From PyPi:
 `pip install sru`
+
+`pip install sru[cuda]` additionally installs Cupy and pynvrtc.
+
+`pip install sru[cpu]` additionally installs ninja
+
 
 #### Directly use the source without installation:
 Make sure this repo and CUDA library can be found by the system, e.g. 
@@ -61,11 +67,9 @@ input_size, hidden_size = 128, 128
 rnn = SRU(input_size, hidden_size,
     num_layers = 2,          # number of stacking RNN layers
     dropout = 0.0,           # dropout applied between RNN layers
-    rnn_dropout = 0.0,       # variational dropout applied on linear transformation
     bidirectional = False,   # bidirectional RNN
     layer_norm = False,      # apply layer normalization on the output of each layer
     highway_bias = 0,        # initial bias of highway gate (<= 0)
-    weight_norm = False,     # apply weight normalization on parameters (deprecated)
     rescale = True,          # whether to use scaling correction
 )
 rnn.cuda()
