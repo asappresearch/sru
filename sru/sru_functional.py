@@ -5,19 +5,39 @@ import math
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
-if torch.cuda.device_count() > 0:
+
+SRU_CPU_kernel = None
+SRU_GPU_kernel = None
+
+# load C++ implementation for CPU computation
+def _lazy_load_cpu_kernel():
+    global SRU_CPU_kernel
+    if SRU_CPU_kernel is not None:
+        return SRU_CPU_kernel
+    try:
+        from torch.utils.cpp_extension import load
+        cpu_source = os.path.join(os.path.dirname(__file__), "sru_cpu_impl.cpp")
+        SRU_CPU_kernel = load(name="sru_cpu_impl", sources=[cpu_source])
+    except:
+        # use Python version instead
+        SRU_CPU_kernel = False
+    return SRU_CPU_kernel
+
+# load C++ implementation for GPU computation
+def _lazy_load_cuda_kernel():
+    global SRU_GPU_kernel
+    if SRU_GPU_kernel is not None:
+        return SRU_GPU_kernel
     try:
         from .cuda_functional import SRU_Compute_GPU
+        SRU_GPU_kernel = SRU_Compute_GPU
     except:
         from cuda_functional import SRU_Compute_GPU
-
-from torch.utils.cpp_extension import load
-
-cpu_source = os.path.join(os.path.dirname(__file__), "sru_cpu_impl.cpp")
-sru_cpu_impl = load(name="sru_cpu_impl", sources=[cpu_source])
+        SRU_GPU_kernel = SRU_Compute_GPU
+    return SRU_GPU_kernel
 
 
-def SRU_Compute_CPU(activation_type,
+def SRU_CPU_class(activation_type,
                     d,
                     bidirectional=False,
                     has_skip_term=True,
@@ -66,28 +86,34 @@ def SRU_Compute_CPU(activation_type,
         batch = x.size(-2)
         k = u.size(-1) // d // bidir
 
-        if not torch.is_grad_enabled():
-            assert mask_c is None
-            cpu_forward = sru_cpu_impl.cpu_bi_forward if bidirectional else \
-                          sru_cpu_impl.cpu_forward
-            mask_pad_ = torch.FloatTensor() if mask_pad is None else mask_pad.float()
-            return cpu_forward(
-                u,
-                x.contiguous(),
-                weight_c,
-                bias,
-                init,
-                mask_pad_,
-                length,
-                batch,
-                d,
-                k,
-                activation_type,
-                has_skip_term,
-                scale_x
-            )
+        sru_cpu_impl = _lazy_load_cpu_kernel()
+        if (sru_cpu_impl is not None) and (sru_cpu_impl != False):
+            if not torch.is_grad_enabled():
+                assert mask_c is None
+                cpu_forward = sru_cpu_impl.cpu_bi_forward if bidirectional else \
+                              sru_cpu_impl.cpu_forward
+                mask_pad_ = torch.FloatTensor() if mask_pad is None else mask_pad.float()
+                return cpu_forward(
+                    u,
+                    x.contiguous(),
+                    weight_c,
+                    bias,
+                    init,
+                    mask_pad_,
+                    length,
+                    batch,
+                    d,
+                    k,
+                    activation_type,
+                    has_skip_term,
+                    scale_x
+                )
+            else:
+                warnings.warn("Running SRU on CPU with grad_enabled=True. Are you sure?")
         else:
-            warnings.warn("Running SRU on CPU with grad_enabled=True. Are you sure?")
+            warnings.warn("C++ kernel for SRU CPU inference was not loaded. "
+                          "Use Python version instead.")
+
 
         mask_pad_ = mask_pad.view(length, batch, 1).float() if mask_pad is not None else mask_pad
         u = u.view(length, batch, bidir, d, k)
@@ -359,7 +385,7 @@ class SRUCell(nn.Module):
 
         # Pytorch Function() doesn't accept NoneType in forward() call.
         # So we put mask_pad as class attribute as a work around
-        SRU_Compute_Class = SRU_Compute_GPU if input.is_cuda else SRU_Compute_CPU
+        SRU_Compute_Class = _lazy_load_cuda_kernel() if input.is_cuda else SRU_CPU_class
         SRU_Compute = SRU_Compute_Class(
             self.activation_type, n_out, self.bidirectional, self.has_skip_term,
             scale_val, mask_pad
