@@ -24,7 +24,7 @@ Simple Recurrent Units for Highly Parallelizable Recurrence
  - [PyTorch](http://pytorch.org/) >=0.4.1 recommended
  - [CuPy](https://cupy.chainer.org/)
  - [pynvrtc](https://github.com/NVIDIA/pynvrtc)
- - [ninja](https://ninja-build.org/) (optional) for compiling CPU kernel for fast inference.
+ - [ninja](https://ninja-build.org/) (optional) for fast inference on CPU.
 
 Install requirements via `pip install -r requirements.txt`. CuPy and pynvrtc needed to support training / testing on GPU.
 
