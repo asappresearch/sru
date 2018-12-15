@@ -9,7 +9,7 @@ Code used for sentence classification tasks. We evaluate CNN, LSTM and SRU on 6 
 ## How to run
   - Download the datasets from [harvardnlp/sent-conv-torch/data](https://github.com/harvardnlp/sent-conv-torch/tree/master/data)
   
-  - Download pre-trained word embeddings such as [word2vec](https://code.google.com/p/word2vec/); make it into text format
+  - Download pre-trained word embeddings such as [word2vec](https://github.com/svn2github/word2vec.git); make it into text format
   
   - Make sure CUDA library path and `cuda_functional.py` is available to python. For example,
   ```python
