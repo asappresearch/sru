@@ -196,9 +196,9 @@ def load_embedding_txt(path):
     with file_open(path) as fin:
         fin.readline()
         for line in fin:
-            line = line.strip()
+            line = line.rstrip()
             if line:
-                parts = line.split()
+                parts = line.split(' ')
                 words.append(parts[0])
                 vals += [ float(x) for x in parts[1:] ]
     return words, np.asarray(vals).reshape(len(words),-1)
