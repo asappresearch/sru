@@ -9,7 +9,19 @@ Code used for sentence classification tasks. We evaluate CNN, LSTM and SRU on 6 
 ## How to run
   - Download the datasets from [harvardnlp/sent-conv-torch/data](https://github.com/harvardnlp/sent-conv-torch/tree/master/data)
   
-  - Download pre-trained word embeddings such as [word2vec](https://code.google.com/p/word2vec/); make it into text format
+  - Download pre-trained word embeddings such as [word2vec](https://github.com/svn2github/word2vec.git); make it into text format. Follow below instructions:
+  	  -  You can download bin format file of pre-trained word embeddings [GoogleNews-vectors-negative300.bin](https://www.kaggle.com/leadbest/googlenewsvectorsnegative300/version/2), it is the fastest url I've found so far. The file size is about 3.4G.
+  	  -  Then make it into text format by running the python code below:
+  	  
+  	  ```
+  	  # -*- coding: utf-8 -*-
+  	  from gensim.models.keyedvectors import KeyedVectors
+  	  import sys
+
+	  model = KeyedVectors.load_word2vec_format('GoogleNews-vectors-negative300.bin', binary=True, encoding='utf-8', unicode_errors='ignore')
+	  model.save_word2vec_format('google_word2vec.txt', binary=False)
+  	  ```
+  	  By the way, you should install python module ```gensim``` first. The output file is ```google_word2vec.txt```, and the file size is about 8.1G.
   
   - Make sure CUDA library path and `cuda_functional.py` is available to python. For example,
   ```python
