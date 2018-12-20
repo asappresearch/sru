@@ -95,10 +95,6 @@ https://github.com/taolei87/sru/graphs/contributors
 
 [@adrianbg](https://github.com/adrianbg) implemented the first [CPU version](https://github.com/taolei87/sru/pull/42).
 
-### All papers
-
-
-
 <br>
 
   
