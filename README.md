@@ -6,7 +6,9 @@
 <img width=620 src="https://raw.githubusercontent.com/taolei87/sru/master/imgs/speed.png"><br>
 <i>Average processing time of LSTM, conv2d and SRU, tested on GTX 1070</i><br>
 </p>
-For example, the figure above presents the processing time of a single mini-batch of 32 samples. SRU achieves 10 to 16 times speed-up compared to LSTM, and operates as fast as (or faster than) word-level convolution using conv2d. 
+For example, the figure above presents the processing time of a single mini-batch of 32 samples. SRU achieves 10 to 16 times speed-up compared to LSTM, and operates as fast as (or faster than) word-level convolution using conv2d.
+
+The [paper](https://arxiv.org/abs/1709.02755) has multiple versions, please check the latest one.
 
 #### Reference:
 Simple Recurrent Units for Highly Parallelizable Recurrence
@@ -92,6 +94,10 @@ https://github.com/taolei87/sru/graphs/contributors
 [@musyoku](https://github.com/musyoku) had a very nice [SRU implementaion](https://github.com/musyoku/chainer-sru) in chainer.
 
 [@adrianbg](https://github.com/adrianbg) implemented the first [CPU version](https://github.com/taolei87/sru/pull/42).
+
+### All papers
+
+
 
 <br>
 
