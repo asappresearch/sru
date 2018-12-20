@@ -23,7 +23,7 @@ Simple Recurrent Units for Highly Parallelizable Recurrence
 <br>
 
 ## Requirements
- - [PyTorch](http://pytorch.org/) >=0.4.1 recommended
+ - [PyTorch](http://pytorch.org/) >=0.4.1 recommended, [pytorch installation details](docs/pytorch_installation.md)
  - [CuPy](https://cupy.chainer.org/)
  - [pynvrtc](https://github.com/NVIDIA/pynvrtc)
  - [ninja](https://ninja-build.org/) (optional) for fast inference on CPU.
