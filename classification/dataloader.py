@@ -193,7 +193,7 @@ def load_embedding_txt(path):
     file_open = gzip.open if path.endswith(".gz") else open
     words = [ ]
     vals = [ ]
-    with file_open(path) as fin:
+    with file_open(path, encoding='utf-8') as fin:
         fin.readline()
         for line in fin:
             line = line.rstrip()

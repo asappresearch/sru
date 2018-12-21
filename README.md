@@ -6,7 +6,9 @@
 <img width=620 src="https://raw.githubusercontent.com/taolei87/sru/master/imgs/speed.png"><br>
 <i>Average processing time of LSTM, conv2d and SRU, tested on GTX 1070</i><br>
 </p>
-For example, the figure above presents the processing time of a single mini-batch of 32 samples. SRU achieves 10 to 16 times speed-up compared to LSTM, and operates as fast as (or faster than) word-level convolution using conv2d. 
+For example, the figure above presents the processing time of a single mini-batch of 32 samples. SRU achieves 10 to 16 times speed-up compared to LSTM, and operates as fast as (or faster than) word-level convolution using conv2d.
+
+The [paper](https://arxiv.org/abs/1709.02755) has multiple versions, please check the latest one.
 
 #### Reference:
 Simple Recurrent Units for Highly Parallelizable Recurrence
@@ -21,7 +23,7 @@ Simple Recurrent Units for Highly Parallelizable Recurrence
 <br>
 
 ## Requirements
- - [PyTorch](http://pytorch.org/) >=0.4.1 recommended
+ - [PyTorch](http://pytorch.org/) >=0.4.1 recommended, [pytorch installation details](docs/pytorch_installation.md)
  - [CuPy](https://cupy.chainer.org/)
  - [pynvrtc](https://github.com/NVIDIA/pynvrtc)
  - [ninja](https://ninja-build.org/) (optional) for fast inference on CPU.
