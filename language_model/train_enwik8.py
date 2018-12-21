@@ -125,7 +125,7 @@ def eval_model(model, valid):
         #    else Variable(hidden.data)
         output, hidden = model(x, hidden)
         loss = criterion(output, y)
-        total_loss += loss.data[0]
+        total_loss += loss.item()  # loss.data[0]
     avg_loss = total_loss / valid[1].numel()
     ppl = np.exp(avg_loss)
     model.train()
@@ -206,7 +206,8 @@ def main(args):
             if niter%50 == 0:
                 #sys.stdout.write("\r{}".format(niter))
                 #sys.stdout.flush()
-                train_writer.add_scalar('loss', loss.data[0], niter)
+                #train_writer.add_scalar('loss', loss.data[0], niter)
+                train_writer.add_scalar('loss', loss.item(), niter)
                 train_writer.add_scalar('pnorm',
                     calc_norm([ x.data for x in plis ]),
                     niter
@@ -223,7 +224,7 @@ def main(args):
                         "  dev_bpc={:.2f}\teta={:.1f}m\t[{:.1f}m]\n".format(
                     niter,
                     optimizer.param_groups[0]['lr'],
-                    loss.data[0],
+                    loss.item()  # loss.data[0],
                     dev_loss,
                     np.log2(dev_ppl),
                     elapsed_time*N/(i+1),

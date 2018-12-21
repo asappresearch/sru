@@ -112,7 +112,7 @@ class Model(nn.Module):
             return zeros
 
     def print_pnorm(self):
-        norms = [ "{:.0f}".format(x.norm().data[0]) for x in self.parameters() ]
+        norms = [ "{:.0f}".format(x.norm().item()) for x in self.parameters() ]
         sys.stdout.write("\tp_norm: {}\n".format(
             norms
         ))
@@ -149,11 +149,11 @@ def train_model(epoch, model, train):
                     p.data.mul_(1.0-args.weight_decay)
                 p.data.add_(-lr, p.grad.data)
 
-        if math.isnan(loss.data[0]) or math.isinf(loss.data[0]):
+        if math.isnan(loss.item()) or math.isinf(loss.item()):
             sys.exit(0)
             return
 
-        total_loss += loss.data[0] / x.size(0)
+        total_loss += loss.item() / x.size(0)
         if i%10 == 0:
             sys.stdout.write("\r{}".format(i))
             sys.stdout.flush()
@@ -176,7 +176,7 @@ def eval_model(model, valid):
             else Variable(hidden.data)
         output, hidden = model(x, hidden)
         loss = criterion(output, y)
-        total_loss += loss.data[0]
+        total_loss += loss.item()  # loss.data[0]
     avg_loss = total_loss / valid[1].numel()
     ppl = np.exp(avg_loss)
     return ppl
