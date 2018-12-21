@@ -72,7 +72,7 @@ def eval_model(niter, model, valid_x, valid_y):
         x, y = Variable(x, volatile=True), Variable(y)
         output = model(x)
         loss = criterion(output, y)
-        total_loss += loss.data[0]*x.size(1)
+        total_loss += loss.item()*x.size(1)
         pred = output.data.max(1)[1]
         correct += pred.eq(y.data).cpu().sum()
         cnt += y.numel()
@@ -106,7 +106,7 @@ def train_model(epoch, model, optimizer,
     sys.stdout.write("Epoch={} iter={} lr={:.6f} train_loss={:.6f} valid_err={:.6f}\n".format(
         epoch, niter,
         optimizer.param_groups[0]['lr'],
-        loss.data[0],
+        loss.item(),
         valid_err
     ))
 
