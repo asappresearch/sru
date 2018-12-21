@@ -15,7 +15,7 @@ Simple Recurrent Units for Highly Parallelizable Recurrence
 ```
 @inproceedings{lei2018sru,
   title={Simple Recurrent Units for Highly Parallelizable Recurrence},
-  author={Tao Lei, Yu Zhang, Sida I. Wang, Hui Dai and Yoav Artzi},
+  author={Tao Lei and Yu Zhang and Sida I. Wang and Hui Dai and Yoav Artzi},
   booktitle={Empirical Methods in Natural Language Processing (EMNLP)},
   year={2018}
 }
