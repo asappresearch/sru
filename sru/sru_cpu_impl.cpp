@@ -96,7 +96,7 @@ std::vector<at::Tensor> cpu_forward(
     for (int l = 0; l < length; l++) {
         for (int i = 0; i < batch_size; i++) {
             // skip pad tokens
-            if (pad_ptr && pad_ptr[l*batch_size]) continue;
+            if (pad_ptr && pad_ptr[l*batch_size+i]) continue;
             for (int j = 0; j < hidden_size; j++) {
                 const int offset = i*hidden_size+j;
 
@@ -178,7 +178,7 @@ std::vector<at::Tensor> cpu_bi_forward(
             for (int j = 0; j < hidden_size*2; j++) {
                 // skip pad tokens
                 int l_ = (j < hidden_size) ? l : (length - l - 1);
-                if (pad_ptr && pad_ptr[l_*batch_size]) continue;
+                if (pad_ptr && pad_ptr[l_*batch_size+i]) continue;
                 
                 const int offset = i*hidden_size*2+j;
 
