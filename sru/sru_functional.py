@@ -276,7 +276,7 @@ class SRUCell(nn.Module):
         self.bias = nn.Parameter(torch.Tensor(
             n_out*4 if bidirectional else n_out*2
         ))
-        self.scale_x = nn.Parameter(torch.ones(1), requires_grad=False)
+        self.register_buffer('scale_x', torch.FloatTensor([0]))
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -381,7 +381,7 @@ class SRUCell(nn.Module):
             u = x_2d.mm(weight)
 
         # get the scaling constant; scale_x is a scalar
-        scale_val = self.scale_x.data[0].item()
+        scale_val = self.scale_x.item()
 
         # Pytorch Function() doesn't accept NoneType in forward() call.
         # So we put mask_pad as class attribute as a work around
