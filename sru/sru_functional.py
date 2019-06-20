@@ -200,7 +200,6 @@ class SRUCell(nn.Module):
         use_tanh (bool) : use tanh activation
         use_relu (bool) : use relu activation
         use_selu (bool) : use selu activation
-        weight_norm (bool) : whether applyweight normalization on self.weight
         is_input_normalized (bool) : whether the input is normalized (e.g. batch norm / layer norm)
         bidirectional (bool) : whether or not to employ a bidirectional cell.
         index (int) : index of this cell when multiple layers are stacked in SRU()
@@ -216,17 +215,11 @@ class SRUCell(nn.Module):
                  use_tanh=False,
                  use_relu=False,
                  use_selu=False,
-                 weight_norm=False,
                  is_input_normalized=False,
                  highway_bias=0,
                  has_skip_term=True,
                  rescale=True,
                  v1=False):
-
-        if weight_norm and n_proj > 0:
-            raise ValueError(
-                "Weight norm is not supported with projection enabled"
-            )
 
         super(SRUCell, self).__init__()
         self.n_in = n_in
@@ -234,7 +227,6 @@ class SRUCell(nn.Module):
         self.rnn_dropout = rnn_dropout
         self.dropout = dropout
         self.bidirectional = bidirectional
-        self.weight_norm = weight_norm
         self.is_input_normalized = is_input_normalized
         self.highway_bias = highway_bias
         self.has_skip_term=has_skip_term
@@ -334,22 +326,25 @@ class SRUCell(nn.Module):
             w[:, :, :, 2].mul_(0.1)
             self.weight_c.data.mul_(0.1)
 
-        # re-parameterize when weight normalization is enabled
-        if self.weight_norm:
-            self.reset_weight_norm()
+    def compute_masked_projection(self, x, dim_mask):
+        n_in = self.weight.size(0)
+        n_out = self.n_out
+        bidir = 2 if self.bidirectional else 1
+        weight = self.weight.view(n_in, bidir * n_out, self.k)
 
-    def reset_weight_norm(self):
-        weight = self.weight.data
-        g = weight.norm(2, 0)
-        self.gain = nn.Parameter(g)
+        # select the sub-tensor
+        mask = dim_mask > 0
+        indices = torch.arange(mask.size(0)).masked_select(mask)
+        sub_weight = weight.masked_select(mask.view(1, -1, 1))
 
-    def apply_weight_norm(self, eps=0):
-        wnorm = self.weight.norm(2, 0)  # , keepdim=True)
-        return self.gain.expand_as(self.weight).mul(
-            self.weight / (wnorm.expand_as(self.weight) + eps)
-        )
+        # compute and fill tensor U
+        sub_U = x.mm(sub_weight.view(n_in, -1))
+        sub_U = sub_U.view(x.size(0), -1, self.k)
+        U = weight.new_zeros(1).expand(x.size(0), bidir * n_out, self.k)
+        U = U.index_copy(1, indices, sub_U)
+        return U
 
-    def forward(self, input, c0=None, mask_pad=None, return_proj=False):
+    def forward(self, input, c0=None, mask_pad=None, dim_mask=None):
         """
         This method computes `U`. In addition, it computes the remaining components
         in `SRU_Compute_GPU` or `SRU_Compute_CPU` and return the results.
@@ -357,6 +352,14 @@ class SRUCell(nn.Module):
 
         if input.dim() != 2 and input.dim() != 3:
             raise ValueError("Input must be 2 or 3 dimensional")
+
+        if dim_mask is not None:
+            if dim_mask.dim() != 1:
+                raise ValueError("dim_mask must be single dimensional")
+            d_out = self.n_out*2 if self.bidirectional else self.n_out
+            if dim_mask.size(0) != d_out:
+                raise ValueError("dim_mask must match the size if output size")
+
         n_in, n_out = self.n_in, self.n_out
         batch = input.size(-2)
         if c0 is None:
@@ -373,15 +376,20 @@ class SRUCell(nn.Module):
 
         # compute U
         x_2d = x if x.dim() == 2 else x.contiguous().view(-1, n_in)
-        weight = self.weight if not self.weight_norm else self.apply_weight_norm()
         if self.n_proj > 0:
             x_projected = x_2d.mm(self.weight_proj)  # down-proj to n_proj
-            u = x_projected.mm(weight)
+            if dim_mask is None:
+                u = x_projected.mm(self.weight)
+            else:
+                u = self.compute_masked_projection(x_projected, dim_mask)
         else:
-            u = x_2d.mm(weight)
+            if dim_mask is None:
+                u = x_2d.mm(self.weight)
+            else:
+                u = self.compute_masked_projection(x_2d, dim_mask)
 
         # get the scaling constant; scale_x is a scalar
-        scale_val = self.scale_x.data[0].item()
+        scale_val = self.scale_x.item()
 
         # Pytorch Function() doesn't accept NoneType in forward() call.
         # So we put mask_pad as class attribute as a work around
@@ -399,11 +407,7 @@ class SRUCell(nn.Module):
         else:
             h, c = SRU_Compute(u, input, self.weight_c, self.bias, c0)
 
-        if return_proj:
-            x_projected = x_projected.view(-1, batch, self.n_proj) if self.n_proj else input
-            return h, c, x_projected
-        else:
-            return h, c
+        return h, c
 
     def get_dropout_mask_(self, size, p):
         """
@@ -424,8 +428,6 @@ class SRUCell(nn.Module):
             s += ", bidirectional={bidirectional}"
         if self.highway_bias != 0:
             s += ", highway_bias={highway_bias}"
-        if self.weight_norm:
-            s += ", weight_norm={weight_norm}"
         if self.activation_type != 0:
             s += ", activation={activation}"
         if self.v1:
@@ -460,7 +462,6 @@ class SRU(nn.Module):
         use_tanh (bool) : use tanh activation
         use_relu (bool) : use relu activation
         use_selu (bool) : use selu activation
-        weight_norm (bool) : whether or not to use weight normalization
         layer_norm (bool) : whether or not to use layer normalization on the output of each layer
         bidirectional (bool) : whether or not to use bidirectional `SRUCell`s.
         is_input_normalized (bool) : whether the input is normalized (e.g. batch norm / layer norm)
@@ -478,7 +479,6 @@ class SRU(nn.Module):
                  use_tanh=False,
                  use_relu=False,
                  use_selu=False,
-                 weight_norm=False,
                  layer_norm=False,
                  is_input_normalized=False,
                  highway_bias=0,
@@ -497,7 +497,6 @@ class SRU(nn.Module):
         self.ln_lst = nn.ModuleList()
         self.bidirectional = bidirectional
         self.use_layer_norm = layer_norm
-        self.use_weight_norm = weight_norm
         self.has_skip_term = has_skip_term
         self.out_size = hidden_size*2 if bidirectional else hidden_size
         if use_tanh + use_relu + use_selu > 1:
@@ -517,7 +516,6 @@ class SRU(nn.Module):
                 use_tanh=use_tanh,
                 use_relu=use_relu,
                 use_selu=use_selu,
-                weight_norm=weight_norm,
                 is_input_normalized=is_input_normalized or (i > 0 and self.use_layer_norm),
                 highway_bias=highway_bias,
                 has_skip_term=has_skip_term,

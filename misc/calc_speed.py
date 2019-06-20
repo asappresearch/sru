@@ -8,31 +8,66 @@ from torch.autograd import Variable
 
 from sru_functional import SRUCell
 
-T = 10000
+T = 100
 
 def reset_seed(seed=1234):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
 
-def test_fast(L, B, N, train=False):
+def test_sru(L, B, N, train=False, cuda=False):
     reset_seed()
-    a = Variable(torch.randn(L, B, N).float().cuda()*0.1)
-    c = Variable(torch.zeros(B, N).float().cuda())
-    cell = SRUCell(N, N, dropout=0, use_tanh=False).cuda()
+    a = torch.randn(L, B, N).float()*0.1
+    c = torch.zeros(B, N).float()
+    cell = SRUCell(N, N, dropout=0)
+    if cuda:
+        a = a.cuda()
+        c = c.cuda()
+        cell = cell.cuda()
+        torch.cuda.synchronize()
     if train: cell.train()
-    torch.cuda.synchronize()
+    torch.set_grad_enabled(train)
     start = time.time()
     tot = 0
     for i in range(T):
         out = cell(a, c)
-        tot += out[0].data[-1,-1,-1]
+        tot += out[0].data[-1,-1,-1].item()
         if train:
             cell.zero_grad()
             out[0].mean().backward()
-    torch.cuda.synchronize()
-    print ("test_fast: {:.6f}".format(
+    if cuda:
+        torch.cuda.synchronize()
+    print ("test_sru: {:.6f}".format(
         (time.time()-start)/T
     ))
+
+def test_sru_dim_mask(L, B, N, train=False, cuda=False):
+    reset_seed()
+    a = torch.randn(L, B, N).float()*0.1
+    c = torch.zeros(B, N).float()
+    cell = SRUCell(N, N, dropout=0)
+    if cuda:
+        a = a.cuda()
+        c = c.cuda()
+        cell = cell.cuda()
+        torch.cuda.synchronize()
+    if train: cell.train()
+    torch.set_grad_enabled(train)
+    dim_mask = c.new_zeros(N).bernoulli_(0.5)
+
+    start = time.time()
+    tot = 0
+    for i in range(T):
+        out = cell(a, c, dim_mask=dim_mask)
+        tot += out[0].data[-1,-1,-1].item()
+        if train:
+            cell.zero_grad()
+            out[0].mean().backward()
+    if cuda:
+        torch.cuda.synchronize()
+    print ("test_sru (with dim_mask): {:.6f}".format(
+        (time.time()-start)/T
+    ))
+
 
 def test_lstm(L, B, N, train=False):
     reset_seed()
@@ -81,6 +116,8 @@ def test(L, N, D, train=False):
     test_lstm(L, N, D, train)
 
 if __name__=="__main__":
-    test(32, 32, 256)
-    test(128, 32, 512)
+    test_sru(32, 32, 1024)
+    test_sru_dim_mask(32, 32, 1024)
+#    test(32, 32, 256)
+#    test(128, 32, 512)
 
