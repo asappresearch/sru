@@ -220,7 +220,7 @@ class SRUCell(nn.Module):
                  is_input_normalized=False,
                  highway_bias=0,
                  has_skip_term=True,
-                 rescale=True,
+                 rescale=False,
                  v1=False):
 
         if weight_norm and n_proj > 0:
@@ -381,7 +381,7 @@ class SRUCell(nn.Module):
             u = x_2d.mm(weight)
 
         # get the scaling constant; scale_x is a scalar
-        scale_val = self.scale_x.item()
+        scale_val = self.scale_x if self.rescale else None
 
         # Pytorch Function() doesn't accept NoneType in forward() call.
         # So we put mask_pad as class attribute as a work around
@@ -483,7 +483,7 @@ class SRU(nn.Module):
                  is_input_normalized=False,
                  highway_bias=0,
                  has_skip_term=True,
-                 rescale=True,
+                 rescale=False,
                  v1=False):
 
         super(SRU, self).__init__()

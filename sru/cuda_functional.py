@@ -508,7 +508,7 @@ class SRU_Compute_GPU(Function):
 
         scale_x = self.scale_x
         if skip_type > 0 and k_ == 3:
-            x_ptr = x.contiguous() * scale_x if scale_x != 1 else x.contiguous()
+            x_ptr = x.contiguous() * scale_x if scale_x is not None else x.contiguous()
             x_ptr = x_ptr.data_ptr()
         else:
             x_ptr = 0
@@ -570,7 +570,7 @@ class SRU_Compute_GPU(Function):
         grad_x = x.new(*x.size()).zero_() if skip_type > 0 and k_ == 3 else None
 
         if skip_type > 0 and k_ == 3:
-            x_ptr = x.contiguous()*scale_x if scale_x != 1 else x.contiguous()
+            x_ptr = x.contiguous()*scale_x if scale_x is not None else x.contiguous()
             x_ptr = x_ptr.data_ptr()
         else:
             x_ptr = 0
@@ -604,6 +604,6 @@ class SRU_Compute_GPU(Function):
             stream=stream
         )
 
-        if skip_type > 0 and k_ == 3 and scale_x != 1:
+        if skip_type > 0 and k_ == 3 and scale_x is not None:
             grad_x.mul_(scale_x)
         return grad_u, grad_x, grad_wc, grad_bias, grad_init, None
