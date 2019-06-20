@@ -327,22 +327,51 @@ class SRUCell(nn.Module):
             self.weight_c.data.mul_(0.1)
 
     def compute_masked_projection(self, x, dim_mask):
+        n_row = x.size(0)
         n_in = self.weight.size(0)
         n_out = self.n_out
+        k = self.k
         bidir = 2 if self.bidirectional else 1
-        weight = self.weight.view(n_in, bidir * n_out, self.k)
+        weight = self.weight.view(n_in, bidir * n_out, k)
+
+        if dim_mask.dim() != 1:
+            raise ValueError("dim_mask must be single dimensional")
+        if dim_mask.size(0) != n_out * bidir:
+            raise ValueError("dim_mask must match the size if output size")
 
         # select the sub-tensor
-        mask = dim_mask > 0
-        indices = torch.arange(mask.size(0)).masked_select(mask)
-        sub_weight = weight.masked_select(mask.view(1, -1, 1))
+        indices = dim_mask.nonzero().squeeze()
+        sub_weight = weight.index_select(1, indices)
 
         # compute and fill tensor U
         sub_U = x.mm(sub_weight.view(n_in, -1))
-        sub_U = sub_U.view(x.size(0), -1, self.k)
-        U = weight.new_zeros(1).expand(x.size(0), bidir * n_out, self.k)
+        sub_U = sub_U.view(n_row, -1, k)
+        U = weight.new_zeros(1).expand(n_row, bidir * n_out, k)
         U = U.index_copy(1, indices, sub_U)
+        return U.view(n_row, -1)
+
+    def compute_masked_projection_2(self, x, dim_mask):
+        n_row = x.size(0)
+        n_in = self.weight.size(0)
+        n_out = self.n_out
+        k = self.k
+        bidir = 2 if self.bidirectional else 1
+        weight = self.weight
+
+        if dim_mask.dim() != 1:
+            raise ValueError("dim_mask must be single dimensional")
+        if dim_mask.size(0) != n_in:
+            raise ValueError("dim_mask must match the size if input size")
+
+        # select the sub-tensor
+        indices = dim_mask.nonzero().squeeze()
+        sub_weight = weight.index_select(0, indices)
+        sub_x = x.index_select(1, indices)
+
+        # compute and fill tensor U
+        U = sub_x.mm(sub_weight)
         return U
+
 
     def forward(self, input, c0=None, mask_pad=None, dim_mask=None):
         """
@@ -352,14 +381,6 @@ class SRUCell(nn.Module):
 
         if input.dim() != 2 and input.dim() != 3:
             raise ValueError("Input must be 2 or 3 dimensional")
-
-        if dim_mask is not None:
-            if dim_mask.dim() != 1:
-                raise ValueError("dim_mask must be single dimensional")
-            d_out = self.n_out*2 if self.bidirectional else self.n_out
-            if dim_mask.size(0) != d_out:
-                raise ValueError("dim_mask must match the size if output size")
-
         n_in, n_out = self.n_in, self.n_out
         batch = input.size(-2)
         if c0 is None:
@@ -389,7 +410,7 @@ class SRUCell(nn.Module):
                 u = self.compute_masked_projection(x_2d, dim_mask)
 
         # get the scaling constant; scale_x is a scalar
-        scale_val = self.scale_x.item()
+        scale_val = self.scale_x if self.rescale else None
 
         # Pytorch Function() doesn't accept NoneType in forward() call.
         # So we put mask_pad as class attribute as a work around
