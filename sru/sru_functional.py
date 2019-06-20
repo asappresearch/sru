@@ -402,12 +402,12 @@ class SRUCell(nn.Module):
             if dim_mask is None:
                 u = x_projected.mm(self.weight)
             else:
-                u = self.compute_masked_projection(x_projected, dim_mask)
+                u = self.compute_masked_projection_2(x_projected, dim_mask)
         else:
             if dim_mask is None:
                 u = x_2d.mm(self.weight)
             else:
-                u = self.compute_masked_projection(x_2d, dim_mask)
+                u = self.compute_masked_projection_2(x_2d, dim_mask)
 
         # get the scaling constant; scale_x is a scalar
         scale_val = self.scale_x if self.rescale else None
