@@ -256,7 +256,7 @@ class SRUCell(nn.Module):
             self.n_proj = n_proj
 
         out_size = n_out*2 if bidirectional else n_out
-        k = 4 if has_skip_term and n_in != out_size else 3
+        k = 3 if has_skip_term and n_in != out_size else 2
         self.k = k
         self.size_per_dir = n_out*k
         if self.n_proj == 0:
@@ -309,7 +309,6 @@ class SRUCell(nn.Module):
 
             # rescale weight_c and the weight of sigmoid gates with a factor of sqrt(0.5)
             w[:, :, :, 1].mul_(0.5**0.5)
-            w[:, :, :, 2].mul_(0.5**0.5)
             self.weight_c.data.mul_(0.5**0.5)
         else:
             self.weight_c.data.zero_()
@@ -321,8 +320,8 @@ class SRUCell(nn.Module):
         # scalar used to properly scale the highway output
         scale_val = (1+math.exp(bias_val)*2)**0.5
         self.scale_x.data[0] = scale_val
-        if self.k == 4:
-            w[:, :, :, 3].mul_(scale_val)
+        if self.k == 3:
+            w[:, :, :, 2].mul_(scale_val)
 
         # re-scale weights for dropout and normalized input for better gradient flow
         if self.dropout > 0:
@@ -331,7 +330,6 @@ class SRUCell(nn.Module):
             w.mul_((1-self.rnn_dropout)**0.5)
         if self.is_input_normalized:
             w[:, :, :, 1].mul_(0.1)
-            w[:, :, :, 2].mul_(0.1)
             self.weight_c.data.mul_(0.1)
 
         # re-parameterize when weight normalization is enabled

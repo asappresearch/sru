@@ -65,16 +65,16 @@ extern "C" {
                             const int activation_type,
                             const int skip_type)
     {
-        assert ((skip_type >= 0) || (skip_type <= 2));
-        assert ((skip_type != 1) || (k == 3));
-        assert ((skip_type != 2) || (k == 4));
+        assert ((skip_type >= 0) && (skip_type <= 2));
+        assert ((skip_type != 1) || (k == 2));
+        assert ((skip_type != 2) || (k == 3));
 
         const int ncols = batch*d;
         const int col = blockIdx.x * blockDim.x + threadIdx.x;
         if (col >= ncols) return;
 
         const int ncols_u = ncols*k;
-        const int ncols_x = (k == 3) ? ncols : ncols_u;
+        const int ncols_x = (k == 2) ? ncols : ncols_u;
 
         const float wc1 = *(weight_c + (col%d));
         const float wc2 = *(weight_c + (col%d) + d);
@@ -83,7 +83,7 @@ extern "C" {
         const float mask = (mask_c == NULL) ? 1.0 : (*(mask_c + col));
         float cur = *(init + col);
         const float *up = u + (col*k);
-        const float *xp = (skip_type == 0) ? NULL : ((skip_type == 1) ? (x + col) : (up + 3));
+        const float *xp = (skip_type == 0) ? NULL : ((skip_type == 1) ? (x + col) : (up + 2));
         const char *pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col/d));
         float *cp = c + col;
         float *hp = h + col;
@@ -92,7 +92,7 @@ extern "C" {
         {
             if ((pad_p == NULL) || !(*pad_p)) {
                 float g1 = sigmoidf((*(up+1)) + wc1*cur + bias1);
-                float g2 = sigmoidf((*(up+2)) + wc2*cur + bias2);
+                float g2 = sigmoidf((*(up+1)) + wc2*cur + bias2);
                 cur = (cur-(*up))*g1 + (*up);
                 float val = calc_activation(activation_type, cur);
                 if (skip_type)
@@ -133,16 +133,16 @@ extern "C" {
                             const int activation_type,
                             const int skip_type)
     {
-        assert ((skip_type >= 0) || (skip_type <= 2));
-        assert ((skip_type != 1) || (k == 3));
-        assert ((skip_type != 2) || (k == 4));
+        assert ((skip_type >= 0) && (skip_type <= 2));
+        assert ((skip_type != 1) || (k == 2));
+        assert ((skip_type != 2) || (k == 3));
 
         const int ncols = batch*d;
         const int col = blockIdx.x * blockDim.x + threadIdx.x;
         if (col >= ncols) return;
 
         const int ncols_u = ncols*k;
-        const int ncols_x = (k == 3) ? ncols : ncols_u;
+        const int ncols_x = (k == 2) ? ncols : ncols_u;
 
         const float wc1 = *(weight_c + (col%d));
         const float wc2 = *(weight_c + (col%d) + d);
@@ -157,14 +157,14 @@ extern "C" {
 
         const float *up = u + (col*k) + (len-1)*ncols_u;
         const float *xp = (skip_type == 0) ? NULL : (
-            (skip_type == 1) ? (x + col + (len-1)*ncols) : (up + 3)
+            (skip_type == 1) ? (x + col + (len-1)*ncols) : (up + 2)
         );
         const float *cp = c + col + (len-1)*ncols;
         const float *ghp = grad_h + col + (len-1)*ncols;
         const char *pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col/d) + (len-1)*batch);
         float *gup = grad_u + (col*k) + (len-1)*ncols_u;
         float *gxp = (skip_type == 0) ? NULL : (
-            (skip_type == 1) ? (grad_x + col + (len-1)*ncols) : (gup + 3)
+            (skip_type == 1) ? (grad_x + col + (len-1)*ncols) : (gup + 2)
         );
 
         for (int row = len-1; row >= 0; --row)
@@ -172,7 +172,7 @@ extern "C" {
             if ((pad_p == NULL) || !(*pad_p)) {
                 const float prev_c_val = (row>0) ? (*(cp-ncols)) : (*(init+col));
                 const float g1 = sigmoidf((*(up+1)) + wc1*prev_c_val + bias1);
-                const float g2 = sigmoidf((*(up+2)) + wc2*prev_c_val + bias2);
+                const float g2 = sigmoidf((*(up+1)) + wc2*prev_c_val + bias2);
                 const float c_val = calc_activation(activation_type, *cp);
                 const float x_val = (skip_type) ? (*xp) : 0;
                 const float u_val = *up;
@@ -187,7 +187,7 @@ extern "C" {
 
                 // gradient with respect to values in the second gate g2
                 float gg2 = gh_val*(c_val*mask-x_val)*(g2*(1-g2));
-                *(gup+2) = gg2;
+                *(gup+1) = gg2;
                 gbias2 += gg2;
                 gwc2 += gg2*prev_c_val;
 
@@ -200,7 +200,7 @@ extern "C" {
 
                 // gradient with respect to values in the first gate g1
                 float gg1 = gc*(prev_c_val-u_val)*(g1*(1-g1));
-                *(gup+1) = gg1;
+                *(gup+1) += gg1;
                 gbias1 += gg1;
                 gwc1 += gg1*prev_c_val;
 
@@ -243,16 +243,16 @@ extern "C" {
                             const int activation_type,
                             const int skip_type)
     {
-        assert ((skip_type >= 0) || (skip_type <= 2));
-        assert ((skip_type != 1) || (k == 3));
-        assert ((skip_type != 2) || (k == 4));
+        assert ((skip_type >= 0) && (skip_type <= 2));
+        assert ((skip_type != 1) || (k == 2));
+        assert ((skip_type != 2) || (k == 3));
 
         const int ncols = batch*d*2;
         const int col = blockIdx.x * blockDim.x + threadIdx.x;
         if (col >= ncols) return;
 
         const int ncols_u = ncols*k;
-        const int ncols_x = (k == 3) ? ncols : ncols_u;
+        const int ncols_x = (k == 2) ? ncols : ncols_u;
         const float mask = (mask_c == NULL) ? 1.0 : (*(mask_c + col));
         float cur = *(init + col);
         const int d2 = d*2;
@@ -262,7 +262,7 @@ extern "C" {
         const float bias2 = *(bias + (col%d2) + d2);
 
         const float *up = u + (col*k);
-        const float *xp = (skip_type == 0) ? NULL : ((skip_type == 1) ? (x + col) : (up + 3));
+        const float *xp = (skip_type == 0) ? NULL : ((skip_type == 1) ? (x + col) : (up + 2));
         const char *pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col/d2));
         float *cp = c + col;
         float *hp = h + col;
@@ -283,7 +283,7 @@ extern "C" {
         {
             if ((pad_p == NULL) || !(*pad_p)) {
                 float g1 = sigmoidf((*(up+1)) + wc1*cur + bias1);
-                float g2 = sigmoidf((*(up+2)) + wc2*cur + bias2);
+                float g2 = sigmoidf((*(up+1)) + wc2*cur + bias2);
                 cur = (cur-(*up))*g1 + (*up);
                 float val = calc_activation(activation_type, cur);
                 if (skip_type)
@@ -324,16 +324,16 @@ extern "C" {
                                const int activation_type,
                                const int skip_type)
     {
-        assert ((skip_type >= 0) || (skip_type <= 2));
-        assert ((skip_type != 1) || (k == 3));
-        assert ((skip_type != 2) || (k == 4));
+        assert ((skip_type >= 0) && (skip_type <= 2));
+        assert ((skip_type != 1) || (k == 2));
+        assert ((skip_type != 2) || (k == 3));
 
         int ncols = batch*d*2;
         int col = blockIdx.x * blockDim.x + threadIdx.x;
         if (col >= ncols) return;
 
         int ncols_u = ncols*k;
-        int ncols_x = (k == 3) ? ncols : ncols_u;
+        int ncols_x = (k == 2) ? ncols : ncols_u;
         const float mask = (mask_c == NULL) ? 1.0 : (*(mask_c + col));
         float gwc1 = 0;
         float gwc2 = 0;
@@ -348,14 +348,14 @@ extern "C" {
 
         const float *up = u + (col*k);
         const float *xp = (skip_type == 0) ? NULL : (
-            (skip_type == 1) ? (x + col) : (up + 3)
+            (skip_type == 1) ? (x + col) : (up + 2)
         );
         const float *cp = c + col;
         const float *ghp = grad_h + col;
         const char *pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col/d2));
         float *gup = grad_u + (col*k);
         float *gxp = (skip_type == 0) ? NULL : (
-            (skip_type == 1) ? (grad_x + col) : (gup + 3)
+            (skip_type == 1) ? (grad_x + col) : (gup + 2)
         );
 
         const bool flip = ((col%d2) >= d);
@@ -380,7 +380,7 @@ extern "C" {
             if ((pad_p == NULL) || !(*pad_p)) {
                 const float prev_c_val = (cnt<len-1) ? (*(cp-ncols_)) : (*(init+col));
                 const float g1 = sigmoidf((*(up+1)) + wc1*prev_c_val + bias1);
-                const float g2 = sigmoidf((*(up+2)) + wc2*prev_c_val + bias2);
+                const float g2 = sigmoidf((*(up+1)) + wc2*prev_c_val + bias2);
                 const float c_val = calc_activation(activation_type, *cp);
                 const float x_val = (skip_type) ? (*xp) : 0;
                 const float u_val = *up;
@@ -395,7 +395,7 @@ extern "C" {
 
                 // gradient with respect to values in the second gate g2
                 float gg2 = gh_val*(c_val*mask-x_val)*(g2*(1-g2));
-                *(gup+2) = gg2;
+                *(gup+1) = gg2;
                 gbias2 += gg2;
                 gwc2 += gg2*prev_c_val;
 
@@ -408,7 +408,7 @@ extern "C" {
 
                 // gradient with respect to values in the first gate g1
                 float gg1 = gc*(prev_c_val-u_val)*(g1*(1-g1));
-                *(gup+1) = gg1;
+                *(gup+1) += gg1;
                 gbias1 += gg1;
                 gwc1 += gg1*prev_c_val;
 
@@ -496,7 +496,7 @@ class SRU_Compute_GPU(Function):
             assert mask_pad.size(1) == batch
         k = u.size(-1) // d
         k_ = k // 2 if self.bidirectional else k
-        skip_type = 0 if not self.has_skip_term else (1 if k_ == 3 else 2)
+        skip_type = 0 if not self.has_skip_term else (1 if k_ == 2 else 2)
         ncols = batch*d*bidir
         thread_per_block = min(512, ncols)
         num_block = (ncols-1) // thread_per_block + 1
@@ -507,7 +507,7 @@ class SRU_Compute_GPU(Function):
         h = x.new(*size)
 
         scale_x = self.scale_x
-        if skip_type > 0 and k_ == 3:
+        if skip_type > 0 and k_ == 2:
             x_ptr = x.contiguous() * scale_x if scale_x is not None else x.contiguous()
             x_ptr = x_ptr.data_ptr()
         else:
@@ -557,7 +557,7 @@ class SRU_Compute_GPU(Function):
         d = self.d_out
         k = u.size(-1) // d
         k_ = k // 2 if self.bidirectional else k
-        skip_type = 0 if not self.has_skip_term else (1 if k_ == 3 else 2)
+        skip_type = 0 if not self.has_skip_term else (1 if k_ == 2 else 2)
         ncols = batch*d*bidir
         thread_per_block = min(512, ncols)
         num_block = (ncols-1)//thread_per_block+1
@@ -567,9 +567,9 @@ class SRU_Compute_GPU(Function):
         grad_wc = x.new(2*bidir*d).zero_()
         grad_bias = x.new(2*bidir*d).zero_()
         grad_init = x.new(batch, d*bidir)
-        grad_x = x.new(*x.size()).zero_() if skip_type > 0 and k_ == 3 else None
+        grad_x = x.new(*x.size()).zero_() if skip_type > 0 and k_ == 2 else None
 
-        if skip_type > 0 and k_ == 3:
+        if skip_type > 0 and k_ == 2:
             x_ptr = x.contiguous()*scale_x if scale_x is not None else x.contiguous()
             x_ptr = x_ptr.data_ptr()
         else:
@@ -593,7 +593,7 @@ class SRU_Compute_GPU(Function):
             d,
             k_,
             grad_u.data_ptr(),
-            grad_x.data_ptr() if skip_type > 0 and k_ == 3 else 0,
+            grad_x.data_ptr() if skip_type > 0 and k_ == 2 else 0,
             grad_wc.data_ptr(),
             grad_bias.data_ptr(),
             grad_init.data_ptr(),
@@ -604,6 +604,6 @@ class SRU_Compute_GPU(Function):
             stream=stream
         )
 
-        if skip_type > 0 and k_ == 3 and scale_x is not None:
+        if skip_type > 0 and k_ == 2 and scale_x is not None:
             grad_x.mul_(scale_x)
         return grad_u, grad_x, grad_wc, grad_bias, grad_init, None
