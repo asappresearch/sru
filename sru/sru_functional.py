@@ -356,7 +356,6 @@ class SRUCell(nn.Module):
         n_out = self.n_out
         k = self.k
         bidir = 2 if self.bidirectional else 1
-        weight = self.weight
 
         if dim_mask.dim() != 1:
             raise ValueError("dim_mask must be single dimensional")
@@ -364,6 +363,7 @@ class SRUCell(nn.Module):
             raise ValueError("dim_mask must match the size if input size")
 
         # select the sub-tensor
+        weight = self.weight * dim_mask.view(-1, 1)
         indices = dim_mask.nonzero().squeeze()
         sub_weight = weight.index_select(0, indices)
         sub_x = x.index_select(1, indices)

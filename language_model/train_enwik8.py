@@ -34,6 +34,40 @@ def create_batches(data_ids, batch_size):
     x, y = x.cuda(), y.cuda()
     return x, y
 
+class HardConcrete(nn.Module):
+    def __init__(self, n_in, init_mean=0.5, temperature=1.0, stretch=0.1):
+        super(HardConcrete, self).__init__()
+        self.n_in = n_in
+        self.limit_l = -stretch
+        self.limit_r = 1.0+stretch
+        self.log_alpha = nn.Parameter(torch.Tensor(n_in))
+        self.beta = temperature
+        self.init_mean = init_mean
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        self.log_alpha.data.normal_(math.log(1 - self.init_mean)
+                - math.log(self.init_mean), 1e-2)
+
+    def constrain_parameters(self):
+        self.log_alpha.data.clamp_(min=math.log(1e-2), max=math.log(1e2))
+
+    def l0_norm(self):
+        bias = -self.beta * math.log(-self.limit_l/self.limit_r)
+        return (self.log_alpha + bias).sigmoid().sum()
+
+    def forward(self, eps=1e-6):
+        if self.training:
+            u = self.log_alpha.new(self.n_in).uniform_(eps, 1-eps)
+            s = F.sigmoid((torch.log(u) - torch.log(1 - u) + self.log_alpha) /
+                    self.beta)
+            s = s * (self.limit_r - self.limit_l) + self.limit_l
+            return s.clamp(min=0., max=1.)
+        else:
+            s = F.sigmoid(self.log_alpha)
+            s = s * (self.limit_r - self.limit_l) + self.limit_l
+            return s.clamp(min=0., max=1.)
+
 class Model(nn.Module):
     def __init__(self, words, args):
         super(Model, self).__init__()
@@ -54,13 +88,21 @@ class Model(nn.Module):
             )
         else:
             self.rnn = sru.SRU(self.n_e, self.n_d, self.depth,
-                dropout = args.dropout,
+                dropout = args.dropout,# if not args.prune else 0.,
                 n_proj = args.n_proj,
                 #use_tanh = 0,
                 highway_bias = args.bias,
                 layer_norm = args.layer_norm
             )
         self.output_layer = nn.Linear(self.n_d, self.n_V)
+        self.mask_layers = None
+        if args.prune:
+            self.mask_layers = nn.ModuleList([ HardConcrete(
+                n_in = r.n_proj if r.n_proj else r.n_in,
+                init_mean = args.prune_mean,
+                stretch = args.prune_stretch)
+                for r in self.rnn.rnn_lst ])
+
         self.init_weights()
 
     def init_weights(self, val_range=None):
@@ -74,13 +116,24 @@ class Model(nn.Module):
             else:
                 p.data.zero_()
 
-    def forward(self, x, hidden):
+    def forward(self, x, hidden, use_mask=True):
         emb = self.drop(self.embedding_layer(x))
-        output, hidden = self.rnn(emb, hidden)
+        if not use_mask:
+            masks = None
+            output, hidden = self.rnn(emb, hidden)
+        else:
+            masks = [ layer() for layer in self.mask_layers ]
+            h0 = [ h.squeeze(0) for h in hidden.chunk(self.depth, 0) ]
+            lst_ht = []
+            prev = emb
+            for i, r in enumerate(self.rnn.rnn_lst):
+                prev, ht = r(prev, h0[i], dim_mask=masks[i])
+                lst_ht.append(ht)
+            output, hidden = prev, torch.stack(lst_ht)
         output = self.drop(output)
         output = output.view(-1, output.size(2))
         output = self.output_layer(output)
-        return output, hidden
+        return output, hidden, masks
 
     def init_hidden(self, batch_size):
         weight = next(self.parameters()).data
@@ -103,33 +156,36 @@ def reset_hidden(hidden, p=0.01, lstm=False):
     else:
         return (hidden[0]*mask, hidden[1]*mask)
 
-def eval_model(model, valid):
-    model.eval()
-    args = model.args
-    batch_size = valid[0].size(1)
-    total_loss = 0.0
-    unroll_size = args.unroll_size
-    criterion = nn.CrossEntropyLoss(size_average=False)
-    hidden = model.init_hidden(batch_size)
-    N = (len(valid[0])-1)//unroll_size + 1
-    for i in range(N):
-        x = valid[0][i*unroll_size:(i+1)*unroll_size]
-        y = valid[1][i*unroll_size:(i+1)*unroll_size].view(-1)
-        x, y = Variable(x, volatile=True), Variable(y, volatile=True)
-        if args.lstm:
-            hidden[0].detach_()
-            hidden[1].detach_()
+def eval_model(model, valid, use_mask):
+    with torch.no_grad():
+        model.eval()
+        args = model.args
+        batch_size = valid[0].size(1)
+        total_loss = 0.0
+        unroll_size = args.unroll_size
+        criterion = nn.CrossEntropyLoss(size_average=False)
+        hidden = model.init_hidden(batch_size)
+        N = (len(valid[0])-1)//unroll_size + 1
+        for i in range(N):
+            x = valid[0][i*unroll_size:(i+1)*unroll_size]
+            y = valid[1][i*unroll_size:(i+1)*unroll_size].view(-1)
+            if args.lstm:
+                hidden[0].detach_()
+                hidden[1].detach_()
+            else:
+                hidden.detach_()
+            output, hidden, masks = model(x, hidden, use_mask=use_mask)
+            loss = criterion(output, y)
+            total_loss += loss.item()  # loss.data[0]
+        avg_loss = total_loss / valid[1].numel()
+        ppl = np.exp(avg_loss)
+        if use_mask:
+            sparsity = sum(x.le(1e-6).sum().item() for x in masks) \
+                    / sum(x.numel() for x in masks)
         else:
-            hidden.detach_()
-        #hidden = (Variable(hidden[0].data), Variable(hidden[1].data)) if args.lstm \
-        #    else Variable(hidden.data)
-        output, hidden = model(x, hidden)
-        loss = criterion(output, y)
-        total_loss += loss.item()  # loss.data[0]
-    avg_loss = total_loss / valid[1].numel()
-    ppl = np.exp(avg_loss)
-    model.train()
-    return ppl, avg_loss
+            sparsity = 0
+        model.train()
+        return ppl, avg_loss, sparsity
 
 def copy_model(model):
     states = model.state_dict()
@@ -174,12 +230,17 @@ def main(args):
     batch_size = args.batch_size
     N = (len(train[0])-1)//unroll_size + 1
     criterion = nn.CrossEntropyLoss()
+    if not args.prune:
+        args.prune_start_epoch = args.max_epoch
+    else:
+        mask_cnt = sum(layer.n_in for layer in model.mask_layers)
 
     for epoch in range(args.max_epoch):
         start_time = time.time()
         model.train()
         total_loss = 0.0
         hidden = model.init_hidden(batch_size)
+        use_mask = epoch >= args.prune_start_epoch
 
         for i in range(N):
             x = train[0][i*unroll_size:(i+1)*unroll_size]
@@ -190,43 +251,60 @@ def main(args):
                 hidden[1].detach_()
             else:
                 hidden.detach_()
-            #hidden = reset_hidden(hidden, lstm=args.lstm)
-            #hidden = (Variable(hidden[0].data), Variable(hidden[1].data)) if args.lstm \
-            #    else Variable(hidden.data)
 
             model.zero_grad()
-            output, hidden = model(x, hidden)
+            output, hidden, masks = model(x, hidden, use_mask=use_mask)
             loss = criterion(output, y)
             loss.backward()
+            l0_norm = 0
+            if use_mask:
+                for layer in model.mask_layers:
+                    l0_norm = l0_norm + layer.l0_norm()
+                l0_norm = l0_norm * args.prune_lambda
+                l0_norm.backward()
+                l0_norm = l0_norm.item()
+            else:
+                model.mask_layers.zero_grad()
 
             if args.clip_grad > 0:
                 torch.nn.utils.clip_grad_norm(model.parameters(), args.clip_grad)
             optimizer.step()
 
             if niter%50 == 0:
-                #sys.stdout.write("\r{}".format(niter))
-                #sys.stdout.flush()
-                #train_writer.add_scalar('loss', loss.data[0], niter)
+                sparsity = 0
+                if use_mask:
+                    sparsity = sum(x.le(1e-6).sum().item() for x in masks)/mask_cnt
+                sys.stderr.write("\r{:.4f} {:.4f}/{} {:.2f}".format(
+                    loss.item(),
+                    l0_norm,
+                    mask_cnt,
+                    sparsity
+                ))
                 train_writer.add_scalar('loss', loss.item(), niter)
                 train_writer.add_scalar('pnorm',
                     calc_norm([ x.data for x in plis ]),
                     niter
                 )
                 train_writer.add_scalar('gnorm',
-                    calc_norm([ x.grad for x in plis ]),
+                    calc_norm([ x.grad for x in plis if x.grad is not None]),
+                    niter
+                )
+                train_writer.add_scalar('sparsity',
+                    sparsity,
                     niter
                 )
 
             if niter%args.log_period == 0:
                 elapsed_time = (time.time()-start_time)/60.0
-                dev_ppl, dev_loss = eval_model(model, dev)
+                dev_ppl, dev_loss, sparsity = eval_model(model, dev, use_mask=use_mask)
                 sys.stdout.write("\rIter={}  lr={:.5f}  train_loss={:.4f}  dev_loss={:.4f}"
-                        "  dev_bpc={:.2f}\teta={:.1f}m\t[{:.1f}m]\n".format(
+                        "  dev_bpc={:.2f}  sparsity={:.2f}\teta={:.1f}m\t[{:.1f}m]\n".format(
                     niter,
                     optimizer.param_groups[0]['lr'],
-                    loss.item()  # loss.data[0],
+                    loss.item(),  # loss.data[0],
                     dev_loss,
                     np.log2(dev_ppl),
+                    sparsity,
                     elapsed_time*N/(i+1),
                     elapsed_time
                 ))
@@ -237,6 +315,7 @@ def main(args):
                 sys.stdout.flush()
                 dev_writer.add_scalar('loss', dev_loss, niter)
                 dev_writer.add_scalar('bpc', np.log2(dev_ppl), niter)
+                dev_writer.add_scalar('sparsity', sparsity, niter)
 
             niter += 1
             if args.noam:
@@ -252,10 +331,10 @@ def main(args):
     model.load_state_dict(checkpoint)
     dev = create_batches(dev_, 1)
     test = create_batches(test_, 1)
-    dev_ppl, dev_loss = eval_model(model, dev)
-    test_ppl, test_loss = eval_model(model, test)
-    sys.stdout.write("dev_bpc={:.3f}  test_bpc={:.3f}\n".format(
-        np.log2(dev_ppl), np.log2(test_ppl)
+    dev_ppl, dev_loss, sparsity  = eval_model(model, dev, use_mask=use_mask)
+    test_ppl, test_loss, sparsity = eval_model(model, test, use_mask=use_mask)
+    sys.stdout.write("dev_bpc={:.3f}  test_bpc={:.3f}  sparsity={:.2f}\n".format(
+        np.log2(dev_ppl), np.log2(test_ppl), sparsity
     ))
 
 if __name__ == "__main__":
@@ -283,6 +362,12 @@ if __name__ == "__main__":
     argparser.add_argument("--weight_decay", type=float, default=1e-7)
     argparser.add_argument("--clip_grad", type=float, default=0.3)
     argparser.add_argument("--log_period", type=int, default=3000)
+
+    argparser.add_argument("--prune", action="store_true")
+    argparser.add_argument("--prune_lambda", type=float, default=1.)
+    argparser.add_argument("--prune_stretch", type=float, default=0.2)
+    argparser.add_argument("--prune_mean", type=float, default=0.5)
+    argparser.add_argument("--prune_start_epoch", type=int, default=0)
 
     args = argparser.parse_args()
     print (args)
