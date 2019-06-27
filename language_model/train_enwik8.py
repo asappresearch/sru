@@ -191,7 +191,7 @@ def copy_model(model):
     states = model.state_dict()
     for k in states:
         v = states[k]
-        states[k] = v.clone()
+        states[k] = v.clone().cpu()
     return states
 
 def main(args):
@@ -201,6 +201,11 @@ def main(args):
     dev_writer = SummaryWriter(log_dir=log_path+"/dev")
 
     model = Model(words, args)
+    if args.load:
+        mask_layers = model.mask_layers
+        model.mask_layers = None
+        model.load_state_dict(torch.load(args.load))
+        model.mask_layers = mask_layers
     model.cuda()
     print (model)
     sys.stdout.write("vocab size: {}\n".format(
@@ -232,6 +237,7 @@ def main(args):
     criterion = nn.CrossEntropyLoss()
     if not args.prune:
         args.prune_start_epoch = args.max_epoch
+        mask_cnt = 0
     else:
         mask_cnt = sum(layer.n_in for layer in model.mask_layers)
 
@@ -260,10 +266,10 @@ def main(args):
             if use_mask:
                 for layer in model.mask_layers:
                     l0_norm = l0_norm + layer.l0_norm()
-                l0_norm = l0_norm * args.prune_lambda
+                l0_norm = l0_norm * (args.prune_lambda / mask_cnt)
                 l0_norm.backward()
                 l0_norm = l0_norm.item()
-            else:
+            elif model.mask_layers:
                 model.mask_layers.zero_grad()
 
             if args.clip_grad > 0:
@@ -274,10 +280,10 @@ def main(args):
                 sparsity = 0
                 if use_mask:
                     sparsity = sum(x.le(1e-6).sum().item() for x in masks)/mask_cnt
-                sys.stderr.write("\r{:.4f} {:.4f}/{} {:.2f}".format(
+                sys.stderr.write("\r{:.4f} {:.2f}/{:.2f} {:.2f}".format(
                     loss.item(),
                     l0_norm,
-                    mask_cnt,
+                    l0_norm/args.prune_lambda,
                     sparsity
                 ))
                 train_writer.add_scalar('loss', loss.item(), niter)
@@ -294,7 +300,7 @@ def main(args):
                     niter
                 )
 
-            if niter%args.log_period == 0:
+            if niter%args.log_period == 0 or i == N - 1:
                 elapsed_time = (time.time()-start_time)/60.0
                 dev_ppl, dev_loss, sparsity = eval_model(model, dev, use_mask=use_mask)
                 sys.stdout.write("\rIter={}  lr={:.5f}  train_loss={:.4f}  dev_loss={:.4f}"
@@ -325,10 +331,17 @@ def main(args):
                     lr = (args.lr/(args.n_d**0.5)/(args.warmup_steps**1.5))*niter
                 optimizer.param_groups[0]['lr'] = lr
 
+        if args.save and (epoch + 1) % 10 == 0:
+            torch.save(checkpoint, "{}.{}.pt".format(
+                args.save,
+                epoch + 1
+            ))
+
     train_writer.close()
     dev_writer.close()
 
     model.load_state_dict(checkpoint)
+    model.cuda()
     dev = create_batches(dev_, 1)
     test = create_batches(test_, 1)
     dev_ppl, dev_loss, sparsity  = eval_model(model, dev, use_mask=use_mask)
@@ -361,11 +374,13 @@ if __name__ == "__main__":
     argparser.add_argument("--lr", type=float, default=0.001)
     argparser.add_argument("--weight_decay", type=float, default=1e-7)
     argparser.add_argument("--clip_grad", type=float, default=0.3)
-    argparser.add_argument("--log_period", type=int, default=3000)
+    argparser.add_argument("--log_period", type=int, default=10000)
+    argparser.add_argument("--save", type=str, default="")
+    argparser.add_argument("--load", type=str, default="")
 
     argparser.add_argument("--prune", action="store_true")
     argparser.add_argument("--prune_lambda", type=float, default=1.)
-    argparser.add_argument("--prune_stretch", type=float, default=0.2)
+    argparser.add_argument("--prune_stretch", type=float, default=0.1)
     argparser.add_argument("--prune_mean", type=float, default=0.5)
     argparser.add_argument("--prune_start_epoch", type=int, default=0)
 
