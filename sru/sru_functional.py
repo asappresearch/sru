@@ -372,6 +372,29 @@ class SRUCell(nn.Module):
         U = sub_x.mm(sub_weight)
         return U
 
+    def compute_masked_projection_3(self, x, dim_mask):
+        n_row = x.size(0)
+        n_in = self.weight.size(0)
+        n_out = self.n_out
+        k = self.k
+        bidir = 2 if self.bidirectional else 1
+
+        if dim_mask.dim() != 1:
+            raise ValueError("dim_mask must be single dimensional")
+        if dim_mask.size(0) != n_in:
+            raise ValueError("dim_mask must match the size if input size")
+
+        # select the sub-tensor
+        weight_proj = self.weight_proj
+        weight = self.weight * dim_mask.view(-1, 1)
+        indices = dim_mask.nonzero().squeeze()
+        sub_weight_proj = weight_proj.index_select(1, indices)
+        sub_weight = weight.index_select(0, indices)
+
+        # compute and fill tensor U
+        x_projected = x.mm(sub_weight_proj)
+        U = x_projected.mm(sub_weight)
+        return U
 
     def forward(self, input, c0=None, mask_pad=None, dim_mask=None):
         """
@@ -398,11 +421,11 @@ class SRUCell(nn.Module):
         # compute U
         x_2d = x if x.dim() == 2 else x.contiguous().view(-1, n_in)
         if self.n_proj > 0:
-            x_projected = x_2d.mm(self.weight_proj)  # down-proj to n_proj
             if dim_mask is None:
+                x_projected = x_2d.mm(self.weight_proj)  # down-proj to n_proj
                 u = x_projected.mm(self.weight)
             else:
-                u = self.compute_masked_projection_2(x_projected, dim_mask)
+                u = self.compute_masked_projection_3(x_2d, dim_mask)
         else:
             if dim_mask is None:
                 u = x_2d.mm(self.weight)

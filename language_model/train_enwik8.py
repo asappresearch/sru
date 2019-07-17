@@ -49,8 +49,8 @@ class HardConcrete(nn.Module):
         self.log_alpha.data.normal_(math.log(1 - self.init_mean)
                 - math.log(self.init_mean), 1e-2)
 
-    def constrain_parameters(self):
-        self.log_alpha.data.clamp_(min=math.log(1e-2), max=math.log(1e2))
+    def constrain_parameters(self, val):
+        self.log_alpha.data.clamp_(min=-val, max=val)
 
     def l0_norm(self):
         bias = -self.beta * math.log(-self.limit_l/self.limit_r)
@@ -64,7 +64,7 @@ class HardConcrete(nn.Module):
             s = s * (self.limit_r - self.limit_l) + self.limit_l
             return s.clamp(min=0., max=1.)
         else:
-            s = F.sigmoid(self.log_alpha)
+            s = F.sigmoid(self.log_alpha / self.beta)
             s = s * (self.limit_r - self.limit_l) + self.limit_l
             return s.clamp(min=0., max=1.)
 
@@ -194,6 +194,11 @@ def copy_model(model):
         states[k] = v.clone().cpu()
     return states
 
+def clip_hardconcrete_param(model, value):
+    if model.mask_layers:
+        for layer in model.mask_layers:
+            layer.constrain_parameters(val=value)
+
 def main(args):
     train, dev, test, words  = read_corpus(args.data)
     log_path = "{}_{}".format(args.log, random.randint(1,100))
@@ -264,9 +269,14 @@ def main(args):
             loss.backward()
             l0_norm = 0
             if use_mask:
+                if args.prune_warmup == 0:
+                    l0_lambda = args.prune_lambda
+                else:
+                    prune_warmup = max(1, args.prune_warmup)
+                    l0_lambda = args.prune_lambda * min(1.0, niter / prune_warmup)
                 for layer in model.mask_layers:
                     l0_norm = l0_norm + layer.l0_norm()
-                l0_norm = l0_norm * (args.prune_lambda / mask_cnt)
+                l0_norm = l0_norm * (l0_lambda / mask_cnt)
                 l0_norm.backward()
                 l0_norm = l0_norm.item()
             elif model.mask_layers:
@@ -276,10 +286,35 @@ def main(args):
                 torch.nn.utils.clip_grad_norm(model.parameters(), args.clip_grad)
             optimizer.step()
 
-            if niter%50 == 0:
-                sparsity = 0
+            if args.prune_clipping > 0:
+                clip_hardconcrete_param(model, args.prune_clipping)
+
+            if (niter - 1) % 100 == 0:
                 if use_mask:
                     sparsity = sum(x.le(1e-6).sum().item() for x in masks)/mask_cnt
+                    train_writer.add_scalar('sparsity',
+                        sparsity,
+                        niter
+                    )
+                    train_writer.add_scalar('l0_lambda',
+                        l0_lambda,
+                        niter
+                    )
+                    if (niter - 1) % 3000 == 0:
+                        for index, mask in enumerate(masks):
+                            train_writer.add_histogram(
+                                'mask/{}'.format(index),
+                                mask,
+                                niter,
+                                bins='sqrt',
+                            )
+                        for index, layer in enumerate(model.mask_layers):
+                            train_writer.add_histogram(
+                                'log_alpha/{}'.format(index),
+                                layer.log_alpha,
+                                niter,
+                                bins='sqrt',
+                            )
                 sys.stderr.write("\r{:.4f} {:.2f}/{:.2f} {:.2f}".format(
                     loss.item(),
                     l0_norm,
@@ -293,10 +328,6 @@ def main(args):
                 )
                 train_writer.add_scalar('gnorm',
                     calc_norm([ x.grad for x in plis if x.grad is not None]),
-                    niter
-                )
-                train_writer.add_scalar('sparsity',
-                    sparsity,
                     niter
                 )
 
@@ -374,14 +405,16 @@ if __name__ == "__main__":
     argparser.add_argument("--lr", type=float, default=0.001)
     argparser.add_argument("--weight_decay", type=float, default=1e-7)
     argparser.add_argument("--clip_grad", type=float, default=0.3)
-    argparser.add_argument("--log_period", type=int, default=10000)
+    argparser.add_argument("--log_period", type=int, default=1000000)
     argparser.add_argument("--save", type=str, default="")
     argparser.add_argument("--load", type=str, default="")
 
     argparser.add_argument("--prune", action="store_true")
+    argparser.add_argument("--prune_warmup", type=int, default=0)
     argparser.add_argument("--prune_lambda", type=float, default=1.)
     argparser.add_argument("--prune_stretch", type=float, default=0.1)
     argparser.add_argument("--prune_mean", type=float, default=0.5)
+    argparser.add_argument("--prune_clipping", type=float, default=0)
     argparser.add_argument("--prune_start_epoch", type=int, default=0)
 
     args = argparser.parse_args()
