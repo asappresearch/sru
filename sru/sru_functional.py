@@ -41,7 +41,7 @@ def SRU_CPU_class(activation_type,
                     d,
                     bidirectional=False,
                     has_skip_term=True,
-                    scale_x=1,
+                    scale_x=None,
                     mask_pad=None):
     """CPU version of the core SRU computation.
 
@@ -106,14 +106,13 @@ def SRU_CPU_class(activation_type,
                     k,
                     activation_type,
                     has_skip_term,
-                    scale_x
+                    scale_x.item() if scale_x is not None else 1.0
                 )
             else:
                 warnings.warn("Running SRU on CPU with grad_enabled=True. Are you sure?")
         else:
             warnings.warn("C++ kernel for SRU CPU inference was not loaded. "
                           "Use Python version instead.")
-
 
         mask_pad_ = mask_pad.view(length, batch, 1).float() if mask_pad is not None else mask_pad
         u = u.view(length, batch, bidir, d, k)
@@ -124,7 +123,7 @@ def SRU_CPU_class(activation_type,
             x_prime = None
         elif k == 3:
             x_prime = x.view(length, batch, bidir, d)
-            x_prime = x_prime*scale_x if scale_x != 1 else x_prime
+            x_prime = x_prime*scale_x if scale_x is not None else x_prime
         else:
             x_prime = u[..., 3]
 
@@ -220,7 +219,7 @@ class SRUCell(nn.Module):
                  is_input_normalized=False,
                  highway_bias=0,
                  has_skip_term=True,
-                 rescale=False,
+                 rescale=True,
                  v1=False):
 
         if weight_norm and n_proj > 0:

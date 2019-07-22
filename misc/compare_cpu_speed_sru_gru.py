@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 from sru import SRU, SRUCell
 
-batch_size = 32
+batch_size = 1
 seq_len = 32
 input_size = 256
 hidden_size = 512
@@ -35,7 +35,7 @@ def benchmark_gru_cpu():
     print('output.shape', output.shape)
     print('hn.shape', hn.shape)
 
-    n_iter = 10000
+    n_iter = 1000
     start = time.time()
     with torch.no_grad():
         rnn.eval()
@@ -57,11 +57,13 @@ def benchmark_sru_cpu():
     h0 = torch.randn(n_layers, batch_size, hidden_size * n_directions)
     print('input.shape', input.shape)
     print('h0.shape', h0.shape)
-    output, hn = rnn(input, h0)
+    with torch.no_grad():
+        rnn.eval()
+        output, hn = rnn(input, h0)
     print('output.shape', output.shape)
     print('hn.shape', hn.shape)
 
-    n_iter = 10000
+    n_iter = 1000
     start = time.time()
     with torch.no_grad():
         rnn.eval()
