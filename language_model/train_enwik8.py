@@ -300,7 +300,7 @@ def main(args):
                         l0_lambda,
                         niter
                     )
-                    if (niter - 1) % 3000 == 0:
+                    if (niter - 1) % 5000 == 0:
                         for index, mask in enumerate(masks):
                             train_writer.add_histogram(
                                 'mask/{}'.format(index),
@@ -322,6 +322,7 @@ def main(args):
                     sparsity
                 ))
                 train_writer.add_scalar('loss', loss.item(), niter)
+                train_writer.add_scalar('loss_tot', loss.item() + l0_norm, niter)
                 train_writer.add_scalar('pnorm',
                     calc_norm([ x.data for x in plis ]),
                     niter
