@@ -17,7 +17,11 @@ def _lazy_load_cpu_kernel():
     try:
         from torch.utils.cpp_extension import load
         cpu_source = os.path.join(os.path.dirname(__file__), "sru_cpu_impl.cpp")
-        SRU_CPU_kernel = load(name="sru_cpu_impl", sources=[cpu_source])
+        SRU_CPU_kernel = load(
+            name="sru_cpu_impl",
+            sources=[cpu_source],
+            extra_cflags=['-O2'],
+        )
     except:
         # use Python version instead
         SRU_CPU_kernel = False
