@@ -43,6 +43,7 @@ class HardConcrete(nn.Module):
         self.log_alpha = nn.Parameter(torch.Tensor(n_in))
         self.beta = temperature
         self.init_mean = init_mean
+        self.compiled_mask = None
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -56,17 +57,46 @@ class HardConcrete(nn.Module):
         bias = -self.beta * math.log(-self.limit_l/self.limit_r)
         return (self.log_alpha + bias).sigmoid().sum()
 
-    def forward(self, eps=1e-6):
-        if self.training:
+    def compile_mask(self, renormalize=True):
+        # expected number of 0s
+        expected_num_zeros = self.n_in - self.l0_norm().item()
+        num_zeros = min(int(expected_num_zeros), self.n_in-1)
+        #print(num_zeros)
+
+        # approx expected value of each mask variable z; magic number 0.8
+        soft_mask = F.sigmoid(self.log_alpha*0.8)
+
+        # prune small values
+        _, indices = torch.topk(soft_mask, k=num_zeros, largest=False)
+        if renormalize:
+            fraction = 1.0 - soft_mask[indices].sum()/(soft_mask.sum() + 1e-9)
+            soft_mask /= fraction
+        soft_mask[indices] = 0.
+        self.compiled_mask = soft_mask
+
+    def reset_mask(self):
+        self.compiled_mask = None
+
+    def forward(self, eps=1e-6, mode=4):
+        # mode = 1: always sample
+        # mode = 2: hard sigmoid
+        # mode = 3: compiled mask (normalize)
+        # mode = 4: compiled mask (not normalized)
+        if self.training or (mode == 1):
             u = self.log_alpha.new(self.n_in).uniform_(eps, 1-eps)
             s = F.sigmoid((torch.log(u) - torch.log(1 - u) + self.log_alpha) /
                     self.beta)
             s = s * (self.limit_r - self.limit_l) + self.limit_l
             return s.clamp(min=0., max=1.)
-        else:
-            s = F.sigmoid(self.log_alpha / self.beta)
+        elif mode == 2:
+            #s = F.sigmoid(self.log_alpha / self.beta)
+            s = F.sigmoid(self.log_alpha)
             s = s * (self.limit_r - self.limit_l) + self.limit_l
             return s.clamp(min=0., max=1.)
+        else:
+            if self.compiled_mask is None:
+                self.compile_mask(renormalize=(mode == 3))
+            return self.compiled_mask
 
 class Model(nn.Module):
     def __init__(self, words, args):
@@ -116,13 +146,13 @@ class Model(nn.Module):
             else:
                 p.data.zero_()
 
-    def forward(self, x, hidden, use_mask=True):
+    def forward(self, x, hidden, use_mask=True, mode=2):
         emb = self.drop(self.embedding_layer(x))
         if not use_mask:
             masks = None
             output, hidden = self.rnn(emb, hidden)
         else:
-            masks = [ layer() for layer in self.mask_layers ]
+            masks = [ layer(mode=mode) for layer in self.mask_layers ]
             h0 = [ h.squeeze(0) for h in hidden.chunk(self.depth, 0) ]
             lst_ht = []
             prev = emb
@@ -156,8 +186,10 @@ def reset_hidden(hidden, p=0.01, lstm=False):
     else:
         return (hidden[0]*mask, hidden[1]*mask)
 
-def eval_model(model, valid, use_mask):
+def eval_model(model, valid, use_mask, mode=2):
     with torch.no_grad():
+        for layer in model.mask_layers:
+            layer.reset_mask()
         model.eval()
         args = model.args
         batch_size = valid[0].size(1)
@@ -174,7 +206,7 @@ def eval_model(model, valid, use_mask):
                 hidden[1].detach_()
             else:
                 hidden.detach_()
-            output, hidden, masks = model(x, hidden, use_mask=use_mask)
+            output, hidden, masks = model(x, hidden, use_mask=use_mask, mode=mode)
             loss = criterion(output, y)
             total_loss += loss.item()  # loss.data[0]
         avg_loss = total_loss / valid[1].numel()
@@ -225,12 +257,20 @@ def main(args):
     train = create_batches(train, args.batch_size)
     dev = create_batches(dev, args.batch_size)
     test = create_batches(test, args.batch_size)
-    lr = args.lr if not args.noam else args.lr/(args.n_d**0.5)/(args.warmup_steps**1.5)
+    lr = 1.0 if not args.noam else 1.0/(args.n_d**0.5)/(args.warmup_steps**1.5)
     optimizer = optim.Adam(
         filter(lambda p: p.requires_grad, model.parameters()),
-        lr = lr,
+        lr = lr * args.lr,
         weight_decay = args.weight_decay
     )
+    lambda_ = nn.Parameter(torch.tensor(0.).cuda())
+    optimizer_max = optim.Adam(
+        [lambda_],
+        lr = lr,
+        weight_decay = 0
+    )
+    optimizer_max.param_groups[0]['lr'] = -lr * args.prune_lr
+    print(lambda_)
 
     plis = [ p for p in model.parameters() if p.requires_grad ]
     niter = 1
@@ -264,21 +304,29 @@ def main(args):
                 hidden.detach_()
 
             model.zero_grad()
+            optimizer_max.zero_grad()
             output, hidden, masks = model(x, hidden, use_mask=use_mask)
             loss = criterion(output, y)
             loss.backward()
-            l0_norm = 0
+            loss = loss.item()
+            lagrangian_loss = 0
             if use_mask:
                 if args.prune_warmup == 0:
-                    l0_lambda = args.prune_lambda
+                    target_sparsity = args.prune_sparsity
                 else:
                     prune_warmup = max(1, args.prune_warmup)
-                    l0_lambda = args.prune_lambda * min(1.0, niter / prune_warmup)
+                    target_sparsity = args.prune_sparsity * min(1.0, niter / prune_warmup)
+                l0_norm = 0
                 for layer in model.mask_layers:
                     l0_norm = l0_norm + layer.l0_norm()
-                l0_norm = l0_norm * (l0_lambda / mask_cnt)
-                l0_norm.backward()
-                l0_norm = l0_norm.item()
+                expected_sparsity = 1. - (l0_norm / mask_cnt)
+                lagrangian_loss = lambda_ * (expected_sparsity - target_sparsity) #**2
+                #lagrangian_loss = lambda_ * (mask_cnt - l0_norm - target_sparsity * mask_cnt)
+                lagrangian_loss.backward()
+                expected_sparsity = expected_sparsity.item()
+                #expected_sparsity = 1. - (l0_norm.item() / mask_cnt)
+                lagrangian_loss = lagrangian_loss.item()
+                optimizer_max.step()
             elif model.mask_layers:
                 model.mask_layers.zero_grad()
 
@@ -296,8 +344,20 @@ def main(args):
                         sparsity,
                         niter
                     )
-                    train_writer.add_scalar('l0_lambda',
-                        l0_lambda,
+                    train_writer.add_scalar('expected_sparsity',
+                        expected_sparsity,
+                        niter
+                    )
+                    train_writer.add_scalar('target_sparsity',
+                        target_sparsity,
+                        niter
+                    )
+                    train_writer.add_scalar('lagrangian_loss',
+                        lagrangian_loss,
+                        niter
+                    )
+                    train_writer.add_scalar('lambda',
+                        lambda_.item(),
                         niter
                     )
                     if (niter - 1) % 5000 == 0:
@@ -316,13 +376,13 @@ def main(args):
                                 bins='sqrt',
                             )
                 sys.stderr.write("\r{:.4f} {:.2f}/{:.2f} {:.2f}".format(
-                    loss.item(),
-                    l0_norm,
-                    l0_norm/args.prune_lambda,
+                    loss,
+                    lagrangian_loss,
+                    expected_sparsity,
                     sparsity
                 ))
-                train_writer.add_scalar('loss', loss.item(), niter)
-                train_writer.add_scalar('loss_tot', loss.item() + l0_norm, niter)
+                train_writer.add_scalar('loss', loss, niter)
+                train_writer.add_scalar('loss_tot', loss + lagrangian_loss, niter)
                 train_writer.add_scalar('pnorm',
                     calc_norm([ x.data for x in plis ]),
                     niter
@@ -334,12 +394,13 @@ def main(args):
 
             if niter%args.log_period == 0 or i == N - 1:
                 elapsed_time = (time.time()-start_time)/60.0
-                dev_ppl, dev_loss, sparsity = eval_model(model, dev, use_mask=use_mask)
+                dev_ppl, dev_loss, sparsity = eval_model(model, dev,
+                        use_mask=use_mask, mode=4)
                 sys.stdout.write("\rIter={}  lr={:.5f}  train_loss={:.4f}  dev_loss={:.4f}"
                         "  dev_bpc={:.2f}  sparsity={:.2f}\teta={:.1f}m\t[{:.1f}m]\n".format(
                     niter,
                     optimizer.param_groups[0]['lr'],
-                    loss.item(),  # loss.data[0],
+                    loss,
                     dev_loss,
                     np.log2(dev_ppl),
                     sparsity,
@@ -352,16 +413,30 @@ def main(args):
                 sys.stdout.write("\n")
                 sys.stdout.flush()
                 dev_writer.add_scalar('loss', dev_loss, niter)
-                dev_writer.add_scalar('bpc', np.log2(dev_ppl), niter)
-                dev_writer.add_scalar('sparsity', sparsity, niter)
-
+                dev_writer.add_scalar('bpc/topk_unnorm', np.log2(dev_ppl), niter)
+                dev_writer.add_scalar('sparsity/topk_unnorm', sparsity, niter)
+                #if use_mask:
+                    #dev_ppl, dev_loss, sparsity = eval_model(model, dev,
+                    #        use_mask=use_mask, mode=1)
+                    #dev_writer.add_scalar('bpc/sample', np.log2(dev_ppl), niter)
+                    #dev_writer.add_scalar('sparsity/sample', sparsity, niter)
+                    #dev_ppl, dev_loss, sparsity = eval_model(model, dev,
+                    #        use_mask=use_mask, mode=3)
+                    #dev_writer.add_scalar('bpc/topk_norm', np.log2(dev_ppl), niter)
+                    #dev_writer.add_scalar('sparsity/topk_norm', sparsity, niter)
+                    #dev_ppl, dev_loss, sparsity = eval_model(model, dev,
+                    #        use_mask=use_mask, mode=4)
+                    #dev_writer.add_scalar('bpc/topk_unnorm', np.log2(dev_ppl), niter)
+                    #dev_writer.add_scalar('sparsity/topk_unnorm', sparsity, niter)
             niter += 1
             if args.noam:
                 if niter >= args.warmup_steps:
-                    lr = args.lr/(args.n_d**0.5)/(niter**0.5)
+                    lr = 1.0/(args.n_d**0.5)/(niter**0.5)
                 else:
-                    lr = (args.lr/(args.n_d**0.5)/(args.warmup_steps**1.5))*niter
-                optimizer.param_groups[0]['lr'] = lr
+                    lr = (1.0/(args.n_d**0.5)/(args.warmup_steps**1.5))*niter
+                optimizer.param_groups[0]['lr'] = lr * args.lr
+                optimizer_max.param_groups[0]['lr'] = -lr  * args.prune_lr
+
 
         if args.save and (epoch + 1) % 10 == 0:
             torch.save(checkpoint, "{}.{}.pt".format(
@@ -376,8 +451,8 @@ def main(args):
     model.cuda()
     dev = create_batches(dev_, 1)
     test = create_batches(test_, 1)
-    dev_ppl, dev_loss, sparsity  = eval_model(model, dev, use_mask=use_mask)
-    test_ppl, test_loss, sparsity = eval_model(model, test, use_mask=use_mask)
+    dev_ppl, dev_loss, sparsity  = eval_model(model, dev, use_mask=use_mask, mode=4)
+    test_ppl, test_loss, sparsity = eval_model(model, test, use_mask=use_mask, mode=4)
     sys.stdout.write("dev_bpc={:.3f}  test_bpc={:.3f}  sparsity={:.2f}\n".format(
         np.log2(dev_ppl), np.log2(test_ppl), sparsity
     ))
@@ -411,8 +486,9 @@ if __name__ == "__main__":
     argparser.add_argument("--load", type=str, default="")
 
     argparser.add_argument("--prune", action="store_true")
+    argparser.add_argument("--prune_lr", type=float, default=3)
     argparser.add_argument("--prune_warmup", type=int, default=0)
-    argparser.add_argument("--prune_lambda", type=float, default=1.)
+    argparser.add_argument("--prune_sparsity", type=float, default=0.)
     argparser.add_argument("--prune_stretch", type=float, default=0.1)
     argparser.add_argument("--prune_mean", type=float, default=0.5)
     argparser.add_argument("--prune_clipping", type=float, default=0)
