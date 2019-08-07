@@ -263,14 +263,14 @@ def main(args):
         lr = lr * args.lr,
         weight_decay = args.weight_decay
     )
-    lambda_ = nn.Parameter(torch.tensor(0.).cuda())
+    lambda_1 = nn.Parameter(torch.tensor(0.).cuda())
+    lambda_2 = nn.Parameter(torch.tensor(0.).cuda())
     optimizer_max = optim.Adam(
-        [lambda_],
+        [lambda_1, lambda_2],
         lr = lr,
         weight_decay = 0
     )
     optimizer_max.param_groups[0]['lr'] = -lr * args.prune_lr
-    print(lambda_)
 
     plis = [ p for p in model.parameters() if p.requires_grad ]
     niter = 1
@@ -320,11 +320,10 @@ def main(args):
                 for layer in model.mask_layers:
                     l0_norm = l0_norm + layer.l0_norm()
                 expected_sparsity = 1. - (l0_norm / mask_cnt)
-                lagrangian_loss = lambda_ * (expected_sparsity - target_sparsity) #**2
-                #lagrangian_loss = lambda_ * (mask_cnt - l0_norm - target_sparsity * mask_cnt)
+                lagrangian_loss = lambda_1 * (expected_sparsity - target_sparsity) + \
+                                  lambda_2 * (expected_sparsity - target_sparsity)**2
                 lagrangian_loss.backward()
                 expected_sparsity = expected_sparsity.item()
-                #expected_sparsity = 1. - (l0_norm.item() / mask_cnt)
                 lagrangian_loss = lagrangian_loss.item()
                 optimizer_max.step()
             elif model.mask_layers:
@@ -356,10 +355,8 @@ def main(args):
                         lagrangian_loss,
                         niter
                     )
-                    train_writer.add_scalar('lambda',
-                        lambda_.item(),
-                        niter
-                    )
+                    train_writer.add_scalar('lambda/1', lambda_1.item(), niter)
+                    train_writer.add_scalar('lambda/2', lambda_2.item(), niter)
                     if (niter - 1) % 5000 == 0:
                         for index, mask in enumerate(masks):
                             train_writer.add_histogram(
