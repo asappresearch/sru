@@ -122,16 +122,17 @@ class Model(nn.Module):
                 n_proj = args.n_proj,
                 #use_tanh = 0,
                 highway_bias = args.bias,
-                layer_norm = args.layer_norm
+                layer_norm = args.layer_norm,
+                rescale = args.rescale
             )
         self.output_layer = nn.Linear(self.n_d, self.n_V)
         self.mask_layers = None
         if args.prune:
-            self.mask_layers = nn.ModuleList([ HardConcrete(
+            self.mask_layers = [ HardConcrete(
                 n_in = r.n_proj if r.n_proj else r.n_in,
                 init_mean = args.prune_mean,
                 stretch = args.prune_stretch)
-                for r in self.rnn.rnn_lst ])
+                for r in self.rnn.rnn_lst ]
 
         self.init_weights()
 
@@ -188,8 +189,10 @@ def reset_hidden(hidden, p=0.01, lstm=False):
 
 def eval_model(model, valid, use_mask, mode=2):
     with torch.no_grad():
-        for layer in model.mask_layers:
-            layer.reset_mask()
+        if model.mask_layers:
+            for layer in model.mask_layers:
+                layer.reset_mask()
+                layer.eval()
         model.eval()
         args = model.args
         batch_size = valid[0].size(1)
@@ -217,6 +220,9 @@ def eval_model(model, valid, use_mask, mode=2):
         else:
             sparsity = 0
         model.train()
+        if model.mask_layers:
+            for layer in model.mask_layers:
+                layer.train()
         return ppl, avg_loss, sparsity
 
 def copy_model(model):
@@ -243,6 +249,9 @@ def main(args):
         model.mask_layers = None
         model.load_state_dict(torch.load(args.load))
         model.mask_layers = mask_layers
+    if model.mask_layers is not None:
+        for l in model.mask_layers:
+            l.cuda()
     model.cuda()
     print (model)
     sys.stdout.write("vocab size: {}\n".format(
@@ -258,11 +267,19 @@ def main(args):
     dev = create_batches(dev, args.batch_size)
     test = create_batches(test, args.batch_size)
     lr = 1.0 if not args.noam else 1.0/(args.n_d**0.5)/(args.warmup_steps**1.5)
+    m_parameters = [p for p in model.parameters() if p.requires_grad]
     optimizer = optim.Adam(
-        filter(lambda p: p.requires_grad, model.parameters()),
+        m_parameters,
         lr = lr * args.lr,
         weight_decay = args.weight_decay
     )
+    if args.prune:
+        hc_parameters = [p for l in model.mask_layers for p in l.parameters() if p.requires_grad]
+        optimizer_hc = optim.Adam(
+            hc_parameters,
+            lr = lr * args.lr,
+            weight_decay = 0
+        )
     lambda_1 = nn.Parameter(torch.tensor(0.).cuda())
     lambda_2 = nn.Parameter(torch.tensor(0.).cuda())
     optimizer_max = optim.Adam(
@@ -272,9 +289,8 @@ def main(args):
     )
     optimizer_max.param_groups[0]['lr'] = -lr * args.prune_lr
 
-    plis = [ p for p in model.parameters() if p.requires_grad ]
+    nbatch = 1
     niter = 1
-    unchanged = 0
     best_dev = 1e+8
     unroll_size = args.unroll_size
     batch_size = args.batch_size
@@ -286,12 +302,18 @@ def main(args):
     else:
         mask_cnt = sum(layer.n_in for layer in model.mask_layers)
 
+    model.zero_grad()
+    if args.prune:
+        optimizer_max.zero_grad()
+        optimizer_hc.zero_grad()
+
     for epoch in range(args.max_epoch):
         start_time = time.time()
         model.train()
         total_loss = 0.0
         hidden = model.init_hidden(batch_size)
-        use_mask = epoch >= args.prune_start_epoch
+        start_prune = epoch >= args.prune_start_epoch
+        #use_mask = epoch >= args.prune_start_epoch
 
         for i in range(N):
             x = train[0][i*unroll_size:(i+1)*unroll_size]
@@ -303,41 +325,36 @@ def main(args):
             else:
                 hidden.detach_()
 
-            model.zero_grad()
-            optimizer_max.zero_grad()
-            output, hidden, masks = model(x, hidden, use_mask=use_mask)
+            #  forward and backward
+            output, hidden, masks = model(x, hidden, use_mask=args.prune)
             loss = criterion(output, y)
-            loss.backward()
+            (loss / args.update_param_freq).backward()
             loss = loss.item()
             lagrangian_loss = 0
-            if use_mask:
+            sparsity = 0
+            target_sparsity = 0
+            expected_sparsity = 0
+            if start_prune:
                 if args.prune_warmup == 0:
                     target_sparsity = args.prune_sparsity
                 else:
+                    niter_ = niter - args.prune_start_epoch * N
                     prune_warmup = max(1, args.prune_warmup)
-                    target_sparsity = args.prune_sparsity * min(1.0, niter / prune_warmup)
+                    target_sparsity = args.prune_sparsity * min(1.0, niter_ / prune_warmup)
                 l0_norm = 0
                 for layer in model.mask_layers:
                     l0_norm = l0_norm + layer.l0_norm()
                 expected_sparsity = 1. - (l0_norm / mask_cnt)
                 lagrangian_loss = lambda_1 * (expected_sparsity - target_sparsity) + \
                                   lambda_2 * (expected_sparsity - target_sparsity)**2
-                lagrangian_loss.backward()
+                (lagrangian_loss / args.update_param_freq).backward()
                 expected_sparsity = expected_sparsity.item()
                 lagrangian_loss = lagrangian_loss.item()
-                optimizer_max.step()
-            elif model.mask_layers:
-                model.mask_layers.zero_grad()
 
-            if args.clip_grad > 0:
-                torch.nn.utils.clip_grad_norm(model.parameters(), args.clip_grad)
-            optimizer.step()
-
-            if args.prune_clipping > 0:
-                clip_hardconcrete_param(model, args.prune_clipping)
-
-            if (niter - 1) % 100 == 0:
-                if use_mask:
+            #  log training stats
+            if (niter - 1) % 100 == 0 and nbatch % args.update_param_freq == 0:
+                #if use_mask:
+                if args.prune:
                     sparsity = sum(x.le(1e-6).sum().item() for x in masks)/mask_cnt
                     train_writer.add_scalar('sparsity',
                         sparsity,
@@ -357,7 +374,7 @@ def main(args):
                     )
                     train_writer.add_scalar('lambda/1', lambda_1.item(), niter)
                     train_writer.add_scalar('lambda/2', lambda_2.item(), niter)
-                    if (niter - 1) % 5000 == 0:
+                    if (niter - 1) % 3000 == 0:
                         for index, mask in enumerate(masks):
                             train_writer.add_histogram(
                                 'mask/{}'.format(index),
@@ -381,18 +398,36 @@ def main(args):
                 train_writer.add_scalar('loss', loss, niter)
                 train_writer.add_scalar('loss_tot', loss + lagrangian_loss, niter)
                 train_writer.add_scalar('pnorm',
-                    calc_norm([ x.data for x in plis ]),
+                    calc_norm([ x.data for x in m_parameters ]),
                     niter
                 )
                 train_writer.add_scalar('gnorm',
-                    calc_norm([ x.grad for x in plis if x.grad is not None]),
+                    calc_norm([ x.grad for x in m_parameters if x.grad is not None]),
                     niter
                 )
 
-            if niter%args.log_period == 0 or i == N - 1:
+            #  perform gradient decent every few number of backward()
+            if nbatch % args.update_param_freq == 0:
+                if args.clip_grad > 0:
+                    torch.nn.utils.clip_grad_norm(m_parameters, args.clip_grad)
+                optimizer.step()
+                if start_prune:
+                    optimizer_max.step()
+                    optimizer_hc.step()
+                #  clear gradient
+                model.zero_grad()
+                if args.prune:
+                    optimizer_max.zero_grad()
+                    optimizer_hc.zero_grad()
+                #  clip hardconcrete parameters
+                if args.prune_clipping > 0:
+                    clip_hardconcrete_param(model, args.prune_clipping)
+                niter += 1
+
+            if nbatch % args.log_period == 0 or i == N - 1:
                 elapsed_time = (time.time()-start_time)/60.0
                 dev_ppl, dev_loss, sparsity = eval_model(model, dev,
-                        use_mask=use_mask, mode=4)
+                        use_mask=args.prune, mode=4)
                 sys.stdout.write("\rIter={}  lr={:.5f}  train_loss={:.4f}  dev_loss={:.4f}"
                         "  dev_bpc={:.2f}  sparsity={:.2f}\teta={:.1f}m\t[{:.1f}m]\n".format(
                     niter,
@@ -412,28 +447,22 @@ def main(args):
                 dev_writer.add_scalar('loss', dev_loss, niter)
                 dev_writer.add_scalar('bpc/topk_unnorm', np.log2(dev_ppl), niter)
                 dev_writer.add_scalar('sparsity/topk_unnorm', sparsity, niter)
-                #if use_mask:
-                    #dev_ppl, dev_loss, sparsity = eval_model(model, dev,
-                    #        use_mask=use_mask, mode=1)
-                    #dev_writer.add_scalar('bpc/sample', np.log2(dev_ppl), niter)
-                    #dev_writer.add_scalar('sparsity/sample', sparsity, niter)
-                    #dev_ppl, dev_loss, sparsity = eval_model(model, dev,
-                    #        use_mask=use_mask, mode=3)
-                    #dev_writer.add_scalar('bpc/topk_norm', np.log2(dev_ppl), niter)
-                    #dev_writer.add_scalar('sparsity/topk_norm', sparsity, niter)
-                    #dev_ppl, dev_loss, sparsity = eval_model(model, dev,
-                    #        use_mask=use_mask, mode=4)
-                    #dev_writer.add_scalar('bpc/topk_unnorm', np.log2(dev_ppl), niter)
-                    #dev_writer.add_scalar('sparsity/topk_unnorm', sparsity, niter)
-            niter += 1
-            if args.noam:
-                if niter >= args.warmup_steps:
-                    lr = 1.0/(args.n_d**0.5)/(niter**0.5)
-                else:
-                    lr = (1.0/(args.n_d**0.5)/(args.warmup_steps**1.5))*niter
-                optimizer.param_groups[0]['lr'] = lr * args.lr
-                optimizer_max.param_groups[0]['lr'] = -lr  * args.prune_lr
 
+            nbatch += 1
+            if args.noam:
+                #if niter >= args.warmup_steps:
+                #    lr = 1.0/(args.n_d**0.5)/(niter**0.5)
+                #else:
+                #    lr = (1.0/(args.n_d**0.5)/(args.warmup_steps**1.5))*niter
+                #optimizer.param_groups[0]['lr'] = lr * args.lr
+                #optimizer_max.param_groups[0]['lr'] = -lr  * args.prune_lr
+                lr = min(1.0 / (niter**0.5), niter / (args.warmup_steps**1.5))
+                optimizer.param_groups[0]['lr'] = lr * args.lr / (args.n_d**0.5)
+            if args.noam and start_prune:
+                niter_ = niter - args.prune_start_epoch * N
+                lr = min(1.0 / (niter**0.5), niter_ / (args.warmup_steps**1.5))
+                optimizer_max.param_groups[0]['lr'] = -lr * args.prune_lr / (args.n_d**0.5)
+                optimizer_hc.param_groups[0]['lr'] = lr * args.lr / (args.n_d**0.5)
 
         if args.save and (epoch + 1) % 10 == 0:
             torch.save(checkpoint, "{}.{}.pt".format(
@@ -448,8 +477,8 @@ def main(args):
     model.cuda()
     dev = create_batches(dev_, 1)
     test = create_batches(test_, 1)
-    dev_ppl, dev_loss, sparsity  = eval_model(model, dev, use_mask=use_mask, mode=4)
-    test_ppl, test_loss, sparsity = eval_model(model, test, use_mask=use_mask, mode=4)
+    dev_ppl, dev_loss, sparsity  = eval_model(model, dev, use_mask=start_prune, mode=4)
+    test_ppl, test_loss, sparsity = eval_model(model, test, use_mask=start_prune, mode=4)
     sys.stdout.write("dev_bpc={:.3f}  test_bpc={:.3f}  sparsity={:.2f}\n".format(
         np.log2(dev_ppl), np.log2(test_ppl), sparsity
     ))
@@ -460,9 +489,11 @@ if __name__ == "__main__":
     argparser.add_argument("--noam", action="store_true")
     argparser.add_argument("--warmup_steps", type=int, default=32000)
     argparser.add_argument("--layer_norm", action="store_true")
+    argparser.add_argument("--rescale", action="store_true")
     argparser.add_argument("--lstm", action="store_true")
     argparser.add_argument("--data", type=str, required=True, help="training file")
     argparser.add_argument("--batch_size", "--batch", type=int, default=128)
+    argparser.add_argument("--update_param_freq", type=int, default=1)
     argparser.add_argument("--unroll_size", type=int, default=100)
     argparser.add_argument("--max_epoch", type=int, default=100)
     argparser.add_argument("--n_e", type=int, default=0)

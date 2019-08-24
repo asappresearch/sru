@@ -307,6 +307,15 @@ class SRUCell(nn.Module):
             self.weight_c.data.zero_()
             self.weight_c.requires_grad = False
 
+        # re-scale weights for dropout and normalized input for better gradient flow
+        if self.dropout > 0:
+            w[:, :, :, 0].mul_((1-self.dropout)**0.5)
+        if self.rnn_dropout > 0:
+            w.mul_((1-self.rnn_dropout)**0.5)
+        if self.is_input_normalized:
+            w.mul_(0.25)
+            self.weight_c.data.mul_(0.25)
+
         self.scale_x.data[0] = 1
         if not self.rescale:
             return
@@ -317,14 +326,14 @@ class SRUCell(nn.Module):
             w[:, :, :, 3].mul_(scale_val)
 
         # re-scale weights for dropout and normalized input for better gradient flow
-        if self.dropout > 0:
-            w[:, :, :, 0].mul_((1-self.dropout)**0.5)
-        if self.rnn_dropout > 0:
-            w.mul_((1-self.rnn_dropout)**0.5)
-        if self.is_input_normalized:
-            w[:, :, :, 1].mul_(0.1)
-            w[:, :, :, 2].mul_(0.1)
-            self.weight_c.data.mul_(0.1)
+        #if self.dropout > 0:
+        #    w[:, :, :, 0].mul_((1-self.dropout)**0.5)
+        #if self.rnn_dropout > 0:
+        #    w.mul_((1-self.rnn_dropout)**0.5)
+        #if self.is_input_normalized:
+        #    w[:, :, :, 1].mul_(0.1)
+        #    w[:, :, :, 2].mul_(0.1)
+        #    self.weight_c.data.mul_(0.1)
 
     def compute_masked_projection(self, x, dim_mask):
         n_row = x.size(0)
@@ -568,7 +577,8 @@ class SRU(nn.Module):
             )
             self.rnn_lst.append(l)
             if layer_norm:
-                self.ln_lst.append(LayerNorm(self.out_size))
+                self.ln_lst.append(nn.LayerNorm(self.out_size))
+                #self.ln_lst.append(LayerNorm(self.out_size))
 
     def set_bias(self, bias_val=0):
         for l in self.rnn_lst:
