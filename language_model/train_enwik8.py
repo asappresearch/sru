@@ -204,7 +204,7 @@ def main(args):
                 torch.nn.utils.clip_grad_norm(model.parameters(), args.clip_grad)
             optimizer.step()
 
-            if niter%50 == 0:
+            if (niter - 1) % 100 == 0:
                 #sys.stdout.write("\r{}".format(niter))
                 #sys.stdout.flush()
                 #train_writer.add_scalar('loss', loss.data[0], niter)
@@ -218,7 +218,7 @@ def main(args):
                     niter
                 )
 
-            if niter%args.log_period == 0:
+            if niter % args.log_period == 0 or i == N - 1:
                 elapsed_time = (time.time()-start_time)/60.0
                 dev_ppl, dev_loss = eval_model(model, dev)
                 sys.stdout.write("\rIter={}  lr={:.5f}  train_loss={:.4f}  dev_loss={:.4f}"
