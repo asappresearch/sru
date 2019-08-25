@@ -225,7 +225,7 @@ def main(args):
                         "  dev_bpc={:.2f}\teta={:.1f}m\t[{:.1f}m]\n".format(
                     niter,
                     optimizer.param_groups[0]['lr'],
-                    loss.item()  # loss.data[0],
+                    loss.item(),  # loss.data[0],
                     dev_loss,
                     np.log2(dev_ppl),
                     elapsed_time*N/(i+1),
