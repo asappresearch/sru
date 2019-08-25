@@ -5,24 +5,6 @@
 
 namespace {
 
-//  https://stackoverflow.com/questions/37566987/cuda-atomicadd-for-doubles-definition-error
-#if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 600
-#else
-__device__ double atomicAdd(double* address, double val)
-{
-    unsigned long long int* address_as_ull =
-                             (unsigned long long int*)address;
-    unsigned long long int old = *address_as_ull, assumed;
-    do {
-        assumed = old;
-        old = atomicCAS(address_as_ull, assumed,
-                    __double_as_longlong(val +
-                    __longlong_as_double(assumed)));
-    } while (assumed != old);
-    return __longlong_as_double(old);
-}
-#endif
-
 template <typename scalar_t>
 __forceinline__ __device__ scalar_t sigmoidf(scalar_t x) {
     return 1.0 / (1.0 + exp(-x));
@@ -211,11 +193,15 @@ __global__ void cuda_backward_kernel(
         if (pad_p) pad_p -= batch;
     }
 
-    const int bias_idx = col % d;
-    atomicAdd(grad_wc + bias_idx, gwc1);
-    atomicAdd(grad_wc + bias_idx + d, gwc2);
-    atomicAdd(grad_bias + bias_idx, gbias1);
-    atomicAdd(grad_bias + bias_idx + d, gbias2);
+    //const int bias_idx = col % d;
+    //atomicAdd(grad_wc + bias_idx, gwc1);
+    //atomicAdd(grad_wc + bias_idx + d, gwc2);
+    //atomicAdd(grad_bias + bias_idx, gbias1);
+    //atomicAdd(grad_bias + bias_idx + d, gbias2);
+    *(grad_wc + col) = gwc1;
+    *(grad_wc + col + ncols) = gwc2;
+    *(grad_bias + col) = gbias1;
+    *(grad_bias + col + ncols) = gbias2;
     *(grad_init +col) = cur;
 }
 
@@ -423,11 +409,15 @@ __global__ void cuda_bi_backward_kernel(
         if (pad_p) pad_p -= batch_;
     }
 
-    const int bias_idx = col % d2;
-    atomicAdd(grad_wc + bias_idx, gwc1);
-    atomicAdd(grad_wc + bias_idx + d2, gwc2);
-    atomicAdd(grad_bias + bias_idx, gbias1);
-    atomicAdd(grad_bias + bias_idx + d2, gbias2);
+    //const int bias_idx = col % d2;
+    //atomicAdd(grad_wc + bias_idx, gwc1);
+    //atomicAdd(grad_wc + bias_idx + d2, gwc2);
+    //atomicAdd(grad_bias + bias_idx, gbias1);
+    //atomicAdd(grad_bias + bias_idx + d2, gbias2);
+    *(grad_wc + col) = gwc1;
+    *(grad_wc + col + ncols) = gwc2;
+    *(grad_bias + col) = gbias1;
+    *(grad_bias + col + ncols) = gbias2;
     *(grad_init +col) = cur;
 }
 

@@ -108,8 +108,10 @@ class SRU_Compute_GPU(Function):
 
         init_ = x.new(ncols).zero_() if init is None else init
         grad_u = u.new(*u.size()).zero_()
-        grad_wc = x.new(2*bidir*d).zero_()
-        grad_bias = x.new(2*bidir*d).zero_()
+        #grad_wc = x.new(2*bidir*d).zero_()
+        #grad_bias = x.new(2*bidir*d).zero_()
+        grad_wc = x.new(2, batch, bidir*d).zero_()
+        grad_bias = x.new(2, batch, bidir*d).zero_()
         grad_init = x.new(batch, d*bidir)
         grad_x = x.new(*x.size()).zero_() if skip_type > 0 and k_ == 3 else None
 
@@ -146,4 +148,5 @@ class SRU_Compute_GPU(Function):
 
         if skip_type > 0 and k_ == 3 and scale_x is not None:
             grad_x.mul_(scale_x)
-        return grad_u, grad_x, grad_wc, grad_bias, grad_init, None
+        #return grad_u, grad_x, grad_wc, grad_bias, grad_init, None
+        return grad_u, grad_x, grad_wc.sum(1).view(-1), grad_bias.sum(1).view(-1), grad_init, None
