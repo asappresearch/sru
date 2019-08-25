@@ -32,7 +32,7 @@ __global__ void cuda_forward_kernel(
                         const scalar_t* __restrict__ bias,
                         const scalar_t* __restrict__ init,
                         const scalar_t* __restrict__ mask_c,
-                        const char* __restrict__ mask_pad,
+                        const unsigned char* __restrict__ mask_pad,
                         const int len,
                         const int batch,
                         const int d,
@@ -59,7 +59,7 @@ __global__ void cuda_forward_kernel(
     auto cur = *(init + col);
     const auto *up = u + (col*k);
     const auto *xp = (skip_type == 0) ? NULL : ((skip_type == 1) ? (x + col) : (up + 3));
-    const char *pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col/d));
+    const unsigned char *pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col/d));
     auto *cp = c + col;
     auto *hp = h + col;
 
@@ -96,7 +96,7 @@ __global__ void cuda_backward_kernel(
                         const scalar_t* __restrict__ bias,
                         const scalar_t* __restrict__ init,
                         const scalar_t* __restrict__ mask_c,
-                        const char * __restrict__ mask_pad,
+                        const unsigned char * __restrict__ mask_pad,
                         const scalar_t* __restrict__ c,
                         const scalar_t* __restrict__ grad_h,
                         const scalar_t* __restrict__ grad_last,
@@ -135,7 +135,7 @@ __global__ void cuda_backward_kernel(
     );
     const auto *cp = c + col + (len-1)*ncols;
     const auto *ghp = grad_h + col + (len-1)*ncols;
-    const char *pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col/d) + (len-1)*batch);
+    const unsigned char *pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col/d) + (len-1)*batch);
     auto *gup = grad_u + (col*k) + (len-1)*ncols_u;
     auto *gxp = (skip_type == 0) ? NULL : (
         (skip_type == 1) ? (grad_x + col + (len-1)*ncols) : (gup + 3)
@@ -211,7 +211,7 @@ __global__ void cuda_bi_forward_kernel(
                         const scalar_t* __restrict__ bias,
                         const scalar_t* __restrict__ init,
                         const scalar_t* __restrict__ mask_c,
-                        const char * __restrict__ mask_pad,
+                        const unsigned char * __restrict__ mask_pad,
                         const int len,
                         const int batch,
                         const int d,
@@ -239,7 +239,7 @@ __global__ void cuda_bi_forward_kernel(
 
     const auto *up = u + (col*k);
     const auto *xp = (skip_type == 0) ? NULL : ((skip_type == 1) ? (x + col) : (up + 3));
-    const char *pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col/d2));
+    const unsigned char *pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col/d2));
     auto *cp = c + col;
     auto *hp = h + col;
     const bool flip = (col%d2) >= d;
@@ -291,7 +291,7 @@ __global__ void cuda_bi_backward_kernel(
                            const scalar_t* __restrict__ bias,
                            const scalar_t* __restrict__ init,
                            const scalar_t* __restrict__ mask_c,
-                           const char * __restrict__ mask_pad,
+                           const unsigned char * __restrict__ mask_pad,
                            const scalar_t* __restrict__ c,
                            const scalar_t* __restrict__ grad_h,
                            const scalar_t* __restrict__ grad_last,
@@ -330,7 +330,7 @@ __global__ void cuda_bi_backward_kernel(
     );
     const auto *cp = c + col;
     const auto *ghp = grad_h + col;
-    const char *pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col/d2));
+    const unsigned char *pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col/d2));
     auto *gup = grad_u + (col*k);
     auto *gxp = (skip_type == 0) ? NULL : (
         (skip_type == 1) ? (grad_x + col) : (gup + 3)
@@ -417,15 +417,15 @@ __global__ void cuda_bi_backward_kernel(
 
 //  unidirectional forward()
 void sru_cuda_forward(
-        at::Tensor & h,
-        at::Tensor & c,
-        const at::Tensor & U,
-        const at::Tensor & x,
-        const at::Tensor & weight_c,
-        const at::Tensor & bias,
-        const at::Tensor & c_init,
-        const at::Tensor & mask_c,
-        const at::Tensor & mask_pad,
+        torch::Tensor & h,
+        torch::Tensor & c,
+        const torch::Tensor & U,
+        const torch::Tensor & x,
+        const torch::Tensor & weight_c,
+        const torch::Tensor & bias,
+        const torch::Tensor & c_init,
+        const torch::Tensor & mask_c,
+        const torch::Tensor & mask_pad,
         const int64_t length, 
         const int64_t batch_size, 
         const int64_t hidden_size, 
@@ -447,7 +447,7 @@ void sru_cuda_forward(
             bias.data<scalar_t>(),
             c_init.data<scalar_t>(),
             mask_c.numel() ? mask_c.data<scalar_t>() : NULL,
-            mask_pad.numel() ? mask_pad.data() : NULL,
+            mask_pad.numel() ? mask_pad.data<unsigned char>() : NULL,
             length,
             batch_size,
             hidden_size,
@@ -459,15 +459,15 @@ void sru_cuda_forward(
 
 //  bidirectional forward()
 void sru_cuda_bi_forward(
-        at::Tensor & h,
-        at::Tensor & c,
-        const at::Tensor & U,
-        const at::Tensor & x,
-        const at::Tensor & weight_c,
-        const at::Tensor & bias,
-        const at::Tensor & c_init,
-        const at::Tensor & mask_c,
-        const at::Tensor & mask_pad,
+        torch::Tensor & h,
+        torch::Tensor & c,
+        const torch::Tensor & U,
+        const torch::Tensor & x,
+        const torch::Tensor & weight_c,
+        const torch::Tensor & bias,
+        const torch::Tensor & c_init,
+        const torch::Tensor & mask_c,
+        const torch::Tensor & mask_pad,
         const int64_t length, 
         const int64_t batch_size, 
         const int64_t hidden_size, 
@@ -489,7 +489,7 @@ void sru_cuda_bi_forward(
             bias.data<scalar_t>(),
             c_init.data<scalar_t>(),
             mask_c.numel() ? mask_c.data<scalar_t>() : NULL,
-            mask_pad.numel() ? mask_pad.data() : NULL,
+            mask_pad.numel() ? mask_pad.data<unsigned char>() : NULL,
             length,
             batch_size,
             hidden_size,
@@ -501,21 +501,21 @@ void sru_cuda_bi_forward(
 
 //  unidirectional backward()
 void sru_cuda_backward(
-        at::Tensor & grad_u,
-        at::Tensor & grad_x,
-        at::Tensor & grad_wc,
-        at::Tensor & grad_bias,
-        at::Tensor & grad_init,
-        const at::Tensor & U,
-        const at::Tensor & x,
-        const at::Tensor & weight_c,
-        const at::Tensor & bias,
-        const at::Tensor & c_init,
-        const at::Tensor & mask_c,
-        const at::Tensor & mask_pad,
-        const at::Tensor & c,
-        const at::Tensor & grad_h,
-        const at::Tensor & grad_last,
+        torch::Tensor & grad_u,
+        torch::Tensor & grad_x,
+        torch::Tensor & grad_wc,
+        torch::Tensor & grad_bias,
+        torch::Tensor & grad_init,
+        const torch::Tensor & U,
+        const torch::Tensor & x,
+        const torch::Tensor & weight_c,
+        const torch::Tensor & bias,
+        const torch::Tensor & c_init,
+        const torch::Tensor & mask_c,
+        const torch::Tensor & mask_pad,
+        const torch::Tensor & c,
+        const torch::Tensor & grad_h,
+        const torch::Tensor & grad_last,
         const int64_t length, 
         const int64_t batch_size, 
         const int64_t hidden_size, 
@@ -540,7 +540,7 @@ void sru_cuda_backward(
             bias.data<scalar_t>(),
             c_init.data<scalar_t>(),
             mask_c.numel() ? mask_c.data<scalar_t>() : NULL,
-            mask_pad.numel() ? mask_pad.data() : NULL,
+            mask_pad.numel() ? mask_pad.data<unsigned char>() : NULL,
             c.data<scalar_t>(),
             grad_h.data<scalar_t>(),
             grad_last.data<scalar_t>(),
@@ -555,21 +555,21 @@ void sru_cuda_backward(
 
 //  bidirectional backward()
 void sru_cuda_bi_backward(
-        at::Tensor & grad_u,
-        at::Tensor & grad_x,
-        at::Tensor & grad_wc,
-        at::Tensor & grad_bias,
-        at::Tensor & grad_init,
-        const at::Tensor & U,
-        const at::Tensor & x,
-        const at::Tensor & weight_c,
-        const at::Tensor & bias,
-        const at::Tensor & c_init,
-        const at::Tensor & mask_c,
-        const at::Tensor & mask_pad,
-        const at::Tensor & c,
-        const at::Tensor & grad_h,
-        const at::Tensor & grad_last,
+        torch::Tensor & grad_u,
+        torch::Tensor & grad_x,
+        torch::Tensor & grad_wc,
+        torch::Tensor & grad_bias,
+        torch::Tensor & grad_init,
+        const torch::Tensor & U,
+        const torch::Tensor & x,
+        const torch::Tensor & weight_c,
+        const torch::Tensor & bias,
+        const torch::Tensor & c_init,
+        const torch::Tensor & mask_c,
+        const torch::Tensor & mask_pad,
+        const torch::Tensor & c,
+        const torch::Tensor & grad_h,
+        const torch::Tensor & grad_last,
         const int64_t length, 
         const int64_t batch_size, 
         const int64_t hidden_size, 
@@ -594,7 +594,7 @@ void sru_cuda_bi_backward(
             bias.data<scalar_t>(),
             c_init.data<scalar_t>(),
             mask_c.numel() ? mask_c.data<scalar_t>() : NULL,
-            mask_pad.numel() ? mask_pad.data() : NULL,
+            mask_pad.numel() ? mask_pad.data<unsigned char>() : NULL,
             c.data<scalar_t>(),
             grad_h.data<scalar_t>(),
             grad_last.data<scalar_t>(),
