@@ -125,7 +125,7 @@ class SRU_Compute_GPU(Function):
             x_ = empty_ftensor
 
         backward_func = sru_cuda_lib.sru_bi_backward if self.bidirectional else \
-                sru_cuda_lib.sru_bacward
+                sru_cuda_lib.sru_backward
         backward_func(
             grad_u,
             grad_x if skip_type > 0 and k_ == 3 else empty_ftensor,
