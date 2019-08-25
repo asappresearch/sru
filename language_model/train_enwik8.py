@@ -104,31 +104,32 @@ def reset_hidden(hidden, p=0.01, lstm=False):
         return (hidden[0]*mask, hidden[1]*mask)
 
 def eval_model(model, valid):
-    model.eval()
-    args = model.args
-    batch_size = valid[0].size(1)
-    total_loss = 0.0
-    unroll_size = args.unroll_size
-    criterion = nn.CrossEntropyLoss(size_average=False)
-    hidden = model.init_hidden(batch_size)
-    N = (len(valid[0])-1)//unroll_size + 1
-    for i in range(N):
-        x = valid[0][i*unroll_size:(i+1)*unroll_size]
-        y = valid[1][i*unroll_size:(i+1)*unroll_size].view(-1)
-        x, y = Variable(x, volatile=True), Variable(y, volatile=True)
-        if args.lstm:
-            hidden[0].detach_()
-            hidden[1].detach_()
-        else:
-            hidden.detach_()
-        #hidden = (Variable(hidden[0].data), Variable(hidden[1].data)) if args.lstm \
-        #    else Variable(hidden.data)
-        output, hidden = model(x, hidden)
-        loss = criterion(output, y)
-        total_loss += loss.item()  # loss.data[0]
-    avg_loss = total_loss / valid[1].numel()
-    ppl = np.exp(avg_loss)
-    model.train()
+    with torch.no_grad():
+        model.eval()
+        args = model.args
+        batch_size = valid[0].size(1)
+        total_loss = 0.0
+        unroll_size = args.unroll_size
+        criterion = nn.CrossEntropyLoss(size_average=False)
+        hidden = model.init_hidden(batch_size)
+        N = (len(valid[0])-1)//unroll_size + 1
+        for i in range(N):
+            x = valid[0][i*unroll_size:(i+1)*unroll_size]
+            y = valid[1][i*unroll_size:(i+1)*unroll_size].view(-1)
+            x, y = Variable(x, volatile=True), Variable(y, volatile=True)
+            if args.lstm:
+                hidden[0].detach_()
+                hidden[1].detach_()
+            else:
+                hidden.detach_()
+            #hidden = (Variable(hidden[0].data), Variable(hidden[1].data)) if args.lstm \
+            #    else Variable(hidden.data)
+            output, hidden = model(x, hidden)
+            loss = criterion(output, y)
+            total_loss += loss.item()  # loss.data[0]
+        avg_loss = total_loss / valid[1].numel()
+        ppl = np.exp(avg_loss)
+        model.train()
     return ppl, avg_loss
 
 def copy_model(model):
@@ -282,7 +283,7 @@ if __name__ == "__main__":
     argparser.add_argument("--lr", type=float, default=0.001)
     argparser.add_argument("--weight_decay", type=float, default=1e-7)
     argparser.add_argument("--clip_grad", type=float, default=0.3)
-    argparser.add_argument("--log_period", type=int, default=3000)
+    argparser.add_argument("--log_period", type=int, default=100000)
 
     args = argparser.parse_args()
     print (args)
