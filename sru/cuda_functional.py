@@ -7,8 +7,10 @@ sources = [
     os.path.join(os.path.dirname(__file__), "sru_cuda_impl.cpp"),
     os.path.join(os.path.dirname(__file__), "sru_cuda_kernel.cu"),
 ]
-sru_cuda_lib = load(name="sru_cuda_impl", sources=sources, verbose=True)
+sru_cuda_lib = load(name="sru_cuda_impl", sources=sources, verbose=True, build_directory=".")
+print("---"*10)
 print(sru_cuda_lib)
+print ("---"*10)
 
 empty_btensor = torch.ByteTensor()
 empty_ftensor = torch.FloatTensor()
