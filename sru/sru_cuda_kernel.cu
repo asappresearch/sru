@@ -57,18 +57,19 @@ __global__ void cuda_forward_kernel(
     const auto bias2 = *(bias + (col%d) + d);
     const auto  mask = (mask_c == NULL) ? 1.0 : (*(mask_c + col));
     auto cur = *(init + col);
-    const auto* __restrict__ up = u + (col*k);
-    const auto* __restrict__ xp = (skip_type == 0) ? NULL : ((skip_type == 1) ? (x + col) : (up + 3));
-    const unsigned char* __restrict__ pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col/d));
-    auto* __restrict__ cp = c + col;
-    auto* __restrict__ hp = h + col;
+    const auto* up = u + (col*k);
+    const auto* xp = (skip_type == 0) ? NULL : ((skip_type == 1) ? (x + col) : (up + 3));
+    const unsigned char* pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col/d));
+    auto* cp = c + col;
+    auto* hp = h + col;
 
     for (int row = 0; row < len; ++row)
     {
         if ((pad_p == NULL) || !(*pad_p)) {
             const auto g1 = sigmoidf((*(up+1)) + wc1*cur + bias1);
             const auto g2 = sigmoidf((*(up+2)) + wc2*cur + bias2);
-            cur = (cur-(*up))*g1 + (*up);
+            const auto u_val = *up;
+            cur = (cur-u_val)*g1 + u_val;
             const auto val = calc_activation(activation_type, cur);
             *hp = skip_type ? ((val * mask - (*xp)) * g2 + (*xp)) : (val * mask * g2);
         } 
@@ -79,8 +80,8 @@ __global__ void cuda_forward_kernel(
         up += ncols_u;
         cp += ncols;
         hp += ncols;
-        if (skip_type) xp += ncols_x;
-        if (pad_p) pad_p += batch;
+        xp = skip_type ? (xp + ncols_x) : NULL;
+        pad_p = mask_pad ? (pad_p + batch) : NULL;
     }
 }
 
@@ -130,15 +131,15 @@ __global__ void cuda_backward_kernel(
     scalar_t gbias2 = 0;
     auto cur = *(grad_last + col);
 
-    const auto* __restrict__ up = u + (col*k) + (len-1)*ncols_u;
-    const auto* __restrict__ xp = (skip_type == 0) ? NULL : (
+    const auto* up = u + (col*k) + (len-1)*ncols_u;
+    const auto* xp = (skip_type == 0) ? NULL : (
         (skip_type == 1) ? (x + col + (len-1)*ncols) : (up + 3)
     );
-    const auto* __restrict__ cp = c + col + (len-1)*ncols;
-    const auto* __restrict__ ghp = grad_h + col + (len-1)*ncols;
-    const unsigned char* __restrict__ pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col/d) + (len-1)*batch);
-    auto* __restrict__ gup = grad_u + (col*k) + (len-1)*ncols_u;
-    auto* __restrict__ gxp = (skip_type == 0) ? NULL : (
+    const auto* cp = c + col + (len-1)*ncols;
+    const auto* ghp = grad_h + col + (len-1)*ncols;
+    const unsigned char* pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col/d) + (len-1)*batch);
+    auto* gup = grad_u + (col*k) + (len-1)*ncols_u;
+    auto* gxp = (skip_type == 0) ? NULL : (
         (skip_type == 1) ? (grad_x + col + (len-1)*ncols) : (gup + 3)
     );
 
@@ -161,7 +162,7 @@ __global__ void cuda_backward_kernel(
                 *gxp = gh_val*(1-g2);
 
             // gradient with respect to values in the second gate g2
-            auto gg2 = gh_val*(c_val*mask-x_val)*(g2*(1-g2));
+            const auto gg2 = gh_val*(c_val*mask-x_val)*(g2*(1-g2));
             *(gup+2) = gg2;
             gbias2 += gg2;
             gwc2 += gg2*prev_c_val;
@@ -174,7 +175,7 @@ __global__ void cuda_backward_kernel(
             *gup = gc*(1-g1);
 
             // gradient with respect to values in the first gate g1
-            auto gg1 = gc*(prev_c_val-u_val)*(g1*(1-g1));
+            const auto gg1 = gc*(prev_c_val-u_val)*(g1*(1-g1));
             *(gup+1) = gg1;
             gbias1 += gg1;
             gwc1 += gg1*prev_c_val;
@@ -187,9 +188,9 @@ __global__ void cuda_backward_kernel(
         cp -= ncols;
         gup -= ncols_u;
         ghp -= ncols;
-        if (skip_type) xp -= ncols_x;
-        if (skip_type) gxp -= ncols_x;
-        if (pad_p) pad_p -= batch;
+        xp = skip_type ? (xp - ncols_x) : NULL;
+        gxp = skip_type ? (gxp - ncols_x) : NULL;
+        pad_p = mask_pad ? (pad_p - batch) : NULL;
     }
 
     //const int bias_idx = col % d;
@@ -201,7 +202,7 @@ __global__ void cuda_backward_kernel(
     *(grad_wc + col + ncols) = gwc2;
     *(grad_bias + col) = gbias1;
     *(grad_bias + col + ncols) = gbias2;
-    *(grad_init +col) = cur;
+    *(grad_init + col) = cur;
 }
 
 template <typename scalar_t>
