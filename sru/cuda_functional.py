@@ -53,10 +53,10 @@ class SRU_Compute_GPU(Function):
         thread_per_block = min(512, ncols)
         num_block = (ncols-1) // thread_per_block + 1
 
-        init_ = x.new(ncols).zero_() if init is None else init
+        init_ = x.new_zeros(ncols) if init is None else init
         size = (length, batch, d * bidir) if x.dim() == 3 else (batch, d * bidir)
-        c = x.new(*size).zero_()
-        h = x.new(*size).zero_()
+        c = x.new_zeros(*size)
+        h = x.new_zeros(*size)
 
         scale_x = self.scale_x
         if skip_type > 0 and k_ == 3:
@@ -110,14 +110,14 @@ class SRU_Compute_GPU(Function):
         thread_per_block = min(512, ncols)
         num_block = (ncols-1)//thread_per_block+1
 
-        init_ = x.new(ncols).zero_() if init is None else init
-        grad_u = u.new(*u.size()).zero_()
+        init_ = x.new_zeros(ncols) if init is None else init
+        grad_u = u.new_zeros(*u.size())
         #grad_wc = x.new(2*bidir*d).zero_()
         #grad_bias = x.new(2*bidir*d).zero_()
-        grad_wc = x.new(2, batch, bidir*d).zero_()
-        grad_bias = x.new(2, batch, bidir*d).zero_()
-        grad_init = x.new(batch, d*bidir)
-        grad_x = x.new(*x.size()).zero_() if skip_type > 0 and k_ == 3 else None
+        grad_wc = x.new_zeros(2, batch, bidir*d)
+        grad_bias = x.new_zeros(2, batch, bidir*d)
+        grad_init = x.new_zeros(batch, d*bidir)
+        grad_x = x.new_zeros(*x.size()) if skip_type > 0 and k_ == 3 else None
 
         if skip_type > 0 and k_ == 3:
             x_ = x.contiguous()*scale_x if scale_x is not None else x.contiguous()

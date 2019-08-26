@@ -57,11 +57,11 @@ __global__ void cuda_forward_kernel(
     const auto bias2 = *(bias + (col%d) + d);
     const auto  mask = (mask_c == NULL) ? 1.0 : (*(mask_c + col));
     auto cur = *(init + col);
-    const auto *up = u + (col*k);
-    const auto *xp = (skip_type == 0) ? NULL : ((skip_type == 1) ? (x + col) : (up + 3));
-    const unsigned char *pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col/d));
-    auto *cp = c + col;
-    auto *hp = h + col;
+    const auto* __restrict__ up = u + (col*k);
+    const auto* __restrict__ xp = (skip_type == 0) ? NULL : ((skip_type == 1) ? (x + col) : (up + 3));
+    const unsigned char* __restrict__ pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col/d));
+    auto* __restrict__ cp = c + col;
+    auto* __restrict__ hp = h + col;
 
     for (int row = 0; row < len; ++row)
     {
@@ -71,9 +71,10 @@ __global__ void cuda_forward_kernel(
             cur = (cur-(*up))*g1 + (*up);
             const auto val = calc_activation(activation_type, cur);
             *hp = skip_type ? ((val * mask - (*xp)) * g2 + (*xp)) : (val * mask * g2);
-        } else {
-            *hp = 0;  // output 0 for a pad token
-        }
+        } 
+        //else {
+        //    *hp = 0;  // output 0 for a pad token
+        //}
         *cp = cur;  // useful for backward
         up += ncols_u;
         cp += ncols;
@@ -129,15 +130,15 @@ __global__ void cuda_backward_kernel(
     scalar_t gbias2 = 0;
     auto cur = *(grad_last + col);
 
-    const auto *up = u + (col*k) + (len-1)*ncols_u;
-    const auto *xp = (skip_type == 0) ? NULL : (
+    const auto* __restrict__ up = u + (col*k) + (len-1)*ncols_u;
+    const auto* __restrict__ xp = (skip_type == 0) ? NULL : (
         (skip_type == 1) ? (x + col + (len-1)*ncols) : (up + 3)
     );
-    const auto *cp = c + col + (len-1)*ncols;
-    const auto *ghp = grad_h + col + (len-1)*ncols;
-    const unsigned char *pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col/d) + (len-1)*batch);
-    auto *gup = grad_u + (col*k) + (len-1)*ncols_u;
-    auto *gxp = (skip_type == 0) ? NULL : (
+    const auto* __restrict__ cp = c + col + (len-1)*ncols;
+    const auto* __restrict__ ghp = grad_h + col + (len-1)*ncols;
+    const unsigned char* __restrict__ pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col/d) + (len-1)*batch);
+    auto* __restrict__ gup = grad_u + (col*k) + (len-1)*ncols_u;
+    auto* __restrict__ gxp = (skip_type == 0) ? NULL : (
         (skip_type == 1) ? (grad_x + col + (len-1)*ncols) : (gup + 3)
     );
 
@@ -186,10 +187,8 @@ __global__ void cuda_backward_kernel(
         cp -= ncols;
         gup -= ncols_u;
         ghp -= ncols;
-        if (skip_type) {
-            xp -= ncols_x;
-            gxp -= ncols_x;
-        }
+        if (skip_type) xp -= ncols_x;
+        if (skip_type) gxp -= ncols_x;
         if (pad_p) pad_p -= batch;
     }
 
