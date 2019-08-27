@@ -152,7 +152,9 @@ def SRU_CPU_class(activation_type,
             u0 = u[:, :, di, :, 0].chunk(length)
             u1 = (u[:, :, di, :, 1] + fb).chunk(length)
             u2 = (u[:, :, di, :, 2] + rb).chunk(length)
-            xp = x_prime[:, :, di, :].chunk(length)
+            if x_prime is not None:
+                xp = x_prime[:, :, di, :].chunk(length)
+
             for t in time_seq:
                 forget_t = (u1[t] + c_prev*fw).sigmoid()
                 reset_t = (u2[t] + c_prev*rw).sigmoid()
