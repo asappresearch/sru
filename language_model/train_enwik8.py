@@ -128,11 +128,11 @@ class Model(nn.Module):
         self.output_layer = nn.Linear(self.n_d, self.n_V)
         self.mask_layers = None
         if args.prune:
-            self.mask_layers = [ HardConcrete(
+            self.mask_layers = nn.ModuleList([ HardConcrete(
                 n_in = r.n_proj if r.n_proj else r.n_in,
                 init_mean = args.prune_mean,
                 stretch = args.prune_stretch)
-                for r in self.rnn.rnn_lst ]
+                for r in self.rnn.rnn_lst ])
 
         self.init_weights()
 
@@ -192,7 +192,7 @@ def eval_model(model, valid, use_mask, mode=2):
         if model.mask_layers:
             for layer in model.mask_layers:
                 layer.reset_mask()
-                layer.eval()
+        #        layer.eval()
         model.eval()
         args = model.args
         batch_size = valid[0].size(1)
@@ -220,9 +220,9 @@ def eval_model(model, valid, use_mask, mode=2):
         else:
             sparsity = 0
         model.train()
-        if model.mask_layers:
-            for layer in model.mask_layers:
-                layer.train()
+        #if model.mask_layers:
+        #    for layer in model.mask_layers:
+        #        layer.train()
         return ppl, avg_loss, sparsity
 
 def copy_model(model):
@@ -273,13 +273,13 @@ def main(args):
         lr = lr * args.lr,
         weight_decay = args.weight_decay
     )
-    if args.prune:
-        hc_parameters = [p for l in model.mask_layers for p in l.parameters() if p.requires_grad]
-        optimizer_hc = optim.Adam(
-            hc_parameters,
-            lr = lr * args.lr,
-            weight_decay = 0
-        )
+    #if args.prune:
+    #    hc_parameters = [p for l in model.mask_layers for p in l.parameters() if p.requires_grad]
+    #    optimizer_hc = optim.Adam(
+    #        hc_parameters,
+    #        lr = lr * args.lr,
+    #        weight_decay = 0
+    #    )
     lambda_1 = nn.Parameter(torch.tensor(0.).cuda())
     lambda_2 = nn.Parameter(torch.tensor(0.).cuda())
     optimizer_max = optim.Adam(
@@ -305,7 +305,7 @@ def main(args):
     model.zero_grad()
     if args.prune:
         optimizer_max.zero_grad()
-        optimizer_hc.zero_grad()
+        #optimizer_hc.zero_grad()
 
     for epoch in range(args.max_epoch):
         start_time = time.time()
@@ -350,6 +350,8 @@ def main(args):
                 (lagrangian_loss / args.update_param_freq).backward()
                 expected_sparsity = expected_sparsity.item()
                 lagrangian_loss = lagrangian_loss.item()
+            else:
+                model.mask_layers.zero_grad()
 
             #  log training stats
             if (niter - 1) % 100 == 0 and nbatch % args.update_param_freq == 0:
@@ -413,12 +415,12 @@ def main(args):
                 optimizer.step()
                 if start_prune:
                     optimizer_max.step()
-                    optimizer_hc.step()
+                    #optimizer_hc.step()
                 #  clear gradient
                 model.zero_grad()
                 if args.prune:
                     optimizer_max.zero_grad()
-                    optimizer_hc.zero_grad()
+                    #optimizer_hc.zero_grad()
                 #  clip hardconcrete parameters
                 if args.prune_clipping > 0:
                     clip_hardconcrete_param(model, args.prune_clipping)
@@ -462,7 +464,7 @@ def main(args):
                 niter_ = niter - args.prune_start_epoch * N
                 lr = min(1.0 / (niter**0.5), niter_ / (args.warmup_steps**1.5))
                 optimizer_max.param_groups[0]['lr'] = -lr * args.prune_lr / (args.n_d**0.5)
-                optimizer_hc.param_groups[0]['lr'] = lr * args.lr / (args.n_d**0.5)
+                #optimizer_hc.param_groups[0]['lr'] = lr * args.lr / (args.n_d**0.5)
 
         if args.save and (epoch + 1) % 10 == 0:
             torch.save(checkpoint, "{}.{}.pt".format(
