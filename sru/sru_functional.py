@@ -20,7 +20,8 @@ def _lazy_load_cpu_kernel():
         SRU_CPU_kernel = load(
             name="sru_cpu_impl",
             sources=[cpu_source],
-            extra_cflags=['-O2'],
+            extra_cflags=['-O3'],
+            verbose=False
         )
     except:
         # use Python version instead
