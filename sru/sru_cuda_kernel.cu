@@ -40,7 +40,7 @@ __global__ void cuda_forward_kernel(
                         const int activation_type,
                         const int skip_type)
 {
-    assert ((skip_type >= 0) || (skip_type <= 2));
+    assert ((skip_type >= 0) && (skip_type <= 2));
     assert ((skip_type != 1) || (k == 3));
     assert ((skip_type != 2) || (k == 4));
 
@@ -66,12 +66,15 @@ __global__ void cuda_forward_kernel(
     for (int row = 0; row < len; ++row)
     {
         if ((pad_p == NULL) || !(*pad_p)) {
-            const auto g1 = sigmoidf((*(up+1)) + wc1*cur + bias1);
-            const auto g2 = sigmoidf((*(up+2)) + wc2*cur + bias2);
-            const auto u_val = *up;
-            cur = (cur-u_val)*g1 + u_val;
+            const auto u0 = *up;
+            const auto u1 = *(up + 1);
+            const auto u2 = *(up + 2);
+            const auto x_val = *xp;
+            const auto g1 = sigmoidf(u1 + wc1*cur + bias1);
+            const auto g2 = sigmoidf(u2 + wc2*cur + bias2);
+            cur = (cur-u0)*g1 + u0;
             const auto val = calc_activation(activation_type, cur);
-            *hp = skip_type ? ((val * mask - (*xp)) * g2 + (*xp)) : (val * mask * g2);
+            *hp = skip_type ? ((val * mask - x_val) * g2 + x_val) : (val * mask * g2);
         } 
         //else {
         //    *hp = 0;  // output 0 for a pad token
@@ -109,7 +112,7 @@ __global__ void cuda_backward_kernel(
                         const int activation_type,
                         const int skip_type)
 {
-    assert ((skip_type >= 0) || (skip_type <= 2));
+    assert ((skip_type >= 0) && (skip_type <= 2));
     assert ((skip_type != 1) || (k == 3));
     assert ((skip_type != 2) || (k == 4));
 
@@ -147,23 +150,21 @@ __global__ void cuda_backward_kernel(
     {
         if ((pad_p == NULL) || !(*pad_p)) {
             const auto prev_c_val = (row>0) ? (*(cp-ncols)) : (*(init+col));
-            const auto g1 = sigmoidf((*(up+1)) + wc1*prev_c_val + bias1);
-            const auto g2 = sigmoidf((*(up+2)) + wc2*prev_c_val + bias2);
-            const auto c_val = calc_activation(activation_type, *cp);
+            const auto cp_val = *cp;
+            const auto u0 = *up;
+            const auto u1 = *(up + 1);
+            const auto u2 = *(up + 2);
             const auto x_val = (skip_type) ? (*xp) : 0;
-            const auto u_val = *up;
             const auto gh_val = *ghp;
+            const auto g1 = sigmoidf(u1 + wc1*prev_c_val + bias1);
+            const auto g2 = sigmoidf(u2 + wc2*prev_c_val + bias2);
+            const auto c_val = calc_activation(activation_type, cp_val);
 
             // h = c*g2 + x*(1-g2) = (c-x)*g2 + x
             // c = c'*g1 + u0*(1-g1) = (c'-u0)*g1 + g0
 
-            // gradient with respect to x[t]
-            if (skip_type)
-                *gxp = gh_val*(1-g2);
-
             // gradient with respect to values in the second gate g2
             const auto gg2 = gh_val*(c_val*mask-x_val)*(g2*(1-g2));
-            *(gup+2) = gg2;
             gbias2 += gg2;
             gwc2 += gg2*prev_c_val;
 
@@ -171,17 +172,22 @@ __global__ void cuda_backward_kernel(
             const auto tmp = g2*calc_grad_activation(activation_type, c_val);
             const auto gc = gh_val*mask*tmp + cur;
 
-            // gradient with respect to current input u0=W*x[t]
-            *gup = gc*(1-g1);
-
             // gradient with respect to values in the first gate g1
-            const auto gg1 = gc*(prev_c_val-u_val)*(g1*(1-g1));
-            *(gup+1) = gg1;
+            const auto gg1 = gc*(prev_c_val-u0)*(g1*(1-g1));
             gbias1 += gg1;
             gwc1 += gg1*prev_c_val;
 
             // gradient with respect to c[t-1]
             cur = gc*g1 + gg1*wc1 + gg2*wc2;
+
+            // gradient with respect to U
+            *gup = gc*(1-g1);
+            *(gup + 1) = gg1;
+            *(gup + 2) = gg2;
+ 
+            // gradient with respect to x[t]
+            if (skip_type)
+                *gxp = gh_val*(1-g2);           
         }
 
         up -= ncols_u;
@@ -262,23 +268,25 @@ __global__ void cuda_bi_forward_kernel(
     for (int cnt = 0; cnt < len; ++cnt)
     {
         if ((pad_p == NULL) || !(*pad_p)) {
-            auto g1 = sigmoidf((*(up+1)) + wc1*cur + bias1);
-            auto g2 = sigmoidf((*(up+2)) + wc2*cur + bias2);
-            cur = (cur-(*up))*g1 + (*up);
-            auto val = calc_activation(activation_type, cur);
-            if (skip_type)
-                *hp = (val*mask-(*xp))*g2 + (*xp);
-            else
-                *hp = val*mask*g2;
-        } else {
-            *hp = 0;  // ouptut 0 for a pad token
-        }
+            const auto u0 = *up;
+            const auto u1 = *(up + 1);
+            const auto u2 = *(up + 2);
+            const auto x_val = *xp;
+            const auto g1 = sigmoidf(u1 + wc1*cur + bias1);
+            const auto g2 = sigmoidf(u2 + wc2*cur + bias2);
+            cur = (cur-u0)*g1 + u0;
+            const auto val = calc_activation(activation_type, cur);
+            *hp = skip_type ? ((val * mask - x_val) * g2 + x_val) : (val * mask * g2);
+        } 
+        //else {
+        //    *hp = 0;  // ouptut 0 for a pad token
+        //}
         *cp = cur;  // useful for backward
         up += ncols_u_;
         cp += ncols_;
         hp += ncols_;
-        if (skip_type) xp += ncols_x_;
-        if (pad_p) pad_p += batch_;
+        xp = skip_type ? (xp + ncols_x_) : NULL;
+        pad_p = mask_pad ? (pad_p + batch_) : NULL;
     }
 }
 
@@ -361,23 +369,21 @@ __global__ void cuda_bi_backward_kernel(
     {
         if ((pad_p == NULL) || !(*pad_p)) {
             const auto prev_c_val = (cnt<len-1) ? (*(cp-ncols_)) : (*(init+col));
-            const auto g1 = sigmoidf((*(up+1)) + wc1*prev_c_val + bias1);
-            const auto g2 = sigmoidf((*(up+2)) + wc2*prev_c_val + bias2);
-            const auto c_val = calc_activation(activation_type, *cp);
+            const auto cp_val = *cp;
+            const auto u0 = *up;
+            const auto u1 = *(up + 1);
+            const auto u2 = *(up + 2);
             const auto x_val = (skip_type) ? (*xp) : 0;
-            const auto u_val = *up;
             const auto gh_val = *ghp;
+            const auto g1 = sigmoidf(u1 + wc1*prev_c_val + bias1);
+            const auto g2 = sigmoidf(u2 + wc2*prev_c_val + bias2);
+            const auto c_val = calc_activation(activation_type, cp_val);
 
             // h = c*g2 + x*(1-g2) = (c-x)*g2 + x
             // c = c'*g1 + u0*(1-g1) = (c'-u0)*g1 + u0
 
-            // gradient with respect to x[t]
-            if (skip_type)
-                *gxp = gh_val*(1-g2);
-
             // gradient with respect to values in the second gate g2
-            auto gg2 = gh_val*(c_val*mask-x_val)*(g2*(1-g2));
-            *(gup+2) = gg2;
+            const auto gg2 = gh_val*(c_val*mask-x_val)*(g2*(1-g2));
             gbias2 += gg2;
             gwc2 += gg2*prev_c_val;
 
@@ -385,28 +391,31 @@ __global__ void cuda_bi_backward_kernel(
             const auto tmp = g2*calc_grad_activation(activation_type, c_val);
             const auto gc = gh_val*mask*tmp + cur;
 
-            // gradient with respect to u[0]=W*x[t]
-            *gup = gc*(1-g1);
-
             // gradient with respect to values in the first gate g1
-            auto gg1 = gc*(prev_c_val-u_val)*(g1*(1-g1));
-            *(gup+1) = gg1;
+            const auto gg1 = gc*(prev_c_val-u0)*(g1*(1-g1));
             gbias1 += gg1;
             gwc1 += gg1*prev_c_val;
 
             // gradient with respect to c[t-1]
             cur = gc*g1 + gg1*wc1 + gg2*wc2;
+
+            // gradient with respect to U
+            *gup = gc*(1-g1);
+            *(gup + 1) = gg1;
+            *(gup + 2) = gg2;
+
+            // gradient with respect to x[t]
+            if (skip_type)
+                *gxp = gh_val*(1-g2);
         }
 
         up -= ncols_u_;
         cp -= ncols_;
         gup -= ncols_u_;
         ghp -= ncols_;
-        if (skip_type) {
-            xp -= ncols_x_;
-            gxp -= ncols_x_;
-        }
-        if (pad_p) pad_p -= batch_;
+        xp = skip_type ? (xp - ncols_x_) : NULL;
+        gxp = skip_type ? (gxp - ncols_x_) : NULL;
+        pad_p = mask_pad ? (pad_p - batch_) : NULL;
     }
 
     //const int bias_idx = col % d2;
