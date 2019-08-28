@@ -229,7 +229,7 @@ __global__ void cuda_bi_forward_kernel(
                         const int activation_type,
                         const int skip_type)
 {
-    assert ((skip_type >= 0) || (skip_type <= 2));
+    assert ((skip_type >= 0) && (skip_type <= 2));
     assert ((skip_type != 1) || (k == 3));
     assert ((skip_type != 2) || (k == 4));
 
@@ -314,7 +314,7 @@ __global__ void cuda_bi_backward_kernel(
                            const int activation_type,
                            const int skip_type)
 {
-    assert ((skip_type >= 0) || (skip_type <= 2));
+    assert ((skip_type >= 0) && (skip_type <= 2));
     assert ((skip_type != 1) || (k == 3));
     assert ((skip_type != 2) || (k == 4));
 
