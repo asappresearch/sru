@@ -13,13 +13,13 @@ __forceinline__ __device__ scalar_t sigmoidf(scalar_t x) {
 template <typename scalar_t>
 __forceinline__ __device__ scalar_t calc_activation(int type, scalar_t x)
 {
-    return type ? tanh(x) : x;
+    return type ? (scalar_t)tanh(x) : x;
 }
 
 template <typename scalar_t>
 __forceinline__ __device__ scalar_t calc_grad_activation(int type, scalar_t x)
 {
-    return type ? (1 - x * x) : 1;
+    return type ? (1 - x * x) : (scalar_t)1;
 }
 
 template <typename scalar_t>
@@ -55,7 +55,7 @@ __global__ void cuda_forward_kernel(
     const auto wc2 = *(weight_c + (col%d) + d);
     const auto bias1 = *(bias + (col%d));
     const auto bias2 = *(bias + (col%d) + d);
-    const auto  mask = (mask_c == NULL) ? 1.0 : (*(mask_c + col));
+    const auto  mask = (mask_c == NULL) ? (scalar_t)1.0 : (*(mask_c + col));
     auto cur = *(init + col);
     const auto* up = u + (col*k);
     const auto* xp = (skip_type == 0) ? NULL : ((skip_type == 1) ? (x + col) : (up + 3));
@@ -127,7 +127,7 @@ __global__ void cuda_backward_kernel(
     const auto wc2 = *(weight_c + (col%d) + d);
     const auto bias1 = *(bias + (col%d));
     const auto bias2 = *(bias + (col%d) + d);
-    const auto mask = (mask_c == NULL) ? 1.0 : (*(mask_c + col));
+    const auto mask = (mask_c == NULL) ? (scalar_t)1.0 : (*(mask_c + col));
     scalar_t gwc1 = 0;
     scalar_t gwc2 = 0;
     scalar_t gbias1 = 0;
@@ -154,7 +154,7 @@ __global__ void cuda_backward_kernel(
             const auto u0 = *up;
             const auto u1 = *(up + 1);
             const auto u2 = *(up + 2);
-            const auto x_val = (skip_type) ? (*xp) : 0;
+            const auto x_val = (skip_type) ? (*xp) : (scalar_t)0;
             const auto gh_val = *ghp;
             const auto g1 = sigmoidf(u1 + wc1*prev_c_val + bias1);
             const auto g2 = sigmoidf(u2 + wc2*prev_c_val + bias2);
@@ -239,7 +239,7 @@ __global__ void cuda_bi_forward_kernel(
 
     const int ncols_u = ncols*k;
     const int ncols_x = (k == 3) ? ncols : ncols_u;
-    const scalar_t mask = (mask_c == NULL) ? 1.0 : (*(mask_c + col));
+    const scalar_t mask = (mask_c == NULL) ? (scalar_t)1.0 : (*(mask_c + col));
     auto cur = *(init + col);
     const int d2 = d*2;
     const auto wc1 = *(weight_c + (col%d2));
@@ -324,7 +324,7 @@ __global__ void cuda_bi_backward_kernel(
 
     int ncols_u = ncols*k;
     int ncols_x = (k == 3) ? ncols : ncols_u;
-    const scalar_t mask = (mask_c == NULL) ? 1.0 : (*(mask_c + col));
+    const scalar_t mask = (mask_c == NULL) ? (scalar_t)1.0 : (*(mask_c + col));
     scalar_t gwc1 = 0;
     scalar_t gwc2 = 0;
     scalar_t gbias1 = 0;
@@ -373,7 +373,7 @@ __global__ void cuda_bi_backward_kernel(
             const auto u0 = *up;
             const auto u1 = *(up + 1);
             const auto u2 = *(up + 2);
-            const auto x_val = (skip_type) ? (*xp) : 0;
+            const auto x_val = (skip_type) ? (*xp) : (scalar_t)0;
             const auto gh_val = *ghp;
             const auto g1 = sigmoidf(u1 + wc1*prev_c_val + bias1);
             const auto g2 = sigmoidf(u2 + wc2*prev_c_val + bias2);
@@ -454,7 +454,7 @@ void sru_cuda_forward(
     const int total = batch_size * hidden_size;
     const dim3 blocks( (total - 1) / threads + 1 );
 
-    AT_DISPATCH_FLOATING_TYPES(U.type(), "sru_forward_cuda", ([&] {
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(U.type(), "sru_forward_cuda", ([&] {
         cuda_forward_kernel<scalar_t><<<blocks, threads>>>(
             h.data<scalar_t>(),
             c.data<scalar_t>(),
@@ -496,7 +496,7 @@ void sru_cuda_bi_forward(
     const int total = batch_size * hidden_size * 2;
     const dim3 blocks( (total - 1) / threads + 1 );
 
-    AT_DISPATCH_FLOATING_TYPES(U.type(), "sru_bi_forward_cuda", ([&] {
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(U.type(), "sru_bi_forward_cuda", ([&] {
         cuda_bi_forward_kernel<scalar_t><<<blocks, threads>>>(
             h.data<scalar_t>(),
             c.data<scalar_t>(),
@@ -544,7 +544,7 @@ void sru_cuda_backward(
     const int total = batch_size * hidden_size;
     const dim3 blocks( (total - 1) / threads + 1 );
 
-    AT_DISPATCH_FLOATING_TYPES(U.type(), "sru_backward_cuda", ([&] {
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(U.type(), "sru_backward_cuda", ([&] {
         cuda_backward_kernel<scalar_t><<<blocks, threads>>>(
             grad_u.data<scalar_t>(),
             grad_x.numel() ? grad_x.data<scalar_t>() : NULL,
@@ -598,7 +598,7 @@ void sru_cuda_bi_backward(
     const int total = batch_size * hidden_size * 2;
     const dim3 blocks( (total - 1) / threads + 1 );
 
-    AT_DISPATCH_FLOATING_TYPES(U.type(), "sru_bi_backward_cuda", ([&] {
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(U.type(), "sru_bi_backward_cuda", ([&] {
         cuda_bi_backward_kernel<scalar_t><<<blocks, threads>>>(
             grad_u.data<scalar_t>(),
             grad_x.numel() ? grad_x.data<scalar_t>() : NULL,
