@@ -4,6 +4,7 @@ import warnings
 import math
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.autograd import Variable
 
 SRU_CPU_kernel = None
@@ -29,18 +30,17 @@ def _lazy_load_cpu_kernel():
     return SRU_CPU_kernel
 
 # load C++ implementation for GPU computation
-def _lazy_load_cuda_kernel():
-    global SRU_GPU_kernel
-    if SRU_GPU_kernel is not None:
-        return SRU_GPU_kernel
+def _lazy_load_cuda_kernel(tsru=False):
     try:
-        import .cuda_functional as SRU_GPU_kernel_
-        SRU_GPU_kernel = SRU_GPU_kernel_
+        from .cuda_functional import SRU_Compute_GPU
+        from .cuda_functional import tSRU_Compute_GPU
     except:
-        import cuda_functional as SRU_GPU_kernel_
-        SRU_GPU_kernel = SRU_GPU_kernel_
-    return SRU_GPU_kernel
-
+        from cuda_functional import SRU_Compute_GPU
+        from cuda_functional import tSRU_Compute_GPU
+    if tsru:
+        return tSRU_Compute_GPU
+    else:
+        return SRU_Compute_GPU
 
 def SRU_CPU_class(activation_type,
                     d,
@@ -390,11 +390,24 @@ class SRUCell(nn.Module):
 
         # Pytorch Function() doesn't accept NoneType in forward() call.
         # So we put mask_pad as class attribute as a work around
-        SRU_Compute_Class = _lazy_load_cuda_kernel() if input.is_cuda else SRU_CPU_class
-        SRU_Compute = SRU_Compute_Class(
-            self.activation_type, n_out, self.bidirectional, self.has_skip_term,
-            scale_val, mask_pad
-        )
+        if input.is_cuda:
+            SRU_Compute = _lazy_load_cuda_kernel()(
+                self.activation_type,
+                n_out,
+                self.bidirectional,
+                self.has_skip_term,
+                scale_val,
+                mask_pad
+            )
+        else:
+            SRU_Compute = SRU_CPU_class(
+                self.activation_type,
+                n_out,
+                self.bidirectional,
+                self.has_skip_term,
+                scale_val,
+                mask_pad
+            )
 
         # compute dropout mask for states c[]
         if self.training and (self.dropout > 0):
@@ -616,6 +629,7 @@ class tSRUCell(nn.Module):
         self.dropout = dropout
         self.bidirectional = bidirectional
         self.is_input_normalized = is_input_normalized
+        self.residual = residual
 
         self.n_proj = 0
         if n_proj > 0 and n_proj < n_in and n_proj < n_out:
@@ -694,11 +708,12 @@ class tSRUCell(nn.Module):
             u = x_projected.mm(self.weight)
         else:
             u = x_2d.mm(self.weight)
+        u = u if input.dim() == 2 else u.view(input.size(0), batch, -1)
 
         # Pytorch Function() doesn't accept NoneType in forward() call.
         # So we put mask_pad as class attribute as a work around
         if input.is_cuda:
-            SRU_Compute = _lazy_load_cuda_kernel().tSRU_Compute_GPU(
+            SRU_Compute = _lazy_load_cuda_kernel(tsru=True)(
                 n_out,
                 self.bidirectional,
                 mask_pad
@@ -707,10 +722,21 @@ class tSRUCell(nn.Module):
             raise ValueError("tSRU not supported on CPU")
 
         h, c = SRU_Compute(u, self.weight_c, self.bias, h0)
-        h = F.dropout(h, p=self.dropout, training=self.training)
+        #h = F.dropout(h, p=self.dropout, training=self.training)
+        if self.training and (self.dropout > 0):
+            bidir = 2 if self.bidirectional else 1
+            mask_h = self.get_dropout_mask_((batch, n_out*bidir), self.dropout)
+            h = h * mask_h
         if self.residual:
             h = h + input
         return h, c
+
+    def get_dropout_mask_(self, size, p):
+        """
+        Composes the dropout mask for the `SRUCell`.
+        """
+        w = self.weight
+        return w.new(*size).bernoulli_(1-p).div_(1-p)
 
     def extra_repr(self):
         s = "{n_in}, {n_out}"
@@ -767,7 +793,7 @@ class tSRU(nn.Module):
                  is_input_normalized=False,
                  residual=True):
 
-        super(SRU, self).__init__()
+        super(tSRU, self).__init__()
         self.n_in = input_size
         self.n_out = hidden_size
         self.depth = num_layers
