@@ -452,8 +452,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("sru_bi_forward", &sru_bi_forward, "SRU bidirectional forward (CUDA version)");
   m.def("sru_backward", &sru_backward, "SRU backward (CUDA version)");
   m.def("sru_bi_backward", &sru_bi_backward, "SRU bidirectional backward (CUDA version)");
-  m.def("tsru_forward", &sru_forward, "tSRU forward (CUDA version)");
-  m.def("tsru_bi_forward", &sru_bi_forward, "SRU bidirectional forward (CUDA version)");
-  m.def("tsru_backward", &sru_backward, "tSRU backward (CUDA version)");
-  m.def("tsru_bi_backward", &sru_bi_backward, "tSRU bidirectional backward (CUDA version)");
+  m.def("tsru_forward", &tsru_forward, "tSRU forward (CUDA version)");
+  m.def("tsru_bi_forward", &tsru_bi_forward, "SRU bidirectional forward (CUDA version)");
+  m.def("tsru_backward", &tsru_backward, "tSRU backward (CUDA version)");
+  m.def("tsru_bi_backward", &tsru_bi_backward, "tSRU bidirectional backward (CUDA version)");
 }
