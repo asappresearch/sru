@@ -29,11 +29,11 @@ def _lazy_load_cuda_kernel():
     if SRU_GPU_kernel is not None:
         return SRU_GPU_kernel
     try:
-        from .cuda_functional import SRU_Compute_GPU
-        SRU_GPU_kernel = SRU_Compute_GPU
+        import .cuda_functional as SRU_GPU_kernel_
+        SRU_GPU_kernel = SRU_GPU_kernel_
     except:
-        from cuda_functional import SRU_Compute_GPU
-        SRU_GPU_kernel = SRU_Compute_GPU
+        import cuda_functional as SRU_GPU_kernel_
+        SRU_GPU_kernel = SRU_GPU_kernel_
     return SRU_GPU_kernel
 
 
@@ -314,6 +314,15 @@ class SRUCell(nn.Module):
             self.weight_c.data.zero_()
             self.weight_c.requires_grad = False
 
+        # re-scale weights for dropout and normalized input for better gradient flow
+        if self.dropout > 0:
+            w[:, :, :, 0].mul_((1-self.dropout)**0.5)
+        if self.rnn_dropout > 0:
+            w.mul_((1-self.rnn_dropout)**0.5)
+        if self.is_input_normalized:
+            w.mul_(0.25)
+            self.weight_c.data.mul_(0.25)
+
         self.scale_x.data[0] = 1
         if not self.rescale:
             return
@@ -322,16 +331,6 @@ class SRUCell(nn.Module):
         self.scale_x.data[0] = scale_val
         if self.k == 4:
             w[:, :, :, 3].mul_(scale_val)
-
-        # re-scale weights for dropout and normalized input for better gradient flow
-        if self.dropout > 0:
-            w[:, :, :, 0].mul_((1-self.dropout)**0.5)
-        if self.rnn_dropout > 0:
-            w.mul_((1-self.rnn_dropout)**0.5)
-        if self.is_input_normalized:
-            w[:, :, :, 1].mul_(0.1)
-            w[:, :, :, 2].mul_(0.1)
-            self.weight_c.data.mul_(0.1)
 
         # re-parameterize when weight normalization is enabled
         if self.weight_norm:
@@ -570,40 +569,259 @@ class SRU(nn.Module):
         for ln in self.ln_lst:
             ln.reset_parameters()
 
-
-class LayerNorm(nn.Module):
+class tSRUCell(nn.Module):
     """
-    Layer normalization (https://arxiv.org/abs/1607.06450)
+    An SRU cell, i.e. a single recurrent neural network cell,
+    as per `LSTMCell`, `GRUCell` and `RNNCell` in PyTorch.
 
-    Module modified from:
-      https://github.com/OpenNMT/OpenNMT-py/blob/master/onmt/modules/UtilClass.py
+    Args:
+        n_in (int) : the number of dimensions in a single
+            input sequence element. For example, if the input sequence
+            is a sequence of word embeddings, `input_size` is the
+            dimensionality of a single word embedding, e.g. 300.
+        n_out (int) : the dimensionality of the hidden state
+            of this cell.
+        dropout (float) : a number between 0.0 and 1.0. The amount of dropout
+            applied to `g(c_t)` internally in this cell.
+        rnn_dropout (float) : the amount of dropout applied to the input of
+            this cell.
+        use_tanh (bool) : use tanh activation
+        use_relu (bool) : use relu activation
+        use_selu (bool) : use selu activation
+        weight_norm (bool) : whether applyweight normalization on self.weight
+        is_input_normalized (bool) : whether the input is normalized (e.g. batch norm / layer norm)
+        bidirectional (bool) : whether or not to employ a bidirectional cell.
+        index (int) : index of this cell when multiple layers are stacked in SRU()
     """
 
-    def __init__(self, hidden_size, eps=1e-6):
-        super(LayerNorm, self).__init__()
-        self.eps = eps
-        self.a = nn.Parameter(torch.ones(hidden_size), requires_grad=True)
-        self.b = nn.Parameter(torch.zeros(hidden_size), requires_grad=True)
+    def __init__(self,
+                 n_in,
+                 n_out,
+                 dropout=0,
+                 bidirectional=False,
+                 n_proj=0,
+                 is_input_normalized=False,
+                 residual=False):
 
-    def forward(self, x):
-        """
-        Apply layer normalization on the input x
-        """
-        if x.size(-1) == 1:
-            return x
-        mean = x.mean(-1, keepdim=True)
-        # compute the std. ideally should use std = x.std(-1, keepdim=True)
-        # but there is a bug in pytorch: https://github.com/pytorch/pytorch/issues/4320
-        var = x.var(-1, keepdim=True)
-        std = (var + self.eps)**0.5
-        return self.a * (x - mean) / (std) + self.b
+        super(tSRUCell, self).__init__()
+        self.n_in = n_in
+        self.n_out = n_out
+        self.dropout = dropout
+        self.bidirectional = bidirectional
+        self.is_input_normalized = is_input_normalized
+
+        self.n_proj = 0
+        if n_proj > 0 and n_proj < n_in and n_proj < n_out:
+            self.n_proj = n_proj
+
+        if self.n_proj == 0:
+            self.weight = nn.Parameter(torch.Tensor(
+                n_in,
+                n_out*4 if bidirectional else n_out*2
+            ))
+        else:
+            self.weight_proj = nn.Parameter(torch.Tensor(n_in, self.n_proj))
+            self.weight = nn.Parameter(torch.Tensor(
+                self.n_proj,
+                n_out*4 if bidirectional else n_out*2
+            ))
+        self.weight_c = nn.Parameter(torch.Tensor(
+            n_out*2 if bidirectional else n_out
+        ))
+        self.bias = nn.Parameter(torch.Tensor(
+            n_out*2 if bidirectional else n_out
+        ))
+        self.reset_parameters()
 
     def reset_parameters(self):
-        self.a.data[:] = 1.0
-        self.b.data[:] = 0.0
+        """
+        Properly initialize the weights of SRU, following the same recipe as:
+            Xavier init:  http://proceedings.mlr.press/v9/glorot10a/glorot10a.pdf
+            Kaiming init: https://arxiv.org/abs/1502.01852
+
+        """
+        # initialize weights such that E[w_ij]=0 and Var[w_ij]=1/d
+        d = self.weight.size(0)
+        val_range = (3.0/d)**0.5
+        self.weight.data.uniform_(-val_range, val_range)
+        w = self.weight.data.view(d, -1, self.n_out, 2)
+        if self.n_proj > 0:
+            val_range_2 = (3.0/self.weight_proj.size(0))**0.5
+            self.weight_proj.data.uniform_(-val_range_2, val_range_2)
+
+        # initialize bias
+        self.weight_c.data.uniform_(-3.0**0.5, 3.0**0.5)
+        self.bias.data.zero_()
+
+        # rescale weight_c and the weight of sigmoid gates with a factor of sqrt(0.5)
+        w[:, :, :, 1].mul_(0.5**0.5)
+        self.weight_c.data.mul_(0.5**0.5)
+
+        # re-scale weights for dropout and normalized input for better gradient flow
+        if self.dropout > 0:
+            w[:, :, :, 0].mul_((1-self.dropout)**0.5)
+
+        if self.is_input_normalized:
+            w.mul_(0.25)
+            self.weight_c.data.mul_(0.25)
+
+    def forward(self, input, h0=None, mask_pad=None):
+        """
+        This method computes `U`. In addition, it computes the remaining components
+        in `SRU_Compute_GPU` or `SRU_Compute_CPU` and return the results.
+        """
+
+        if input.dim() != 2 and input.dim() != 3:
+            raise ValueError("Input must be 2 or 3 dimensional")
+        n_in, n_out = self.n_in, self.n_out
+        batch = input.size(-2)
+        if h0 is None:
+            h0 = Variable(input.data.new(
+                batch, n_out if not self.bidirectional else n_out*2
+            ).zero_())
+
+        # compute U
+        x_2d = input if input.dim() == 2 else input.contiguous().view(-1, n_in)
+        if self.n_proj > 0:
+            x_projected = x_2d.mm(self.weight_proj)  # down-proj to n_proj
+            u = x_projected.mm(self.weight)
+        else:
+            u = x_2d.mm(self.weight)
+
+        # Pytorch Function() doesn't accept NoneType in forward() call.
+        # So we put mask_pad as class attribute as a work around
+        if input.is_cuda:
+            SRU_Compute = _lazy_load_cuda_kernel().tSRU_Compute_GPU(
+                n_out,
+                self.bidirectional,
+                mask_pad
+            )
+        else:
+            raise ValueError("tSRU not supported on CPU")
+
+        h, c = SRU_Compute(u, self.weight_c, self.bias, h0)
+        h = F.dropout(h, p=self.dropout, training=self.training)
+        if self.residual:
+            h = h + input
+        return h, c
 
     def extra_repr(self):
-        return "{}, eps={}".format(self.a.numel(), self.eps)
+        s = "{n_in}, {n_out}"
+        if self.n_proj > 0:
+            s += ", n_proj={n_proj}"
+        if self.dropout > 0:
+            s += ", dropout={dropout}"
+        if self.bidirectional:
+            s += ", bidirectional={bidirectional}"
+        if self.residual:
+            s += ", residual={residual}"
+        return s.format(**self.__dict__)
 
     def __repr__(self):
         return "{}({})".format(self.__class__.__name__, self.extra_repr())
+
+
+class tSRU(nn.Module):
+    """
+    PyTorch SRU model. In effect, simply wraps an arbitrary number of
+    contiguous `SRUCell`s, and returns the matrix and hidden states ,
+    as well as final memory cell (`c_t`), from the last of these `SRUCell`s.
+
+    Args:
+        input_size (int) : the number of dimensions in a single
+            input sequence element. For example, if the input sequence
+            is a sequence of word embeddings, `input_size` is the
+            dimensionality of a single word embedding, e.g. 300.
+        hidden_size (int) : the dimensionality of the hidden state
+            of the SRU cell.
+        num_layers (int) : number of `SRUCell`s to use in the model.
+        dropout (float) : a number between 0.0 and 1.0. The amount of dropout
+            applied to `g(c_t)` internally in each `SRUCell`.
+        rnn_dropout (float) : the amount of dropout applied to the input of
+            each `SRUCell`.
+        use_tanh (bool) : use tanh activation
+        use_relu (bool) : use relu activation
+        use_selu (bool) : use selu activation
+        weight_norm (bool) : whether or not to use weight normalization
+        layer_norm (bool) : whether or not to use layer normalization on the output of each layer
+        bidirectional (bool) : whether or not to use bidirectional `SRUCell`s.
+        is_input_normalized (bool) : whether the input is normalized (e.g. batch norm / layer norm)
+        highway_bias (float) : initial bias of the highway gate, typicially <= 0
+    """
+
+    def __init__(self,
+                 input_size,
+                 hidden_size,
+                 num_layers=2,
+                 dropout=0,
+                 bidirectional=False,
+                 n_proj=0,
+                 layer_norm=False,
+                 is_input_normalized=False,
+                 residual=True):
+
+        super(SRU, self).__init__()
+        self.n_in = input_size
+        self.n_out = hidden_size
+        self.depth = num_layers
+        self.dropout = dropout
+        self.n_proj = n_proj
+        self.rnn_lst = nn.ModuleList()
+        self.ln_lst = nn.ModuleList()
+        self.bidirectional = bidirectional
+        self.use_layer_norm = layer_norm
+        self.out_size = hidden_size*2 if bidirectional else hidden_size
+
+        for i in range(num_layers):
+            l = tSRUCell(
+                n_in=self.n_in if i == 0 else self.out_size,
+                n_out=self.n_out,
+                dropout=dropout if i+1 != num_layers else 0,
+                bidirectional=bidirectional,
+                n_proj=n_proj,
+                is_input_normalized=is_input_normalized or (i > 0 and self.use_layer_norm),
+                residual=residual and (i > 0 or self.n_in == self.out_size)
+            )
+            self.rnn_lst.append(l)
+            if layer_norm:
+                self.ln_lst.append(nn.LayerNorm(self.out_size))
+
+    def forward(self, input, h0=None, mask_pad=None, return_hidden=True):
+        """
+        Feeds `input` forward through `num_layers` `SRUCell`s, where `num_layers`
+        is a parameter on the constructor of this class.
+        """
+
+        # The dimensions of `input` should be: `(sequence_length, batch_size, input_size)`.
+        if input.dim() != 3:
+            raise ValueError("There must be 3 dimensions for (len, batch, n_in)")
+        dir_ = 2 if self.bidirectional else 1
+        if h0 is None:
+            zeros = Variable(input.data.new(
+                input.size(1), self.n_out*dir_
+            ).zero_())
+            h0 = [ zeros for i in range(self.depth) ]
+        else:
+            # The dimensions of `input` should be: `(num_layers, batch_size, hidden_size * dir_)`.
+            if h0.dim() != 3:
+                raise ValueError("There must be 3 dimensions for (depth, batch, n_out*dir_)")
+            h0 = [ x.squeeze(0) for x in h0.chunk(self.depth, 0) ]
+
+        prevx = input
+        lst0 = []
+        for i, rnn in enumerate(self.rnn_lst):
+            h, h0 = rnn(prevx, h0[i], mask_pad=mask_pad)
+            prevx = self.ln_lst[i](h) if self.use_layer_norm else h
+            lst0.append(h0)
+
+        if return_hidden:
+            return prevx, torch.stack(lst0)
+        else:
+            return prevx
+
+    def reset_parameters(self):
+        for rnn in self.rnn_lst:
+            rnn.reset_parameters()
+        for ln in self.ln_lst:
+            ln.reset_parameters()
+
