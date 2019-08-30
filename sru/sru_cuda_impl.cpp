@@ -88,6 +88,68 @@ void sru_cuda_bi_backward(
         const int64_t activation_type,
         const int64_t skip_type);
 
+//  unidirectional forward()
+void tsru_cuda_forward(
+        torch::Tensor & h,
+        const torch::Tensor & U,
+        const torch::Tensor & weight_c,
+        const torch::Tensor & bias,
+        const torch::Tensor & h_init,
+        const torch::Tensor & mask_pad,
+        const int64_t length, 
+        const int64_t batch_size, 
+        const int64_t hidden_size);
+//  U: the result of grouped multiplication
+//  The size of U is [length, batch_size, hidden_size, 2]
+
+//  bidirectional forward()
+void tsru_cuda_bi_forward(
+        torch::Tensor & h,
+        const torch::Tensor & U,
+        const torch::Tensor & weight_c,
+        const torch::Tensor & bias,
+        const torch::Tensor & h_init,
+        const torch::Tensor & mask_pad,
+        const int64_t length, 
+        const int64_t batch_size, 
+        const int64_t hidden_size);
+
+//  unidirectional backward()
+void tsru_cuda_backward(
+        torch::Tensor & grad_u,
+        torch::Tensor & grad_wc,
+        torch::Tensor & grad_bias,
+        torch::Tensor & grad_init,
+        const torch::Tensor & U,
+        const torch::Tensor & weight_c,
+        const torch::Tensor & bias,
+        const torch::Tensor & h_init,
+        const torch::Tensor & mask_pad,
+        const torch::Tensor & h,
+        const torch::Tensor & grad_h,
+        const torch::Tensor & grad_last,
+        const int64_t length, 
+        const int64_t batch_size, 
+        const int64_t hidden_size);
+
+//  bidirectional backward()
+void tsru_cuda_bi_backward(
+        torch::Tensor & grad_u,
+        torch::Tensor & grad_wc,
+        torch::Tensor & grad_bias,
+        torch::Tensor & grad_init,
+        const torch::Tensor & U,
+        const torch::Tensor & weight_c,
+        const torch::Tensor & bias,
+        const torch::Tensor & h_init,
+        const torch::Tensor & mask_pad,
+        const torch::Tensor & h,
+        const torch::Tensor & grad_h,
+        const torch::Tensor & grad_last,
+        const int64_t length, 
+        const int64_t batch_size, 
+        const int64_t hidden_size);
+
 
 /* Implementation starts here */
 
@@ -264,10 +326,134 @@ void sru_bi_backward(
         skip_type);
 }
 
+//  unidirectional forward()
+void tsru_forward(
+        torch::Tensor & h,
+        const torch::Tensor & U,
+        const torch::Tensor & weight_c,
+        const torch::Tensor & bias,
+        const torch::Tensor & h_init,
+        const torch::Tensor & mask_pad,
+        const int64_t length, 
+        const int64_t batch_size, 
+        const int64_t hidden_size) {
+
+    tsru_cuda_forward(
+        h,
+        U,
+        weight_c,
+        bias,
+        h_init,
+        mask_pad,
+        length,
+        batch_size,
+        hidden_size);
+}
+
+//  bidirectional forward()
+void tsru_bi_forward(
+        torch::Tensor & h,
+        const torch::Tensor & U,
+        const torch::Tensor & weight_c,
+        const torch::Tensor & bias,
+        const torch::Tensor & h_init,
+        const torch::Tensor & mask_pad,
+        const int64_t length, 
+        const int64_t batch_size, 
+        const int64_t hidden_size) {
+
+    tsru_cuda_bi_forward(
+        h,
+        U,
+        weight_c,
+        bias,
+        h_init,
+        mask_pad,
+        length,
+        batch_size,
+        hidden_size);
+}
+
+//  unidirectional backward()
+void tsru_backward(
+        torch::Tensor & grad_u,
+        torch::Tensor & grad_wc,
+        torch::Tensor & grad_bias,
+        torch::Tensor & grad_init,
+        const torch::Tensor & U,
+        const torch::Tensor & weight_c,
+        const torch::Tensor & bias,
+        const torch::Tensor & h_init,
+        const torch::Tensor & mask_pad,
+        const torch::Tensor & h,
+        const torch::Tensor & grad_h,
+        const torch::Tensor & grad_last,
+        const int64_t length, 
+        const int64_t batch_size, 
+        const int64_t hidden_size) {
+
+    tsru_cuda_backward(
+        grad_u,
+        grad_wc,
+        grad_bias,
+        grad_init,
+        U,
+        weight_c,
+        bias,
+        h_init,
+        mask_pad,
+        h,
+        grad_h,
+        grad_last,
+        length,
+        batch_size,
+        hidden_size);
+}
+
+//  bidirectional backward()
+void tsru_bi_backward(
+        torch::Tensor & grad_u,
+        torch::Tensor & grad_wc,
+        torch::Tensor & grad_bias,
+        torch::Tensor & grad_init,
+        const torch::Tensor & U,
+        const torch::Tensor & weight_c,
+        const torch::Tensor & bias,
+        const torch::Tensor & h_init,
+        const torch::Tensor & mask_pad,
+        const torch::Tensor & h,
+        const torch::Tensor & grad_h,
+        const torch::Tensor & grad_last,
+        const int64_t length, 
+        const int64_t batch_size, 
+        const int64_t hidden_size) {
+
+    tsru_cuda_bi_backward(
+        grad_u,
+        grad_wc,
+        grad_bias,
+        grad_init,
+        U,
+        weight_c,
+        bias,
+        h_init,
+        mask_pad,
+        h,
+        grad_h,
+        grad_last,
+        length,
+        batch_size,
+        hidden_size);
+}
+
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("sru_forward", &sru_forward, "SRU forward (CUDA version)");
   m.def("sru_bi_forward", &sru_bi_forward, "SRU bidirectional forward (CUDA version)");
   m.def("sru_backward", &sru_backward, "SRU backward (CUDA version)");
   m.def("sru_bi_backward", &sru_bi_backward, "SRU bidirectional backward (CUDA version)");
+  m.def("tsru_forward", &sru_forward, "tSRU forward (CUDA version)");
+  m.def("tsru_bi_forward", &sru_bi_forward, "SRU bidirectional forward (CUDA version)");
+  m.def("tsru_backward", &sru_backward, "tSRU backward (CUDA version)");
+  m.def("tsru_bi_backward", &sru_bi_backward, "tSRU bidirectional backward (CUDA version)");
 }

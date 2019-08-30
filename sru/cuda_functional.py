@@ -10,7 +10,7 @@ sources = [
 sru_cuda_lib = load(
     name="sru_cuda_impl",
     sources=sources,
-    extra_cflags=['-O2'],
+    extra_cflags=['-O3'],
     verbose=True
 )
 
@@ -50,8 +50,6 @@ class SRU_Compute_GPU(Function):
         k_ = k // 2 if self.bidirectional else k
         skip_type = 0 if not self.has_skip_term else (1 if k_ == 3 else 2)
         ncols = batch*d*bidir
-        thread_per_block = min(512, ncols)
-        num_block = (ncols-1) // thread_per_block + 1
 
         init_ = x.new_zeros(ncols) if init is None else init
         size = (length, batch, d * bidir) if x.dim() == 3 else (batch, d * bidir)
@@ -107,8 +105,6 @@ class SRU_Compute_GPU(Function):
         k_ = k // 2 if self.bidirectional else k
         skip_type = 0 if not self.has_skip_term else (1 if k_ == 3 else 2)
         ncols = batch*d*bidir
-        thread_per_block = min(512, ncols)
-        num_block = (ncols-1)//thread_per_block+1
 
         init_ = x.new_zeros(ncols) if init is None else init
         grad_u = u.new_zeros(*u.size())
@@ -154,3 +150,94 @@ class SRU_Compute_GPU(Function):
             grad_x.mul_(scale_x)
         #return grad_u, grad_x, grad_wc, grad_bias, grad_init, None
         return grad_u, grad_x, grad_wc.sum(1).view(-1), grad_bias.sum(1).view(-1), grad_init, None
+
+class tSRU_Compute_GPU(Function):
+
+    def __init__(self,
+                 d_out,
+                 bidirectional=False,
+                 mask_pad=None):
+
+        super(tSRU_Compute_GPU, self).__init__()
+        self.d_out = d_out
+        self.bidirectional = bidirectional
+        # ensure mask_pad is a byte tensor
+        mask_pad = mask_pad.byte() if mask_pad is not None else None
+        self.mask_pad = mask_pad
+
+    def forward(self, u, weight_c, bias, init=None):
+        bidir = 2 if self.bidirectional else 1
+        length = x.size(0) if x.dim() == 3 else 1
+        batch = x.size(-2)
+        d = self.d_out
+        mask_pad = self.mask_pad
+        if mask_pad is not None:
+            assert mask_pad.size(0) == length
+            assert mask_pad.size(1) == batch
+        ncols = batch*d*bidir
+
+        init_ = x.new_zeros(ncols) if init is None else init
+        size = (length, batch, d * bidir) if x.dim() == 3 else (batch, d * bidir)
+        h = x.new_zeros(*size)
+
+        forward_func = sru_cuda_lib.tsru_bi_forward if self.bidirectional else \
+                sru_cuda_lib.tsru_forward
+        forward_func(
+            h,
+            u.contiguous(),
+            weight_c,
+            bias,
+            init_.contiguous(),
+            mask_pad.contiguous() if mask_pad is not None else empty_btensor,
+            length,
+            batch,
+            d
+        )
+
+        self.save_for_backward(u, weight_c, bias, init)
+        if x.dim() == 2:
+            last_hidden = h
+        elif self.bidirectional:
+            last_hidden = torch.cat((h[-1, :, :d], h[0, :, d:]), dim=1)
+        else:
+            last_hidden = h[-1]
+        return h, last_hidden
+
+    def backward(self, grad_h, grad_last):
+        bidir = 2 if self.bidirectional else 1
+        u, weight_c, bias, init = self.saved_tensors
+        mask_pad = self.mask_pad
+        length = x.size(0) if x.dim() == 3 else 1
+        batch = x.size(-2)
+        d = self.d_out
+        ncols = batch*d*bidir
+
+        init_ = x.new_zeros(ncols) if init is None else init
+        grad_u = u.new_zeros(*u.size())
+        #grad_wc = x.new(2*bidir*d).zero_()
+        #grad_bias = x.new(2*bidir*d).zero_()
+        grad_wc = x.new_zeros(batch, bidir*d)
+        grad_bias = x.new_zeros(batch, bidir*d)
+        grad_init = x.new_zeros(batch, d*bidir)
+
+        backward_func = sru_cuda_lib.tsru_bi_backward if self.bidirectional else \
+                sru_cuda_lib.tsru_backward
+        backward_func(
+            grad_u,
+            grad_wc,
+            grad_bias,
+            grad_init,
+            u.contiguous(),
+            weight_c,
+            bias,
+            init_.contiguous(),
+            mask_pad.contiguous() if mask_pad is not None else empty_btensor,
+            h,
+            grad_h.contiguous(),
+            grad_last.contiguous(),
+            length,
+            batch,
+            d
+        )
+
+        return grad_u, grad_wc.sum(0).view(-1), grad_bias.sum(0).view(-1), grad_init
