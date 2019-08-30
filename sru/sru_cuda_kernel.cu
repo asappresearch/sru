@@ -19,7 +19,7 @@ __forceinline__ __device__ scalar_t calc_activation(int type, scalar_t x)
 template <typename scalar_t>
 __forceinline__ __device__ scalar_t calc_grad_activation(int type, scalar_t x)
 {
-    return type ? (1.f - x * x) : (scalar_t)1.f;
+    return type ? ((scalar_t)1.f - x * x) : (scalar_t)1.f;
 }
 
 template <typename scalar_t>
@@ -549,7 +549,7 @@ __global__ void tsru_cuda_backward_kernel(
 }
 
 template <typename scalar_t>
-__global__ void sru_cuda_bi_forward_kernel(
+__global__ void tsru_cuda_bi_forward_kernel(
                         scalar_t* __restrict__ h,
                         const scalar_t* __restrict__ u,
                         const scalar_t* __restrict__ weight_c,
@@ -602,7 +602,7 @@ __global__ void sru_cuda_bi_forward_kernel(
 }
 
 template <typename scalar_t>
-__global__ void sru_cuda_bi_backward_kernel(
+__global__ void tsru_cuda_bi_backward_kernel(
                            scalar_t* __restrict__ grad_u,
                            scalar_t* __restrict__ grad_wc,
                            scalar_t* __restrict__ grad_bias,
@@ -635,7 +635,7 @@ __global__ void sru_cuda_bi_backward_kernel(
     const auto *hp = h + col;
     const auto *ghp = grad_h + col;
     const unsigned char *pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col/d2));
-    auto *gup = grad_u + (col*k);
+    auto *gup = grad_u + (col*2);
 
     const bool flip = ((col%d2) >= d);
     if (!flip) {
@@ -655,8 +655,7 @@ __global__ void sru_cuda_bi_backward_kernel(
             const auto prev_h_val = (cnt<len-1) ? (*(hp-ncols_)) : (*(init+col));
             const auto u0 = *up;
             const auto u1 = *(up + 1);
-            const auto g1 = sigmoidf(u1 + wc1*prev_c_val + bias1);
-            const auto g2 = sigmoidf(u2 + wc2*prev_c_val + bias2);
+            const auto g1 = sigmoidf(u1 + wc1*prev_h_val + bias1);
             const auto gh = *ghp + cur;
 
             // h = h'*g1 + u0*(1-g1) = (h'-u0)*g1 + u0

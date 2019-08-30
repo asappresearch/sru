@@ -167,8 +167,8 @@ class tSRU_Compute_GPU(Function):
 
     def forward(self, u, weight_c, bias, init=None):
         bidir = 2 if self.bidirectional else 1
-        length = x.size(0) if x.dim() == 3 else 1
-        batch = x.size(-2)
+        length = u.size(0) if u.dim() == 3 else 1
+        batch = u.size(-2)
         d = self.d_out
         mask_pad = self.mask_pad
         if mask_pad is not None:
@@ -176,9 +176,9 @@ class tSRU_Compute_GPU(Function):
             assert mask_pad.size(1) == batch
         ncols = batch*d*bidir
 
-        init_ = x.new_zeros(ncols) if init is None else init
-        size = (length, batch, d * bidir) if x.dim() == 3 else (batch, d * bidir)
-        h = x.new_zeros(*size)
+        init_ = u.new_zeros(ncols) if init is None else init
+        size = (length, batch, d * bidir) if u.dim() == 3 else (batch, d * bidir)
+        h = u.new_zeros(*size)
 
         forward_func = sru_cuda_lib.tsru_bi_forward if self.bidirectional else \
                 sru_cuda_lib.tsru_forward
@@ -194,8 +194,8 @@ class tSRU_Compute_GPU(Function):
             d
         )
 
-        self.save_for_backward(u, weight_c, bias, init)
-        if x.dim() == 2:
+        self.save_for_backward(u, h, weight_c, bias, init)
+        if u.dim() == 2:
             last_hidden = h
         elif self.bidirectional:
             last_hidden = torch.cat((h[-1, :, :d], h[0, :, d:]), dim=1)
@@ -205,20 +205,20 @@ class tSRU_Compute_GPU(Function):
 
     def backward(self, grad_h, grad_last):
         bidir = 2 if self.bidirectional else 1
-        u, weight_c, bias, init = self.saved_tensors
+        u, h, weight_c, bias, init = self.saved_tensors
         mask_pad = self.mask_pad
-        length = x.size(0) if x.dim() == 3 else 1
-        batch = x.size(-2)
+        length = u.size(0) if u.dim() == 3 else 1
+        batch = u.size(-2)
         d = self.d_out
         ncols = batch*d*bidir
 
-        init_ = x.new_zeros(ncols) if init is None else init
+        init_ = u.new_zeros(ncols) if init is None else init
         grad_u = u.new_zeros(*u.size())
-        #grad_wc = x.new(2*bidir*d).zero_()
-        #grad_bias = x.new(2*bidir*d).zero_()
-        grad_wc = x.new_zeros(batch, bidir*d)
-        grad_bias = x.new_zeros(batch, bidir*d)
-        grad_init = x.new_zeros(batch, d*bidir)
+        #grad_wc = u.new(2*bidir*d).zero_()
+        #grad_bias = u.new(2*bidir*d).zero_()
+        grad_wc = u.new_zeros(batch, bidir*d)
+        grad_bias = u.new_zeros(batch, bidir*d)
+        grad_init = u.new_zeros(batch, d*bidir)
 
         backward_func = sru_cuda_lib.tsru_bi_backward if self.bidirectional else \
                 sru_cuda_lib.tsru_backward
