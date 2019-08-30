@@ -11,6 +11,7 @@ sru_cuda_lib = load(
     name="sru_cuda_impl",
     sources=sources,
     extra_cflags=['-O3'],
+    extra_cuda_cflags=['-O3 -lineinfo'],
     verbose=True
 )
 

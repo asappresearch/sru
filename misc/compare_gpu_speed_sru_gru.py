@@ -77,5 +77,5 @@ def benchmark_sru_gpu():
 
 
 if __name__ == '__main__':
-    benchmark_gru_gpu()
+    #benchmark_gru_gpu()
     benchmark_sru_gpu()

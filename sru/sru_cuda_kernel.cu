@@ -3,6 +3,9 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 
+#define UNROLL 8
+#define BS 256
+
 namespace {
 
 template <typename scalar_t>
@@ -40,6 +43,7 @@ __global__ void sru_cuda_forward_kernel(
                         const int activation_type,
                         const int skip_type)
 {
+    __shared__ scalar_t data[BS * 3 * UNROLL];
     assert ((skip_type >= 0) && (skip_type <= 2));
     assert ((skip_type != 1) || (k == 3));
     assert ((skip_type != 2) || (k == 4));
@@ -63,13 +67,53 @@ __global__ void sru_cuda_forward_kernel(
     auto* cp = c + col;
     auto* hp = h + col;
 
-    for (int row = 0; row < len; ++row)
+    int niters = len / UNROLL;
+    int rem = len % UNROLL;
+
+    for(int iter = 0; iter < niters; iter ++ ){
+    #pragma unroll 
+    for(int i = 0; i < 3 * UNROLL; i ++)
+    {
+	    data[BS * i + threadIdx.x] = *(up + BS * i + threadIdx.x);
+    }
+    __syncthreads();
+    for (int row = 0; row < UNROLL; ++row)
+    {
+        if ((pad_p == NULL) || !(*pad_p)) {
+            //const auto u0 = *up;
+            //const auto u1 = *(up + 1);
+            //const auto u2 = *(up + 2);
+            const auto u0 = data[row * BS * 3 + threadIdx.x * 3];
+            const auto u1 = data[row * BS * 3 + threadIdx.x * 3 + 1];
+            const auto u2 = data[row * BS * 3 + threadIdx.x * 3 + 2];
+	    const auto x_val = *xp;
+            const auto g1 = sigmoidf(u1 + wc1*cur + bias1);
+            const auto g2 = sigmoidf(u2 + wc2*cur + bias2);
+            cur = (cur-u0)*g1 + u0;
+            const auto val = calc_activation(activation_type, cur);
+            *hp = skip_type ? ((val * mask - x_val) * g2 + x_val) : (val * mask * g2);
+        } 
+        //else {
+        //    *hp = 0;  // output 0 for a pad token
+        //}
+        *cp = cur;  // useful for backward
+        up += ncols_u;
+        cp += ncols;
+        hp += ncols;
+        xp = skip_type ? (xp + ncols_x) : NULL;
+        pad_p = mask_pad ? (pad_p + batch) : NULL;
+    }
+    }
+    for (int row = 0; row < rem; ++row)
     {
         if ((pad_p == NULL) || !(*pad_p)) {
             const auto u0 = *up;
             const auto u1 = *(up + 1);
             const auto u2 = *(up + 2);
-            const auto x_val = *xp;
+            //const auto u0 = data[row * BS * 3 + threadIdx.x * 3];
+            //const auto u1 = data[row * BS * 3 + threadIdx.x * 3 + 1];
+            //const auto u2 = data[row * BS * 3 + threadIdx.x * 3 + 2];
+	    const auto x_val = *xp;
             const auto g1 = sigmoidf(u1 + wc1*cur + bias1);
             const auto g2 = sigmoidf(u2 + wc2*cur + bias2);
             cur = (cur-u0)*g1 + u0;
@@ -708,7 +752,7 @@ void sru_cuda_forward(
         const int64_t activation_type,
         const int64_t skip_type) {
 
-    const int threads = 512;
+    const int threads = BS;
     const int total = batch_size * hidden_size;
     const dim3 blocks( (total - 1) / threads + 1 );
 
@@ -894,7 +938,7 @@ void tsru_cuda_forward(
         const int64_t batch_size, 
         const int64_t hidden_size) {
 
-    const int threads = 512;
+    const int threads = BS;
     const int total = batch_size * hidden_size;
     const dim3 blocks( (total - 1) / threads + 1 );
 
