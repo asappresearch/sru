@@ -216,9 +216,10 @@ class SRUCell(nn.Module):
                  use_relu=False,
                  use_selu=False,
                  weight_norm=False,
-                 is_input_normalized=False,
+                 #is_input_normalized=False,
                  highway_bias=0,
                  has_skip_term=True,
+                 layer_norm=False,
                  rescale=True,
                  v1=False):
 
@@ -234,7 +235,7 @@ class SRUCell(nn.Module):
         self.dropout = dropout
         self.bidirectional = bidirectional
         self.weight_norm = weight_norm
-        self.is_input_normalized = is_input_normalized
+        #self.is_input_normalized = is_input_normalized
         self.highway_bias = highway_bias
         self.has_skip_term=has_skip_term
         self.activation_type = 0
@@ -276,6 +277,11 @@ class SRUCell(nn.Module):
             n_out*4 if bidirectional else n_out*2
         ))
         self.register_buffer('scale_x', torch.FloatTensor([0]))
+        if layer_norm:
+            self.layer_norm = nn.LayerNorm(n_in)
+        else:
+            self.layer_norm = None
+        #self.layer_norm = layer_norm
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -319,9 +325,10 @@ class SRUCell(nn.Module):
             w[:, :, :, 0].mul_((1-self.dropout)**0.5)
         if self.rnn_dropout > 0:
             w.mul_((1-self.rnn_dropout)**0.5)
-        if self.is_input_normalized:
-            w.mul_(0.25)
-            self.weight_c.data.mul_(0.25)
+        #if self.is_input_normalized:
+        if self.layer_norm:
+            w.mul_(0.1)
+            #self.weight_c.data.mul_(0.25)
 
         self.scale_x.data[0] = 1
         if not self.rescale:
@@ -361,6 +368,10 @@ class SRUCell(nn.Module):
             c0 = Variable(input.data.new(
                 batch, n_out if not self.bidirectional else n_out*2
             ).zero_())
+
+        residual = input
+        if self.layer_norm:
+            input = self.layer_norm(input)
 
         # apply dropout for multiplication
         if self.training and (self.rnn_dropout > 0):
@@ -406,9 +417,11 @@ class SRUCell(nn.Module):
         if self.training and (self.dropout > 0):
             bidir = 2 if self.bidirectional else 1
             mask_c = self.get_dropout_mask_((batch, n_out*bidir), self.dropout)
-            h, c = SRU_Compute(u, input, self.weight_c, self.bias, c0, mask_c)
+            #h, c = SRU_Compute(u, input, self.weight_c, self.bias, c0, mask_c)
+            h, c = SRU_Compute(u, residual, self.weight_c, self.bias, c0, mask_c)
         else:
-            h, c = SRU_Compute(u, input, self.weight_c, self.bias, c0)
+            #h, c = SRU_Compute(u, input, self.weight_c, self.bias, c0)
+            h, c = SRU_Compute(u, residual, self.weight_c, self.bias, c0)
 
         if return_proj:
             x_projected = x_projected.view(-1, batch, self.n_proj) if self.n_proj else input
@@ -444,6 +457,8 @@ class SRUCell(nn.Module):
         s += ", rescale={rescale}"
         if not self.has_skip_term:
             s += ", has_skip_term={has_skip_term}"
+        if self.layer_norm:
+            s += ", layer_norm=True"
         return s.format(**self.__dict__)
 
     def __repr__(self):
@@ -491,7 +506,7 @@ class SRU(nn.Module):
                  use_selu=False,
                  weight_norm=False,
                  layer_norm=False,
-                 is_input_normalized=False,
+                 #is_input_normalized=False,
                  highway_bias=0,
                  has_skip_term=True,
                  rescale=False,
@@ -505,7 +520,7 @@ class SRU(nn.Module):
         self.rnn_dropout = rnn_dropout
         self.n_proj = n_proj
         self.rnn_lst = nn.ModuleList()
-        self.ln_lst = nn.ModuleList()
+        #self.ln_lst = nn.ModuleList()
         self.bidirectional = bidirectional
         self.use_layer_norm = layer_norm
         self.use_weight_norm = weight_norm
@@ -529,15 +544,16 @@ class SRU(nn.Module):
                 use_relu=use_relu,
                 use_selu=use_selu,
                 weight_norm=weight_norm,
-                is_input_normalized=is_input_normalized or (i > 0 and self.use_layer_norm),
+                #is_input_normalized=is_input_normalized or (i > 0 and self.use_layer_norm),
+                layer_norm=layer_norm,
                 highway_bias=highway_bias,
                 has_skip_term=has_skip_term,
                 rescale=rescale,
                 v1=v1
             )
             self.rnn_lst.append(l)
-            if layer_norm:
-                self.ln_lst.append(LayerNorm(self.out_size))
+            #if layer_norm:
+            #    self.ln_lst.append(nn.LayerNorm(self.out_size))
 
     def set_bias(self, bias_val=0):
         for l in self.rnn_lst:
@@ -568,7 +584,8 @@ class SRU(nn.Module):
         lstc = []
         for i, rnn in enumerate(self.rnn_lst):
             h, c = rnn(prevx, c0[i], mask_pad=mask_pad)
-            prevx = self.ln_lst[i](h) if self.use_layer_norm else h
+            #prevx = self.ln_lst[i](h) if self.use_layer_norm else h
+            prevx = h
             lstc.append(c)
 
         if return_hidden:
@@ -579,8 +596,8 @@ class SRU(nn.Module):
     def reset_parameters(self):
         for rnn in self.rnn_lst:
             rnn.reset_parameters()
-        for ln in self.ln_lst:
-            ln.reset_parameters()
+        #for ln in self.ln_lst:
+        #    ln.reset_parameters()
 
 class tSRUCell(nn.Module):
     """
@@ -613,7 +630,7 @@ class tSRUCell(nn.Module):
                  dropout=0,
                  bidirectional=False,
                  n_proj=0,
-                 is_input_normalized=False,
+                 layer_norm=False,
                  residual=False):
 
         super(tSRUCell, self).__init__()
@@ -621,9 +638,9 @@ class tSRUCell(nn.Module):
         self.n_out = n_out
         self.dropout = dropout
         self.bidirectional = bidirectional
-        self.is_input_normalized = is_input_normalized
         self.residual = residual
 
+        out_size = n_out*2 if self.bidirectional else n_out
         self.n_proj = 0
         if n_proj > 0 and n_proj < n_in and n_proj < n_out:
             self.n_proj = n_proj
@@ -631,20 +648,20 @@ class tSRUCell(nn.Module):
         if self.n_proj == 0:
             self.weight = nn.Parameter(torch.Tensor(
                 n_in,
-                n_out*4 if bidirectional else n_out*2
+                out_size*2
             ))
         else:
             self.weight_proj = nn.Parameter(torch.Tensor(n_in, self.n_proj))
             self.weight = nn.Parameter(torch.Tensor(
                 self.n_proj,
-                n_out*4 if bidirectional else n_out*2
+                out_size*2
             ))
-        self.weight_c = nn.Parameter(torch.Tensor(
-            n_out*2 if bidirectional else n_out
-        ))
-        self.bias = nn.Parameter(torch.Tensor(
-            n_out*2 if bidirectional else n_out
-        ))
+        self.weight_c = nn.Parameter(torch.Tensor(out_size))
+        self.bias = nn.Parameter(torch.Tensor(out_size))
+        if layer_norm:
+            self.layer_norm = nn.LayerNorm(self.n_in)
+        else:
+            self.layer_norm = None
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -660,7 +677,8 @@ class tSRUCell(nn.Module):
         self.weight.data.uniform_(-val_range, val_range)
         w = self.weight.data.view(d, -1, self.n_out, 2)
         if self.n_proj > 0:
-            val_range_2 = (3.0/self.weight_proj.size(0))**0.5
+            d_2 = self.weight_proj.size(0)
+            val_range_2 = (3.0/d_2)**0.5
             self.weight_proj.data.uniform_(-val_range_2, val_range_2)
 
         # initialize bias
@@ -675,9 +693,9 @@ class tSRUCell(nn.Module):
         if self.dropout > 0:
             w[:, :, :, 0].mul_((1-self.dropout)**0.5)
 
-        if self.is_input_normalized:
-            w.mul_(0.25)
-            self.weight_c.data.mul_(0.25)
+        if self.layer_norm:
+            w.mul_(0.1)
+            #self.weight_c.data.mul_(0.25)
 
     def forward(self, input, h0=None, mask_pad=None):
         """
@@ -693,6 +711,10 @@ class tSRUCell(nn.Module):
             h0 = Variable(input.data.new(
                 batch, n_out if not self.bidirectional else n_out*2
             ).zero_())
+
+        residual_ = input
+        if self.layer_norm:
+            input = self.layer_norm(input)
 
         # compute U
         x_2d = input if input.dim() == 2 else input.contiguous().view(-1, n_in)
@@ -715,13 +737,12 @@ class tSRUCell(nn.Module):
             raise ValueError("tSRU not supported on CPU")
 
         h, c = SRU_Compute(u, self.weight_c, self.bias, h0)
-        #h = F.dropout(h, p=self.dropout, training=self.training)
         if self.training and (self.dropout > 0):
             bidir = 2 if self.bidirectional else 1
             mask_h = self.get_dropout_mask_((batch, n_out*bidir), self.dropout)
             h = h * mask_h
         if self.residual:
-            h = h + input
+            h = h + residual_
         return h, c
 
     def get_dropout_mask_(self, size, p):
@@ -741,6 +762,8 @@ class tSRUCell(nn.Module):
             s += ", bidirectional={bidirectional}"
         if self.residual:
             s += ", residual={residual}"
+        if self.layer_norm:
+            s += ", layer_norm=True"
         return s.format(**self.__dict__)
 
     def __repr__(self):
@@ -749,30 +772,6 @@ class tSRUCell(nn.Module):
 
 class tSRU(nn.Module):
     """
-    PyTorch SRU model. In effect, simply wraps an arbitrary number of
-    contiguous `SRUCell`s, and returns the matrix and hidden states ,
-    as well as final memory cell (`c_t`), from the last of these `SRUCell`s.
-
-    Args:
-        input_size (int) : the number of dimensions in a single
-            input sequence element. For example, if the input sequence
-            is a sequence of word embeddings, `input_size` is the
-            dimensionality of a single word embedding, e.g. 300.
-        hidden_size (int) : the dimensionality of the hidden state
-            of the SRU cell.
-        num_layers (int) : number of `SRUCell`s to use in the model.
-        dropout (float) : a number between 0.0 and 1.0. The amount of dropout
-            applied to `g(c_t)` internally in each `SRUCell`.
-        rnn_dropout (float) : the amount of dropout applied to the input of
-            each `SRUCell`.
-        use_tanh (bool) : use tanh activation
-        use_relu (bool) : use relu activation
-        use_selu (bool) : use selu activation
-        weight_norm (bool) : whether or not to use weight normalization
-        layer_norm (bool) : whether or not to use layer normalization on the output of each layer
-        bidirectional (bool) : whether or not to use bidirectional `SRUCell`s.
-        is_input_normalized (bool) : whether the input is normalized (e.g. batch norm / layer norm)
-        highway_bias (float) : initial bias of the highway gate, typicially <= 0
     """
 
     def __init__(self,
@@ -783,7 +782,6 @@ class tSRU(nn.Module):
                  bidirectional=False,
                  n_proj=0,
                  layer_norm=False,
-                 is_input_normalized=False,
                  residual=True):
 
         super(tSRU, self).__init__()
@@ -805,17 +803,13 @@ class tSRU(nn.Module):
                 dropout=dropout if i+1 != num_layers else 0,
                 bidirectional=bidirectional,
                 n_proj=n_proj,
-                is_input_normalized=is_input_normalized or (i > 0 and self.use_layer_norm),
+                layer_norm=layer_norm,
                 residual=residual and (i > 0 or self.n_in == self.out_size)
             )
             self.rnn_lst.append(l)
-            if layer_norm:
-                self.ln_lst.append(nn.LayerNorm(self.out_size))
 
     def forward(self, input, h0=None, mask_pad=None, return_hidden=True):
         """
-        Feeds `input` forward through `num_layers` `SRUCell`s, where `num_layers`
-        is a parameter on the constructor of this class.
         """
 
         # The dimensions of `input` should be: `(sequence_length, batch_size, input_size)`.
@@ -834,20 +828,18 @@ class tSRU(nn.Module):
             h0 = [ x.squeeze(0) for x in h0.chunk(self.depth, 0) ]
 
         prevx = input
-        lst0 = []
+        lstt = []
         for i, rnn in enumerate(self.rnn_lst):
-            h, h0 = rnn(prevx, h0[i], mask_pad=mask_pad)
-            prevx = self.ln_lst[i](h) if self.use_layer_norm else h
-            lst0.append(h0)
+            h, ht = rnn(prevx, h0[i], mask_pad=mask_pad)
+            prevx = h
+            lstt.append(ht)
 
         if return_hidden:
-            return prevx, torch.stack(lst0)
+            return prevx, torch.stack(lstt)
         else:
             return prevx
 
     def reset_parameters(self):
         for rnn in self.rnn_lst:
             rnn.reset_parameters()
-        for ln in self.ln_lst:
-            ln.reset_parameters()
 
