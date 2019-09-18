@@ -473,6 +473,7 @@ class SRU(nn.Module):
         highway_bias (float) : initial bias of the highway gate, typicially <= 0
         nn_rnn_compatible_return (bool) : set to True to change the layout of returned state to match
             that of pytorch nn.RNN, ie (num_layers * num_directions, batch, hidden_size)
+            (this will be slower, but can make SRU a dropin replacement for nn.RNN and nn.GRU)
     """
 
     def __init__(self,
@@ -509,6 +510,8 @@ class SRU(nn.Module):
         self.use_weight_norm = weight_norm
         self.has_skip_term = has_skip_term
         self.out_size = hidden_size*2 if bidirectional else hidden_size
+        self.num_layers = num_layers
+        self.num_directions = 2 if bidirectional else 1
         self.nn_rnn_compatible_return = nn_rnn_compatible_return
         if use_tanh + use_relu + use_selu > 1:
             raise ValueError(
@@ -547,15 +550,10 @@ class SRU(nn.Module):
         Feeds `input` forward through `num_layers` `SRUCell`s, where `num_layers`
         is a parameter on the constructor of this class.
 
-        Params:
-        - input (FloatTensor): (batch_size, seq_len, input_size)
-        - mask_pad (ByteTensor): set to 1 for any inputs that should be ignored/masked
-
-        input can be packed, using nn.utils.rnn.pack_padded_tensor, but for best performance
-        do not pack: use mask_pad to specify inputs to be ignored
-
         Return:
-        - prevx: (FloatTensor): (batch_size, seq_len, embedding_size)
+        - prevx:
+            (FloatTensor): (num_layers, batch_size, num_directions * hidden_size) if not nn_rnn_compatible_return, else
+            (FloatTensor): (num_layers * num_directions, batch, hidden_size)
         """
 
         # The dimensions of `input` should be: `(sequence_length, batch_size, input_size)`.
@@ -581,10 +579,12 @@ class SRU(nn.Module):
             lstc.append(c)
 
         if return_hidden:
-            print('lstc[0].size()', lstc[0].size())
             lstc_stack = torch.stack(lstc)
             if self.nn_rnn_compatible_return:
-                print('lstc_stack.size()', lstc_stack.size())
+                batch_size = input.size(1)
+                lstc_stack = lstc_stack.view(self.num_layers, batch_size, self.num_directions, self.n_out)
+                lstc_stack = lstc_stack.transpose(1, 2)
+                lstc_stack = lstc_stack.contiguous().view(self.num_layers * self.num_directions, batch_size, self.n_out)
             return prevx, lstc_stack
         else:
             return prevx
