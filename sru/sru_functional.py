@@ -544,6 +544,14 @@ class SRU(nn.Module):
         is a parameter on the constructor of this class.
         """
 
+        # unpack packed, if input is packed. packing and then unpacking will be slower than not packing
+        # at all, but makes SRU usage compatible with nn.LSTM usage
+        input_packed = isinstance(input, nn.utils.rnn.PackedSequence)
+        if input_packed:
+            input, lengths = nn.utils.rnn.pad_packed_sequence(input, batch_first=True)
+            max_length = lengths.max().item()
+            mask_pad = torch.ByteTensor([[0] * l + [1] * (max_length - l) for l in lengths.tolist()]).to(input.device).transpose(0, 1).contiguous()
+
         # The dimensions of `input` should be: `(sequence_length, batch_size, input_size)`.
         if input.dim() != 3:
             raise ValueError("There must be 3 dimensions for (len, batch, n_in)")
@@ -565,6 +573,9 @@ class SRU(nn.Module):
             h, c = rnn(prevx, c0[i], mask_pad=mask_pad)
             prevx = self.ln_lst[i](h) if self.use_layer_norm else h
             lstc.append(c)
+
+        if input_packed:
+            prevx = nn.utils.rnn.pack_padded_sequence(prevx, lengths, enforce_sorted=False, batch_first=True)
 
         if return_hidden:
             return prevx, torch.stack(lstc)
