@@ -24,6 +24,7 @@ def test_gru_compatible_state_return():
 
     sru = SRU(K, K_out, nn_rnn_compatible_return=True, bidirectional=bidirectional, num_layers=num_layers)
     out, state = sru(embedded)
+    print('out.size()', out.size())
     print('state.size()', state.size())
 
     gru = nn.GRU(K, K_out, bidirectional=bidirectional, num_layers=num_layers)

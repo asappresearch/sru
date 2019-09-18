@@ -551,7 +551,8 @@ class SRU(nn.Module):
         is a parameter on the constructor of this class.
 
         Return:
-        - prevx:
+        - prevx: output: FloatTensor, (sequence_length, batch_size, num_directions * hidden_size)
+        - lstc_stack: state:
             (FloatTensor): (num_layers, batch_size, num_directions * hidden_size) if not nn_rnn_compatible_return, else
             (FloatTensor): (num_layers * num_directions, batch, hidden_size)
         """
