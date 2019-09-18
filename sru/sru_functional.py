@@ -558,11 +558,11 @@ class SRU(nn.Module):
         input can be packed, which will lead to worse execution speed, but is compatible with many usages
         of nn.RNN.
 
-        returns:
-        - prevx (FloatTensor): output, (sequence_length, batch_size, hidden_size)
-        - lstc (FloatTensor): state
-            (num_layers, batch_size, num_directions * hidden_size) if not nn_rnn_compatible_return, else
-            (num_layers * num_directions, batch, hidden_size)
+        Return:
+        - prevx: output: FloatTensor, (sequence_length, batch_size, num_directions * hidden_size)
+        - lstc_stack: state:
+            (FloatTensor): (num_layers, batch_size, num_directions * hidden_size) if not nn_rnn_compatible_return, else
+            (FloatTensor): (num_layers * num_directions, batch, hidden_size)
         """
 
         # unpack packed, if input is packed. packing and then unpacking will be slower than not packing
