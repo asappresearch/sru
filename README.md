@@ -85,8 +85,8 @@ output_states, c_states = rnn(x)      # forward pass
   
 <br>
 
-## Contributors
-https://github.com/taolei87/sru/graphs/contributors
+## Contributing
+Please read and follow the [guidelines](CONTRIBUTING.md).
 
 
 ### Other Implementations
