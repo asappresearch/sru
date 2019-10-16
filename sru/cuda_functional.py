@@ -570,8 +570,10 @@ class SRU_Compute_GPU(Function):
         grad_x = x.new(*x.size()).zero_() if skip_type > 0 and k_ == 3 else None
 
         if skip_type > 0 and k_ == 3:
-            x_ptr = x.contiguous()*scale_x if scale_x is not None else x.contiguous()
-            x_ptr = x_ptr.data_ptr()
+            #  warning: changing the variable name scaled_x into x_ptr causes an issue
+            #  of gradients being computed incorrectly.
+            scaled_x = x.contiguous() * scale_x if scale_x is not None else x.contiguous()
+            x_ptr = scaled_x.data_ptr()
         else:
             x_ptr = 0
 
