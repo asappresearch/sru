@@ -34,7 +34,7 @@ class SRU_Compute_GPU(Function):
         self.has_skip_term = has_skip_term
         self.scale_x = scale_x
         # ensure mask_pad is a byte tensor
-        mask_pad = mask_pad.byte() if mask_pad is not None else None
+        mask_pad = mask_pad.byte().contiguous() if mask_pad is not None else None
         self.mask_pad = mask_pad
 
     def forward(self, u, x, weight_c, bias, init=None, mask_c=None):
@@ -151,93 +151,3 @@ class SRU_Compute_GPU(Function):
         #return grad_u, grad_x, grad_wc, grad_bias, grad_init, None
         return grad_u, grad_x, grad_wc.sum(1).view(-1), grad_bias.sum(1).view(-1), grad_init, None
 
-class tSRU_Compute_GPU(Function):
-
-    def __init__(self,
-                 d_out,
-                 bidirectional=False,
-                 mask_pad=None):
-
-        super(tSRU_Compute_GPU, self).__init__()
-        self.d_out = d_out
-        self.bidirectional = bidirectional
-        # ensure mask_pad is a byte tensor
-        mask_pad = mask_pad.byte() if mask_pad is not None else None
-        self.mask_pad = mask_pad
-
-    def forward(self, u, weight_c, bias, init=None):
-        bidir = 2 if self.bidirectional else 1
-        length = u.size(0) if u.dim() == 3 else 1
-        batch = u.size(-2)
-        d = self.d_out
-        mask_pad = self.mask_pad
-        if mask_pad is not None:
-            assert mask_pad.size(0) == length
-            assert mask_pad.size(1) == batch
-        ncols = batch*d*bidir
-
-        init_ = u.new_zeros(ncols) if init is None else init
-        size = (length, batch, d * bidir) if u.dim() == 3 else (batch, d * bidir)
-        h = u.new_zeros(*size)
-
-        forward_func = sru_cuda_lib.tsru_bi_forward if self.bidirectional else \
-                sru_cuda_lib.tsru_forward
-        forward_func(
-            h,
-            u.contiguous(),
-            weight_c,
-            bias,
-            init_.contiguous(),
-            mask_pad.contiguous() if mask_pad is not None else empty_btensor,
-            length,
-            batch,
-            d
-        )
-
-        self.save_for_backward(u, h, weight_c, bias, init)
-        if u.dim() == 2:
-            last_hidden = h
-        elif self.bidirectional:
-            last_hidden = torch.cat((h[-1, :, :d], h[0, :, d:]), dim=1)
-        else:
-            last_hidden = h[-1]
-        return h, last_hidden
-
-    def backward(self, grad_h, grad_last):
-        bidir = 2 if self.bidirectional else 1
-        u, h, weight_c, bias, init = self.saved_tensors
-        mask_pad = self.mask_pad
-        length = u.size(0) if u.dim() == 3 else 1
-        batch = u.size(-2)
-        d = self.d_out
-        ncols = batch*d*bidir
-
-        init_ = u.new_zeros(ncols) if init is None else init
-        grad_u = u.new_zeros(*u.size())
-        #grad_wc = u.new(2*bidir*d).zero_()
-        #grad_bias = u.new(2*bidir*d).zero_()
-        grad_wc = u.new_zeros(batch, bidir*d)
-        grad_bias = u.new_zeros(batch, bidir*d)
-        grad_init = u.new_zeros(batch, d*bidir)
-
-        backward_func = sru_cuda_lib.tsru_bi_backward if self.bidirectional else \
-                sru_cuda_lib.tsru_backward
-        backward_func(
-            grad_u,
-            grad_wc,
-            grad_bias,
-            grad_init,
-            u.contiguous(),
-            weight_c,
-            bias,
-            init_.contiguous(),
-            mask_pad.contiguous() if mask_pad is not None else empty_btensor,
-            h,
-            grad_h.contiguous(),
-            grad_last.contiguous(),
-            length,
-            batch,
-            d
-        )
-
-        return grad_u, grad_wc.sum(0).view(-1), grad_bias.sum(0).view(-1), grad_init
