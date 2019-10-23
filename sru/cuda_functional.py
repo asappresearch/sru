@@ -11,7 +11,7 @@ sru_cuda_lib = load(
     name="sru_cuda_impl",
     sources=sources,
     extra_cflags=['-O3'],
-    verbose=True
+    verbose=False
 )
 
 empty_btensor = torch.ByteTensor()
