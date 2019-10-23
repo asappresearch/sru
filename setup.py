@@ -53,7 +53,7 @@ setup(
 
     # What to include
     package_data={
-        '': ['*.txt', '*.rst', '*.md', '*.cpp']
+        '': ['*.txt', '*.rst', '*.md', '*.cpp', '*.cu']
     },
 
     # Dependencies
