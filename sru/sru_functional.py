@@ -1,5 +1,6 @@
 import os
 import sys
+import copy
 import warnings
 import math
 import torch
@@ -216,7 +217,8 @@ class SRUCell(nn.Module):
                  has_skip_term=True,
                  layer_norm=False,
                  rescale=True,
-                 v1=False):
+                 v1=False,
+                 custom_u=None):
 
         super(SRUCell, self).__init__()
         self.input_size = input_size
@@ -232,28 +234,41 @@ class SRUCell(nn.Module):
         self.rescale = rescale
         self.activation_type = 0
         self.activation = 'none'
+        self.custom_u = custom_u
         if use_tanh:
             self.activation_type = 1
             self.activation = 'tanh'
 
         # projection dimension
         self.projection_size = 0
-        if n_proj > 0 and n_proj < input_size and n_proj < self.output_size:
+        if n_proj > 0 and n_proj < self.input_size and n_proj < self.output_size:
             self.projection_size = n_proj
 
         # number of sub-matrices used in SRU
         self.num_matrices = 3
+        project_first = False
         if has_skip_term and self.input_size != self.output_size:
-            self.num_matrices = 4
+            if self.custom_u is not None:
+                # If a custom u or v  is provided, project before u and v
+                project_first = True
+            else:
+                self.num_matrices = 4
+
+        if project_first:
+            input_size = self.output_size
+            self.input_to_hidden = nn.Linear(self.input_size, self.output_size)
+        else:
+            input_size = self.input_size
+            self.input_to_hidden = None
 
         # make parameters
         if self.projection_size == 0:
             self.weight = nn.Parameter(torch.Tensor(
-                self.input_size,
+                input_size,
                 self.output_size * self.num_matrices
             ))
         else:
-            self.weight_proj = nn.Parameter(torch.Tensor(self.input_size, self.projection_size))
+            self.weight_proj = nn.Parameter(torch.Tensor(input_size, self.projection_size))
             self.weight = nn.Parameter(torch.Tensor(
                 self.projection_size,
                 self.output_size * self.num_matrices
@@ -265,7 +280,8 @@ class SRUCell(nn.Module):
         self.register_buffer('scale_x', torch.FloatTensor([0]))
 
         if layer_norm:
-            self.layer_norm = nn.LayerNorm(input_size)
+            # Use the true input_size here
+            self.layer_norm = nn.LayerNorm(self.input_size)
         else:
             self.layer_norm = None
         self.reset_parameters()
@@ -281,6 +297,9 @@ class SRUCell(nn.Module):
         d = self.weight.size(0)
         val_range = (3.0 / d)**0.5
         self.weight.data.uniform_(-val_range, val_range)
+        if self.input_to_hidden is not None:
+            val_range = (3.0 / self.input_to_hidden.weight.size(0))**0.5
+            self.input_to_hidden.weight.data.uniform_(-val_range, val_range)
         if self.projection_size > 0:
             val_range = (3.0 / self.weight_proj.size(0))**0.5
             self.weight_proj.data.uniform_(-val_range, val_range)
@@ -346,13 +365,20 @@ class SRUCell(nn.Module):
         if self.layer_norm:
             input = self.layer_norm(input)
 
+        # project if needed
+        if self.input_to_hidden is not None:
+            input = self.input_to_hidden(input)
+
         # apply dropout for multiplication
         if self.training and (self.rnn_dropout > 0):
             mask = self.get_dropout_mask_((batch_size, input_size), self.rnn_dropout)
             input = input * mask.expand_as(input)
 
         # compute U that's (length, batch_size, output_size, num_matrices)
-        U = self.compute_U(input)
+        if self.custom_u is not None:
+            U = self.custom_u(input)
+        else:
+            U = self.compute_U(input)
 
         # get the scaling constant; scale_x is a scalar
         scale_val = self.scale_x if self.rescale else None
@@ -462,6 +488,9 @@ class SRU(nn.Module):
         nn_rnn_compatible_return (bool) : set to True to change the layout of returned state to match
             that of pytorch nn.RNN, ie (num_layers * num_directions, batch, hidden_size)
             (this will be slower, but can make SRU a dropin replacement for nn.RNN and nn.GRU)
+        custom_u (nn.Module) : use a custom module to compute the U matrix given the input.
+            The module must take as input a tensor of shape (seq_len, batch_size, hidden_size) and
+            return a tensor of shape (seq_len, batch_size, hidden_size * 3)
     """
 
     def __init__(self,
@@ -479,7 +508,8 @@ class SRU(nn.Module):
                  has_skip_term=True,
                  rescale=False,
                  v1=False,
-                 nn_rnn_compatible_return=False):
+                 nn_rnn_compatible_return=False,
+                 custom_u=None):
 
         super(SRU, self).__init__()
         self.input_size = input_size
@@ -510,7 +540,8 @@ class SRU(nn.Module):
                 highway_bias=highway_bias,
                 has_skip_term=has_skip_term,
                 rescale=rescale,
-                v1=v1
+                v1=v1,
+                custom_u=copy.deepcopy(custom_u) if custom_u is not None else None
             )
             self.rnn_lst.append(l)
 
