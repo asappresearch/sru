@@ -104,31 +104,32 @@ def reset_hidden(hidden, p=0.01, lstm=False):
         return (hidden[0]*mask, hidden[1]*mask)
 
 def eval_model(model, valid):
-    model.eval()
-    args = model.args
-    batch_size = valid[0].size(1)
-    total_loss = 0.0
-    unroll_size = args.unroll_size
-    criterion = nn.CrossEntropyLoss(size_average=False)
-    hidden = model.init_hidden(batch_size)
-    N = (len(valid[0])-1)//unroll_size + 1
-    for i in range(N):
-        x = valid[0][i*unroll_size:(i+1)*unroll_size]
-        y = valid[1][i*unroll_size:(i+1)*unroll_size].view(-1)
-        x, y = Variable(x, volatile=True), Variable(y, volatile=True)
-        if args.lstm:
-            hidden[0].detach_()
-            hidden[1].detach_()
-        else:
-            hidden.detach_()
-        #hidden = (Variable(hidden[0].data), Variable(hidden[1].data)) if args.lstm \
-        #    else Variable(hidden.data)
-        output, hidden = model(x, hidden)
-        loss = criterion(output, y)
-        total_loss += loss.item()  # loss.data[0]
-    avg_loss = total_loss / valid[1].numel()
-    ppl = np.exp(avg_loss)
-    model.train()
+    with torch.no_grad():
+        model.eval()
+        args = model.args
+        batch_size = valid[0].size(1)
+        total_loss = 0.0
+        unroll_size = args.unroll_size
+        criterion = nn.CrossEntropyLoss(size_average=False)
+        hidden = model.init_hidden(batch_size)
+        N = (len(valid[0])-1)//unroll_size + 1
+        for i in range(N):
+            x = valid[0][i*unroll_size:(i+1)*unroll_size]
+            y = valid[1][i*unroll_size:(i+1)*unroll_size].view(-1)
+            x, y = Variable(x, volatile=True), Variable(y, volatile=True)
+            if args.lstm:
+                hidden[0].detach_()
+                hidden[1].detach_()
+            else:
+                hidden.detach_()
+            #hidden = (Variable(hidden[0].data), Variable(hidden[1].data)) if args.lstm \
+            #    else Variable(hidden.data)
+            output, hidden = model(x, hidden)
+            loss = criterion(output, y)
+            total_loss += loss.item()  # loss.data[0]
+        avg_loss = total_loss / valid[1].numel()
+        ppl = np.exp(avg_loss)
+        model.train()
     return ppl, avg_loss
 
 def copy_model(model):
@@ -203,7 +204,7 @@ def main(args):
                 torch.nn.utils.clip_grad_norm(model.parameters(), args.clip_grad)
             optimizer.step()
 
-            if niter%50 == 0:
+            if (niter - 1) % 100 == 0:
                 #sys.stdout.write("\r{}".format(niter))
                 #sys.stdout.flush()
                 #train_writer.add_scalar('loss', loss.data[0], niter)
@@ -217,14 +218,14 @@ def main(args):
                     niter
                 )
 
-            if niter%args.log_period == 0:
+            if niter % args.log_period == 0 or i == N - 1:
                 elapsed_time = (time.time()-start_time)/60.0
                 dev_ppl, dev_loss = eval_model(model, dev)
                 sys.stdout.write("\rIter={}  lr={:.5f}  train_loss={:.4f}  dev_loss={:.4f}"
                         "  dev_bpc={:.2f}\teta={:.1f}m\t[{:.1f}m]\n".format(
                     niter,
                     optimizer.param_groups[0]['lr'],
-                    loss.item()  # loss.data[0],
+                    loss.item(),  # loss.data[0],
                     dev_loss,
                     np.log2(dev_ppl),
                     elapsed_time*N/(i+1),
@@ -282,7 +283,7 @@ if __name__ == "__main__":
     argparser.add_argument("--lr", type=float, default=0.001)
     argparser.add_argument("--weight_decay", type=float, default=1e-7)
     argparser.add_argument("--clip_grad", type=float, default=0.3)
-    argparser.add_argument("--log_period", type=int, default=3000)
+    argparser.add_argument("--log_period", type=int, default=100000)
 
     args = argparser.parse_args()
     print (args)
