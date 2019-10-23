@@ -459,6 +459,9 @@ class SRU(nn.Module):
         bidirectional (bool) : whether or not to use bidirectional `SRUCell`s.
         is_input_normalized (bool) : whether the input is normalized (e.g. batch norm / layer norm)
         highway_bias (float) : initial bias of the highway gate, typicially <= 0
+        nn_rnn_compatible_return (bool) : set to True to change the layout of returned state to match
+            that of pytorch nn.RNN, ie (num_layers * num_directions, batch, hidden_size)
+            (this will be slower, but can make SRU a dropin replacement for nn.RNN and nn.GRU)
     """
 
     def __init__(self,
@@ -475,7 +478,8 @@ class SRU(nn.Module):
                  highway_bias=0,
                  has_skip_term=True,
                  rescale=False,
-                 v1=False):
+                 v1=False,
+                 nn_rnn_compatible_return=False):
 
         super(SRU, self).__init__()
         self.input_size = input_size
@@ -489,6 +493,8 @@ class SRU(nn.Module):
         self.bidirectional = bidirectional
         self.use_layer_norm = layer_norm
         self.has_skip_term = has_skip_term
+        self.num_directions = 2 if bidirectional else 1
+        self.nn_rnn_compatible_return = nn_rnn_compatible_return
 
         for i in range(num_layers):
             l = SRUCell(
@@ -512,7 +518,30 @@ class SRU(nn.Module):
         """
         Feeds `input` forward through `num_layers` `SRUCell`s, where `num_layers`
         is a parameter on the constructor of this class.
+
+        parameters:
+        - input (FloatTensor): (sequence_length, batch_size, input_size)
+        - c0 (FloatTensor): (num_layers, batch_size, hidden_size * num_directions)
+        - mask_pad (ByteTensor): (sequence_length, batch_size): set to 1 to ignore the value at that position
+
+        input can be packed, which will lead to worse execution speed, but is compatible with many usages
+        of nn.RNN.
+
+        Return:
+        - prevx: output: FloatTensor, (sequence_length, batch_size, num_directions * hidden_size)
+        - lstc_stack: state:
+            (FloatTensor): (num_layers, batch_size, num_directions * hidden_size) if not nn_rnn_compatible_return, else
+            (FloatTensor): (num_layers * num_directions, batch, hidden_size)
         """
+
+        # unpack packed, if input is packed. packing and then unpacking will be slower than not packing
+        # at all, but makes SRU usage compatible with nn.RNN usage
+        input_packed = isinstance(input, nn.utils.rnn.PackedSequence)
+        if input_packed:
+            input, lengths = nn.utils.rnn.pad_packed_sequence(input)
+            max_length = lengths.max().item()
+            mask_pad = torch.ByteTensor([[0] * l + [1] * (max_length - l) for l in lengths.tolist()])
+            mask_pad = mask_pad.to(input.device).transpose(0, 1).contiguous()
 
         # The dimensions of `input` should be: `(sequence_length, batch_size, input_size)`.
         if input.dim() != 3:
@@ -524,7 +553,7 @@ class SRU(nn.Module):
             ).zero_())
             c0 = [ zeros for i in range(self.num_layers) ]
         else:
-            # The dimensions of `input` should be: `(num_layers, batch_size, hidden_size * dir_)`.
+            # The dimensions of `c0` should be: `(num_layers, batch_size, hidden_size * dir_)`.
             if c0.dim() != 3:
                 raise ValueError("There must be 3 dimensions for (num_layers, batch_size, output_size)")
             c0 = [ x.squeeze(0) for x in c0.chunk(self.num_layers, 0) ]
@@ -536,7 +565,16 @@ class SRU(nn.Module):
             prevx = h
             lstc.append(c)
 
-        return prevx, torch.stack(lstc)
+        if input_packed:
+            prevx = nn.utils.rnn.pack_padded_sequence(prevx, lengths, enforce_sorted=False)
+
+        lstc_stack = torch.stack(lstc)
+        if self.nn_rnn_compatible_return:
+            batch_size = input.size(1)
+            lstc_stack = lstc_stack.view(self.num_layers, batch_size, self.num_directions, self.output_size)
+            lstc_stack = lstc_stack.transpose(1, 2).contiguous()
+            lstc_stack = lstc_stack.view(self.num_layers * self.num_directions, batch_size, self.output_size)
+        return prevx, lstc_stack
 
     def reset_parameters(self):
         for rnn in self.rnn_lst:
