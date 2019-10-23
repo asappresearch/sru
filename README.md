@@ -23,12 +23,10 @@ Simple Recurrent Units for Highly Parallelizable Recurrence
 <br>
 
 ## Requirements
- - [PyTorch](http://pytorch.org/) >=0.4.1 recommended, [pytorch installation details](docs/pytorch_installation.md)
- - [CuPy](https://cupy.chainer.org/)
- - [pynvrtc](https://github.com/NVIDIA/pynvrtc)
- - [ninja](https://ninja-build.org/) (optional) for fast inference on CPU.
+ - [PyTorch](http://pytorch.org/) >=1.0.0 recommended, [pytorch installation details](docs/pytorch_installation.md)
+ - [ninja](https://ninja-build.org/)
 
-Install requirements via `pip install -r requirements.txt`. CuPy and pynvrtc needed to support training / testing on GPU.
+Install requirements via `pip install -r requirements.txt`.
 
 <br>
 
@@ -39,10 +37,6 @@ SRU can be installed as a regular package via `python setup.py install` or `pip 
 
 #### From PyPi:
 `pip install sru`
-
-`pip install sru[cuda]` additionally installs Cupy and pynvrtc.
-
-`pip install sru[cpu]` additionally installs ninja
 
 
 #### Directly use the source without installation:

@@ -57,11 +57,7 @@ setup(
     },
 
     # Dependencies
-    install_requires=['torch>=0.4.1'],
-    extras_require={
-        'cuda': ["cupy", "pynvrtc"],
-        'cpu': ["ninja"],
-    },
+    install_requires=['torch>=1.0.0'],
     dependency_links=[
     ],
 
