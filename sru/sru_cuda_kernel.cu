@@ -69,7 +69,7 @@ __global__ void sru_cuda_forward_kernel(
             const auto u0 = *up;
             const auto u1 = *(up + 1);
             const auto u2 = *(up + 2);
-            const auto x_val = *xp;
+            const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
             const auto g1 = sigmoidf(u1 + wc1*cur + bias1);
             const auto g2 = sigmoidf(u2 + wc2*cur + bias2);
             cur = (cur-u0)*g1 + u0;
@@ -271,7 +271,7 @@ __global__ void sru_cuda_bi_forward_kernel(
             const auto u0 = *up;
             const auto u1 = *(up + 1);
             const auto u2 = *(up + 2);
-            const auto x_val = *xp;
+            const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
             const auto g1 = sigmoidf(u1 + wc1*cur + bias1);
             const auto g2 = sigmoidf(u2 + wc2*cur + bias2);
             cur = (cur-u0)*g1 + u0;
@@ -459,7 +459,7 @@ void sru_cuda_forward(
             h.data<scalar_t>(),
             c.data<scalar_t>(),
             U.data<scalar_t>(),
-            x.data<scalar_t>(),
+            x.numel() ? x.data<scalar_t>() : NULL,
             weight_c.data<scalar_t>(),
             bias.data<scalar_t>(),
             c_init.data<scalar_t>(),
@@ -501,7 +501,7 @@ void sru_cuda_bi_forward(
             h.data<scalar_t>(),
             c.data<scalar_t>(),
             U.data<scalar_t>(),
-            x.data<scalar_t>(),
+            x.numel() ? x.data<scalar_t>() : NULL,
             weight_c.data<scalar_t>(),
             bias.data<scalar_t>(),
             c_init.data<scalar_t>(),
@@ -552,7 +552,7 @@ void sru_cuda_backward(
             grad_bias.data<scalar_t>(),
             grad_init.data<scalar_t>(),
             U.data<scalar_t>(),
-            x.data<scalar_t>(),
+            x.numel() ? x.data<scalar_t>() : NULL,
             weight_c.data<scalar_t>(),
             bias.data<scalar_t>(),
             c_init.data<scalar_t>(),
@@ -606,7 +606,7 @@ void sru_cuda_bi_backward(
             grad_bias.data<scalar_t>(),
             grad_init.data<scalar_t>(),
             U.data<scalar_t>(),
-            x.data<scalar_t>(),
+            x.numel() ? x.data<scalar_t>() : NULL,
             weight_c.data<scalar_t>(),
             bias.data<scalar_t>(),
             c_init.data<scalar_t>(),

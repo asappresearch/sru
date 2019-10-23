@@ -62,21 +62,21 @@ class Model(nn.Module):
         return self.out(output)
 
 def eval_model(niter, model, valid_x, valid_y):
-    model.eval()
-    N = len(valid_x)
-    criterion = nn.CrossEntropyLoss()
-    correct = 0.0
-    cnt = 0
-    total_loss = 0.0
-    for x, y in zip(valid_x, valid_y):
-        x, y = Variable(x, volatile=True), Variable(y)
-        output = model(x)
-        loss = criterion(output, y)
-        total_loss += loss.item()*x.size(1)
-        pred = output.data.max(1)[1]
-        correct += pred.eq(y.data).cpu().sum()
-        cnt += y.numel()
-    model.train()
+    with torch.no_grad():
+        model.eval()
+        N = len(valid_x)
+        criterion = nn.CrossEntropyLoss()
+        correct = 0.0
+        cnt = 0
+        total_loss = 0.0
+        for x, y in zip(valid_x, valid_y):
+            output = model(x)
+            loss = criterion(output, y)
+            total_loss += loss.item()*x.size(1)
+            pred = output.data.max(1)[1]
+            correct += pred.eq(y).sum().item()
+            cnt += y.numel()
+        model.train()
     return 1.0-correct/cnt
 
 def train_model(epoch, model, optimizer,
@@ -95,7 +95,6 @@ def train_model(epoch, model, optimizer,
         niter += 1
         cnt += 1
         model.zero_grad()
-        x, y = Variable(x), Variable(y)
         output = model(x)
         loss = criterion(output, y)
         loss.backward()
@@ -178,6 +177,7 @@ def main(args):
         filter(need_grad, model.parameters()),
         lr = args.lr
     )
+    print (model)
 
     best_valid = 1e+8
     test_err = 1e+8
