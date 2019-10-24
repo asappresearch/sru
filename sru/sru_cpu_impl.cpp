@@ -82,12 +82,16 @@ std::vector<at::Tensor> cpu_forward(
     const int ncols_u = batch_size * hidden_size * k;
 
     // pointers to parameters
+    float* V_ptr;
+    float* forget_w_ptr;
+    float* reset_w_ptr;
+
     if (is_custom) {
-        const float* V_ptr = weight_c.data<float>();
+        V_ptr = weight_c.data<float>();
     }
-    else{
-        const float* forget_w_ptr = weight_c.data<float>();
-        const float* reset_w_ptr = forget_w_ptr + hidden_size;
+    else {
+        forget_w_ptr = weight_c.data<float>();
+        reset_w_ptr = forget_w_ptr + hidden_size;
     }
     
     // 
@@ -116,14 +120,17 @@ std::vector<at::Tensor> cpu_forward(
                 const float u1 = u[1];
                 const float u2 = u[2];
 
+                float* v;
+                float fw;
+                float rw;
                 if (is_custom) {
-                    const float* v = V_ptr + l*ncols_u + offset*2;
-                    const float fw = v[0];
-                    const float rw = v[1];
+                    v = V_ptr + l*ncols_u + offset*2;
+                    fw = v[0];
+                    rw = v[1];
                 }
                 else {
-                    const float fw = forget_w_ptr[j];
-                    const float rw = reset_w_ptr[j];
+                    fw = forget_w_ptr[j];
+                    rw = reset_w_ptr[j];
                 }
 
                 const float fb = forget_b_ptr[j];
@@ -163,7 +170,8 @@ std::vector<at::Tensor> cpu_bi_forward(
         const int64_t k,  // U is [length, batch_size, 2*hidden_size*k]
         const int64_t activation_type,
         const bool has_skip_term, 
-        const double scale_x) {
+        const double scale_x,
+        const bool is_custom) {
     
     CHECK_FLOAT(U);
     CHECK_CONTIGUOUS(U);
@@ -177,8 +185,17 @@ std::vector<at::Tensor> cpu_bi_forward(
     const int ncols_u = batch_size * hidden_size * 2 * k;
 
     // pointers to parameters
-    const float* forget_w_ptr = weight_c.data<float>();
-    const float* reset_w_ptr = forget_w_ptr + hidden_size*2;
+    float* V_ptr;
+    float* forget_w_ptr;
+    float* reset_w_ptr;
+
+    if (is_custom) {
+        V_ptr = weight_c.data<float>();
+    }
+    else {
+        forget_w_ptr = weight_c.data<float>();
+        reset_w_ptr = forget_w_ptr + hidden_size;
+    } 
     const float* forget_b_ptr = bias.data<float>();
     const float* reset_b_ptr = forget_b_ptr + hidden_size*2;
     const float* U_ptr = U.data<float>();
@@ -206,15 +223,18 @@ std::vector<at::Tensor> cpu_bi_forward(
                 const float u1 = u[1];
                 const float u2 = u[2];
 
+                float* v;
+                float fw;
+                float rw;
                 if (is_custom) {
-                    const float* v = V_ptr + l_*ncols_u + offset*2;
-                    const float fw = v[0];
-                    const float rw = v[1];
+                    v = V_ptr + l*ncols_u + offset*2;
+                    fw = v[0];
+                    rw = v[1];
                 }
                 else {
-                    const float fw = forget_w_ptr[j];
-                    const float rw = reset_w_ptr[j];
-                }
+                    fw = forget_w_ptr[j];
+                    rw = reset_w_ptr[j];
+                } 
                 
                 const float fb = forget_b_ptr[j];
                 const float rb = reset_b_ptr[j];
