@@ -52,12 +52,15 @@ __global__ void sru_cuda_forward_kernel(
     const int ncols_u = ncols*k;
     const int ncols_x = (k == 3) ? ncols : ncols_u;
 
-    if (is_custom){
-        const auto* vp = weight_c + (col*2);
+    auto* vp;
+    auto* wc1;
+    auto* wc2;
+    if (is_custom) {
+        vp = weight_c + (col*2);
     }
-    else{
-        const auto wc1 = *(weight_c + (col%d));
-        const auto wc2 = *(weight_c + (col%d) + d);
+    else {
+        wc1 = *(weight_c + (col%d));
+        wc2 = *(weight_c + (col%d) + d);
     }
 
     const auto bias1 = *(bias + (col%d));
@@ -76,9 +79,12 @@ __global__ void sru_cuda_forward_kernel(
             const auto u0 = *up;
             const auto u1 = *(up + 1);
             const auto u2 = *(up + 2);
-            if (is_custom){
-                const auto wc1 = *vp;
-                const auto wc2 = *(vp + 1);
+
+            auto wc1; 
+            auto wc2;
+            if (is_custom) {
+                wc1 = *vp;
+                wc2 = *(vp + 1);
             }
             const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
             const auto g1 = sigmoidf(u1 + wc1*cur + bias1);
@@ -135,12 +141,15 @@ __global__ void sru_cuda_backward_kernel(
     const int ncols_u = ncols*k;
     const int ncols_x = (k == 3) ? ncols : ncols_u;
 
-    if (is_custom){
-        const auto* vp = weight_c + (col*2);
+    auto* vp;
+    auto wc1;
+    auto wc2;
+    if (is_custom) {
+        vp = weight_c + (col*2);
     }
-    else{
-        const auto wc1 = *(weight_c + (col%d));
-        const auto wc2 = *(weight_c + (col%d) + d);
+    else {
+        wc1 = *(weight_c + (col%d));
+        wc2 = *(weight_c + (col%d) + d);
     }
     const auto bias1 = *(bias + (col%d));
     const auto bias2 = *(bias + (col%d) + d);
@@ -171,9 +180,12 @@ __global__ void sru_cuda_backward_kernel(
             const auto u0 = *up;
             const auto u1 = *(up + 1);
             const auto u2 = *(up + 2);
-            if (is_custom){
-                const auto wc1 = *vp;
-                const auto wc2 = *(vp + 1);
+
+            auto wc1;
+            auto wc2;
+            if (is_custom) {
+                wc1 = *vp;
+                wc2 = *(vp + 1);
             }
             const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
             const auto gh_val = *ghp;
@@ -264,12 +276,16 @@ __global__ void sru_cuda_bi_forward_kernel(
     const scalar_t mask = (mask_c == NULL) ? (scalar_t)1.f : (*(mask_c + col));
     auto cur = *(init + col);
     const int d2 = d*2;
-    if (is_custom){
-        const auto* vp = weight_c + (col*2);
+
+    auto* vp;
+    auto wc1;
+    auto wc2;
+    if (is_custom) {
+        vp = weight_c + (col*2);
     }
-    else{
-        const auto wc1 = *(weight_c + (col%d2));
-        const auto wc2 = *(weight_c + (col%d2) + d2);
+    else {
+        wc1 = *(weight_c + (col%d));
+        wc2 = *(weight_c + (col%d) + d);
     }
     const auto bias1 = *(bias + (col%d2));
     const auto bias2 = *(bias + (col%d2) + d2);
@@ -298,9 +314,12 @@ __global__ void sru_cuda_bi_forward_kernel(
             const auto u0 = *up;
             const auto u1 = *(up + 1);
             const auto u2 = *(up + 2);
+
+            auto wc1;
+            auto wc2;
             if (is_custom) {
-                const auto wc1 = *vp;
-                const auto wc2 = *(vp + 1);
+                wc1 = *vp;
+                wc2 = *(vp + 1);
             }
             const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
             const auto g1 = sigmoidf(u1 + wc1*cur + bias1);
@@ -363,13 +382,18 @@ __global__ void sru_cuda_bi_backward_kernel(
     scalar_t gbias2 = 0;
     auto cur = *(grad_last + col);
     const int d2 = d*2;
+
+    auto* vp;
+    auto wc1;
+    auto wc2;
     if (is_custom) {
-        const auto* vp = weight_c + (col*2);
+        vp = weight_c + (col*2);
     }
     else {
-        const auto wc1 = *(weight_c + (col%d2));
-        const auto wc2 = *(weight_c + (col%d2) + d2);
+        wc1 = *(weight_c + (col%d));
+        wc2 = *(weight_c + (col%d) + d);
     }
+
     const auto bias1 = *(bias + (col%d2));
     const auto bias2 = *(bias + (col%d2) + d2);
 
@@ -410,10 +434,14 @@ __global__ void sru_cuda_bi_backward_kernel(
             const auto u0 = *up;
             const auto u1 = *(up + 1);
             const auto u2 = *(up + 2);
+
+            auto wc1;
+            auto wc2;
             if (is_custom) {
                 const auto wc1 = *vp;
                 const auto wc2 = *(vp + 1);
             }
+
             const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
             const auto gh_val = *ghp;
             const auto g1 = sigmoidf(u1 + wc1*prev_c_val + bias1);
