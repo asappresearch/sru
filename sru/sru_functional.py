@@ -87,6 +87,8 @@ def SRU_CPU_class(activation_type,
         batch = x.size(-2)
         k = u.size(-1) // d // bidir
 
+        is_custom = len(weight_c.size()) > 1
+
         sru_cpu_impl = _lazy_load_cpu_kernel()
         if (sru_cpu_impl is not None) and (sru_cpu_impl != False):
             if not torch.is_grad_enabled():
@@ -107,7 +109,8 @@ def SRU_CPU_class(activation_type,
                     k,
                     activation_type,
                     has_skip_term,
-                    scale_x.item() if scale_x is not None else 1.0
+                    scale_x.item() if scale_x is not None else 1.0,
+                    is_custom
                 )
             else:
                 warnings.warn("Running SRU on CPU with grad_enabled=True. Are you sure?")
@@ -117,7 +120,14 @@ def SRU_CPU_class(activation_type,
 
         mask_pad_ = mask_pad.view(length, batch, 1).float() if mask_pad is not None else mask_pad
         u = u.view(length, batch, bidir, d, k)
-        forget_wc, reset_wc = weight_c.view(2, bidir, d)
+
+        if is_custom:
+            weight_c = weight_c.view(length, batch, bidir, d, 2)
+            forget_wc = weight_c[..., 0]
+            reset_wc = weight_c[..., 1]
+        else:
+            forget_wc, reset_wc = weight_c.view(2, bidir, d)
+
         forget_bias, reset_bias = bias.view(2, bidir, d)
 
         if not has_skip_term:
@@ -145,7 +155,12 @@ def SRU_CPU_class(activation_type,
             mask_c_ = 1 if mask_c is None else mask_c.view(batch, bidir, d)[:, di, :]
             c_prev = c_init[:, di, :]
             fb, rb = forget_bias[di], reset_bias[di]
-            fw, rw = forget_wc[di].expand(batch, d), reset_wc[di].expand(batch, d)
+            if is_custom:
+                fw = forget_wc[:, :, di, :].chunk(length)
+                rw = reset_wc[:, :, di, :].chunk(length)
+            else:
+                fw = forget_wc[di].expand(batch, d)
+                rw = reset_wc[di].expand(batch, d)
             u0 = u[:, :, di, :, 0].chunk(length)
             u1 = (u[:, :, di, :, 1] + fb).chunk(length)
             u2 = (u[:, :, di, :, 2] + rb).chunk(length)
@@ -153,8 +168,12 @@ def SRU_CPU_class(activation_type,
                 xp = x_prime[:, :, di, :].chunk(length)
 
             for t in time_seq:
-                forget_t = (u1[t] + c_prev*fw).sigmoid()
-                reset_t = (u2[t] + c_prev*rw).sigmoid()
+                if is_custom:
+                    forget_t = (u1[t] + c_prev*fw[t]).sigmoid()
+                    reset_t = (u2[t] + c_prev*rw[t]).sigmoid()
+                else:
+                    forget_t = (u1[t] + c_prev*fw).sigmoid()
+                    reset_t = (u2[t] + c_prev*rw).sigmoid()
                 c_t = u0[t] + (c_prev - u0[t]) * forget_t
                 if mask_pad_ is not None:
                     c_t = c_t * (1-mask_pad_[t]) + c_prev * mask_pad_[t]
@@ -218,7 +237,8 @@ class SRUCell(nn.Module):
                  layer_norm=False,
                  rescale=True,
                  v1=False,
-                 custom_u=None):
+                 custom_u=None,
+                 custom_v=None):
 
         super(SRUCell, self).__init__()
         self.input_size = input_size
@@ -235,6 +255,7 @@ class SRUCell(nn.Module):
         self.activation_type = 0
         self.activation = 'none'
         self.custom_u = custom_u
+        self.custom_v = custom_v
         if use_tanh:
             self.activation_type = 1
             self.activation = 'tanh'
@@ -248,7 +269,7 @@ class SRUCell(nn.Module):
         self.num_matrices = 3
         project_first = False
         if has_skip_term and self.input_size != self.output_size:
-            if self.custom_u is not None:
+            if (self.custom_u is not None) or (self.custom_v is not None):
                 # If a custom u or v  is provided, project before u and v
                 project_first = True
             else:
@@ -273,9 +294,11 @@ class SRUCell(nn.Module):
                 self.projection_size,
                 self.output_size * self.num_matrices
             ))
-        self.weight_c = nn.Parameter(torch.Tensor(self.output_size * 2))
-        self.bias = nn.Parameter(torch.Tensor(self.output_size * 2))
 
+        if self.custom_v is None:
+            self.weight_c = nn.Parameter(torch.Tensor(self.output_size * 2))
+
+        self.bias = nn.Parameter(torch.Tensor(self.output_size * 2))
         # scaling constant used in highway connections when rescale=True
         self.register_buffer('scale_x', torch.FloatTensor([0]))
 
@@ -312,17 +335,18 @@ class SRUCell(nn.Module):
         # projection matrix as a tensor of size:
         #    (input_size, bidirection, hidden_size, num_matrices)
         w = self.weight.data.view(d, -1, self.hidden_size, self.num_matrices)
-        if not self.v1:
-            # intialize weight_c such that E[w]=0 and Var[w]=1
-            self.weight_c.data.uniform_(-3.0**0.5, 3.0**0.5)
+        if self.custom_v is None:
+            if not self.v1:
+                # intialize weight_c such that E[w]=0 and Var[w]=1
+                self.weight_c.data.uniform_(-3.0**0.5, 3.0**0.5)
 
-            # rescale weight_c and the weight of sigmoid gates with a factor of sqrt(0.5)
-            w[:, :, :, 1].mul_(0.5**0.5)
-            w[:, :, :, 2].mul_(0.5**0.5)
-            self.weight_c.data.mul_(0.5**0.5)
-        else:
-            self.weight_c.data.zero_()
-            self.weight_c.requires_grad = False
+                # rescale weight_c and the weight of sigmoid gates with a factor of sqrt(0.5)
+                w[:, :, :, 1].mul_(0.5**0.5)
+                w[:, :, :, 2].mul_(0.5**0.5)
+                self.weight_c.data.mul_(0.5**0.5)
+            else:
+                self.weight_c.data.zero_()
+                self.weight_c.requires_grad = False
 
         # re-scale weights for dropout and normalized input for better gradient flow
         if self.dropout > 0:
@@ -404,12 +428,16 @@ class SRUCell(nn.Module):
                 mask_pad
             )
 
-        if self.training and (self.dropout > 0):
-            bidir = 2 if self.bidirectional else 1
-            mask_c = self.get_dropout_mask_((batch_size, self.output_size), self.dropout)
-            h, c = SRU_Compute(U, residual, self.weight_c, self.bias, c0, mask_c)
+        if self.custom_v is not None:
+            V = self.custom_v(input)
         else:
-            h, c = SRU_Compute(U, residual, self.weight_c, self.bias, c0)
+            V = self.weight_c
+
+        if self.training and (self.dropout > 0):
+            mask_c = self.get_dropout_mask_((batch_size, self.output_size), self.dropout)
+            h, c = SRU_Compute(U, residual, V, self.bias, c0, mask_c)
+        else:
+            h, c = SRU_Compute(U, residual, V, self.bias, c0)
 
         return h, c
 
@@ -491,6 +519,9 @@ class SRU(nn.Module):
         custom_u (nn.Module) : use a custom module to compute the U matrix given the input.
             The module must take as input a tensor of shape (seq_len, batch_size, hidden_size) and
             return a tensor of shape (seq_len, batch_size, hidden_size * 3)
+        custom_v (nn.Module) : use a custom module to compute the V matrix given the input.
+            The module must take as input a tensor of shape (seq_len, batch_size, hidden_size) and
+            return a tensor of shape (seq_len, batch_size, hidden_size * 2)
     """
 
     def __init__(self,
@@ -509,7 +540,8 @@ class SRU(nn.Module):
                  rescale=False,
                  v1=False,
                  nn_rnn_compatible_return=False,
-                 custom_u=None):
+                 custom_u=None,
+                 custom_v=None):
 
         super(SRU, self).__init__()
         self.input_size = input_size
@@ -541,7 +573,8 @@ class SRU(nn.Module):
                 has_skip_term=has_skip_term,
                 rescale=rescale,
                 v1=v1,
-                custom_u=copy.deepcopy(custom_u) if custom_u is not None else None
+                custom_u=copy.deepcopy(custom_u) if custom_u is not None else None,
+                custom_v=copy.deepcopy(custom_v) if custom_v is not None else None
             )
             self.rnn_lst.append(l)
 

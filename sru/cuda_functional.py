@@ -51,6 +51,8 @@ class SRU_Compute_GPU(Function):
         skip_type = 0 if not self.has_skip_term else (1 if k_ == 3 else 2)
         ncols = batch*d*bidir
 
+        is_custom = len(weight_c.size()) > 1
+
         init_ = x.new_zeros(ncols) if init is None else init
         size = (length, batch, d * bidir) if x.dim() == 3 else (batch, d * bidir)
         c = x.new_zeros(*size)
@@ -79,7 +81,8 @@ class SRU_Compute_GPU(Function):
             d,
             k_,
             self.activation_type,
-            skip_type
+            skip_type,
+            is_custom
         )
 
         self.save_for_backward(u, x, weight_c, bias, init, mask_c)
@@ -105,6 +108,8 @@ class SRU_Compute_GPU(Function):
         k_ = k // 2 if self.bidirectional else k
         skip_type = 0 if not self.has_skip_term else (1 if k_ == 3 else 2)
         ncols = batch*d*bidir
+
+        is_custom = len(weight_c.size()) > 1
 
         init_ = x.new_zeros(ncols) if init is None else init
         grad_u = u.new_zeros(*u.size())
@@ -143,7 +148,8 @@ class SRU_Compute_GPU(Function):
             d,
             k_,
             self.activation_type,
-            skip_type
+            skip_type,
+            is_custom
         )
 
         if skip_type > 0 and k_ == 3 and scale_x is not None:

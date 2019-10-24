@@ -38,7 +38,8 @@ __global__ void sru_cuda_forward_kernel(
                         const int d,
                         const int k,
                         const int activation_type,
-                        const int skip_type)
+                        const int skip_type,
+                        const int is_custom)
 {
     assert ((skip_type >= 0) && (skip_type <= 2));
     assert ((skip_type != 1) || (k == 3));
@@ -51,8 +52,14 @@ __global__ void sru_cuda_forward_kernel(
     const int ncols_u = ncols*k;
     const int ncols_x = (k == 3) ? ncols : ncols_u;
 
-    const auto wc1 = *(weight_c + (col%d));
-    const auto wc2 = *(weight_c + (col%d) + d);
+    if (is_custom){
+        const auto* vp = weight_c + (col*2);
+    }
+    else{
+        const auto wc1 = *(weight_c + (col%d));
+        const auto wc2 = *(weight_c + (col%d) + d);
+    }
+
     const auto bias1 = *(bias + (col%d));
     const auto bias2 = *(bias + (col%d) + d);
     const auto  mask = (mask_c == NULL) ? (scalar_t)1.f : (*(mask_c + col));
@@ -69,6 +76,10 @@ __global__ void sru_cuda_forward_kernel(
             const auto u0 = *up;
             const auto u1 = *(up + 1);
             const auto u2 = *(up + 2);
+            if (is_custom){
+                const auto wc1 = *vp;
+                const auto wc2 = *(vp + 1);
+            }
             const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
             const auto g1 = sigmoidf(u1 + wc1*cur + bias1);
             const auto g2 = sigmoidf(u2 + wc2*cur + bias2);
@@ -110,7 +121,8 @@ __global__ void sru_cuda_backward_kernel(
                         const int d,
                         const int k,
                         const int activation_type,
-                        const int skip_type)
+                        const int skip_type,
+                        const int is_custom)
 {
     assert ((skip_type >= 0) && (skip_type <= 2));
     assert ((skip_type != 1) || (k == 3));
@@ -123,8 +135,13 @@ __global__ void sru_cuda_backward_kernel(
     const int ncols_u = ncols*k;
     const int ncols_x = (k == 3) ? ncols : ncols_u;
 
-    const auto wc1 = *(weight_c + (col%d));
-    const auto wc2 = *(weight_c + (col%d) + d);
+    if (is_custom){
+        const auto* vp = weight_c + (col*2);
+    }
+    else{
+        const auto wc1 = *(weight_c + (col%d));
+        const auto wc2 = *(weight_c + (col%d) + d);
+    }
     const auto bias1 = *(bias + (col%d));
     const auto bias2 = *(bias + (col%d) + d);
     const auto mask = (mask_c == NULL) ? (scalar_t)1.f : (*(mask_c + col));
@@ -154,6 +171,10 @@ __global__ void sru_cuda_backward_kernel(
             const auto u0 = *up;
             const auto u1 = *(up + 1);
             const auto u2 = *(up + 2);
+            if (is_custom){
+                const auto wc1 = *vp;
+                const auto wc2 = *(vp + 1);
+            }
             const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
             const auto gh_val = *ghp;
             const auto g1 = sigmoidf(u1 + wc1*prev_c_val + bias1);
@@ -227,7 +248,8 @@ __global__ void sru_cuda_bi_forward_kernel(
                         const int d,
                         const int k,
                         const int activation_type,
-                        const int skip_type)
+                        const int skip_type,
+                        const int is_custom)
 {
     assert ((skip_type >= 0) && (skip_type <= 2));
     assert ((skip_type != 1) || (k == 3));
@@ -242,8 +264,13 @@ __global__ void sru_cuda_bi_forward_kernel(
     const scalar_t mask = (mask_c == NULL) ? (scalar_t)1.f : (*(mask_c + col));
     auto cur = *(init + col);
     const int d2 = d*2;
-    const auto wc1 = *(weight_c + (col%d2));
-    const auto wc2 = *(weight_c + (col%d2) + d2);
+    if (is_custom){
+        const auto* vp = weight_c + (col*2);
+    }
+    else{
+        const auto wc1 = *(weight_c + (col%d2));
+        const auto wc2 = *(weight_c + (col%d2) + d2);
+    }
     const auto bias1 = *(bias + (col%d2));
     const auto bias2 = *(bias + (col%d2) + d2);
 
@@ -271,6 +298,10 @@ __global__ void sru_cuda_bi_forward_kernel(
             const auto u0 = *up;
             const auto u1 = *(up + 1);
             const auto u2 = *(up + 2);
+            if (is_custom) {
+                const auto wc1 = *vp;
+                const auto wc2 = *(vp + 1);
+            }
             const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
             const auto g1 = sigmoidf(u1 + wc1*cur + bias1);
             const auto g2 = sigmoidf(u2 + wc2*cur + bias2);
@@ -312,7 +343,8 @@ __global__ void sru_cuda_bi_backward_kernel(
                            const int d,
                            const int k,
                            const int activation_type,
-                           const int skip_type)
+                           const int skip_type,
+                           const int is_custom)
 {
     assert ((skip_type >= 0) && (skip_type <= 2));
     assert ((skip_type != 1) || (k == 3));
@@ -331,8 +363,13 @@ __global__ void sru_cuda_bi_backward_kernel(
     scalar_t gbias2 = 0;
     auto cur = *(grad_last + col);
     const int d2 = d*2;
-    const auto wc1 = *(weight_c + (col%d2));
-    const auto wc2 = *(weight_c + (col%d2) + d2);
+    if (is_custom) {
+        const auto* vp = weight_c + (col*2);
+    }
+    else {
+        const auto wc1 = *(weight_c + (col%d2));
+        const auto wc2 = *(weight_c + (col%d2) + d2);
+    }
     const auto bias1 = *(bias + (col%d2));
     const auto bias2 = *(bias + (col%d2) + d2);
 
@@ -373,6 +410,10 @@ __global__ void sru_cuda_bi_backward_kernel(
             const auto u0 = *up;
             const auto u1 = *(up + 1);
             const auto u2 = *(up + 2);
+            if (is_custom) {
+                const auto wc1 = *vp;
+                const auto wc2 = *(vp + 1);
+            }
             const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
             const auto gh_val = *ghp;
             const auto g1 = sigmoidf(u1 + wc1*prev_c_val + bias1);
@@ -448,7 +489,8 @@ void sru_cuda_forward(
         const int64_t hidden_size, 
         const int64_t k,
         const int64_t activation_type,
-        const int64_t skip_type) {
+        const int64_t skip_type,
+        const int64_t is_custom) {
 
     const int threads = 512;
     const int total = batch_size * hidden_size;
@@ -470,7 +512,8 @@ void sru_cuda_forward(
             hidden_size,
             k,
             activation_type,
-            skip_type);
+            skip_type,
+            is_custom);
     }));
 }
 
@@ -490,7 +533,8 @@ void sru_cuda_bi_forward(
         const int64_t hidden_size, 
         const int64_t k,
         const int64_t activation_type,
-        const int64_t skip_type) {
+        const int64_t skip_type,
+        const int64_t is_custom) {
 
     const int threads = 512;
     const int total = batch_size * hidden_size * 2;
@@ -512,7 +556,8 @@ void sru_cuda_bi_forward(
             hidden_size,
             k,
             activation_type,
-            skip_type);
+            skip_type,
+            is_custom);
     }));
 }
 
@@ -538,7 +583,8 @@ void sru_cuda_backward(
         const int64_t hidden_size, 
         const int64_t k,
         const int64_t activation_type,
-        const int64_t skip_type) {
+        const int64_t skip_type,
+        const int64_t is_custom) {
 
     const int threads = 512;
     const int total = batch_size * hidden_size;
@@ -566,7 +612,8 @@ void sru_cuda_backward(
             hidden_size,
             k,
             activation_type,
-            skip_type);
+            skip_type,
+            is_custom);
     }));
 }
 
@@ -592,7 +639,8 @@ void sru_cuda_bi_backward(
         const int64_t hidden_size, 
         const int64_t k,
         const int64_t activation_type,
-        const int64_t skip_type) {
+        const int64_t skip_type
+        const int64_t is_custom) {
 
     const int threads = 512;
     const int total = batch_size * hidden_size * 2;
@@ -620,7 +668,8 @@ void sru_cuda_bi_backward(
             hidden_size,
             k,
             activation_type,
-            skip_type);
+            skip_type,
+            is_custom);
     }));
 }
 

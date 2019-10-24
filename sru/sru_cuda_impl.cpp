@@ -17,7 +17,8 @@ void sru_cuda_forward(
         const int64_t hidden_size, 
         const int64_t k,
         const int64_t activation_type,
-        const int64_t skip_type);
+        const int64_t skip_type,
+        const int64_t is_custom);
 //  k: the number of sub-matrices in grouped multiplication
 //  U: the result of grouped multiplication
 //  The size of U is [length, batch_size, hidden_size, k]
@@ -38,7 +39,8 @@ void sru_cuda_bi_forward(
         const int64_t hidden_size, 
         const int64_t k,
         const int64_t activation_type,
-        const int64_t skip_type);
+        const int64_t skip_type,
+        const int64_t is_custom);
 
 //  unidirectional backward()
 void sru_cuda_backward(
@@ -62,7 +64,8 @@ void sru_cuda_backward(
         const int64_t hidden_size, 
         const int64_t k,
         const int64_t activation_type,
-        const int64_t skip_type);
+        const int64_t skip_type,
+        const int64_t is_custom);
 
 //  bidirectional backward()
 void sru_cuda_bi_backward(
@@ -86,7 +89,8 @@ void sru_cuda_bi_backward(
         const int64_t hidden_size, 
         const int64_t k,
         const int64_t activation_type,
-        const int64_t skip_type);
+        const int64_t skip_type,
+        const int64_t is_custom);
 
 /* Implementation starts here */
 
@@ -111,7 +115,8 @@ void sru_forward(
         const int64_t hidden_size, 
         const int64_t k,
         const int64_t activation_type,
-        const int64_t skip_type) {
+        const int64_t skip_type,
+        const int64_t is_custom) {
 
     sru_cuda_forward(
         h,
@@ -128,7 +133,8 @@ void sru_forward(
         hidden_size,
         k,
         activation_type,
-        skip_type);
+        skip_type,
+        is_custom);
 }
 
 //  bidirectional forward()
@@ -147,7 +153,8 @@ void sru_bi_forward(
         const int64_t hidden_size, 
         const int64_t k,
         const int64_t activation_type,
-        const int64_t skip_type) {
+        const int64_t skip_type,
+        const int64_t is_custom) {
 
     sru_cuda_bi_forward(
         h,
@@ -164,7 +171,8 @@ void sru_bi_forward(
         hidden_size,
         k,
         activation_type,
-        skip_type);
+        skip_type,
+        is_custom);
 }
 
 //  unidirectional backward()
@@ -189,7 +197,8 @@ void sru_backward(
         const int64_t hidden_size, 
         const int64_t k,
         const int64_t activation_type,
-        const int64_t skip_type) {
+        const int64_t skip_type,
+        const int64_t is_custom) {
 
     sru_cuda_backward(
         grad_u,
@@ -212,7 +221,8 @@ void sru_backward(
         hidden_size,
         k,
         activation_type,
-        skip_type);
+        skip_type,
+        is_custom);
 }
 
 //  bidirectional backward()
@@ -237,7 +247,8 @@ void sru_bi_backward(
         const int64_t hidden_size, 
         const int64_t k,
         const int64_t activation_type,
-        const int64_t skip_type) {
+        const int64_t skip_type,
+        const int64_t is_custom) {
 
     sru_cuda_bi_backward(
         grad_u,
@@ -260,7 +271,8 @@ void sru_bi_backward(
         hidden_size,
         k,
         activation_type,
-        skip_type);
+        skip_type,
+        is_custom);
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
