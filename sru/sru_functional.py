@@ -268,8 +268,9 @@ class SRUCell(nn.Module):
         # number of sub-matrices used in SRU
         self.num_matrices = 3
         project_first = False
+        is_custom = (self.custom_u is not None) or (self.custom_v is not None)
         if has_skip_term and self.input_size != self.output_size:
-            if (self.custom_u is not None) or (self.custom_v is not None):
+            if is_custom:
                 # If a custom u or v  is provided, project before u and v
                 project_first = True
             else:
@@ -277,23 +278,24 @@ class SRUCell(nn.Module):
 
         if project_first:
             input_size = self.output_size
-            self.input_to_hidden = nn.Linear(self.input_size, self.output_size)
+            self.input_to_hidden = nn.Linear(self.input_size, self.output_size, bias=False)
         else:
             input_size = self.input_size
             self.input_to_hidden = None
 
         # make parameters
-        if self.projection_size == 0:
-            self.weight = nn.Parameter(torch.Tensor(
-                input_size,
-                self.output_size * self.num_matrices
-            ))
-        else:
-            self.weight_proj = nn.Parameter(torch.Tensor(input_size, self.projection_size))
-            self.weight = nn.Parameter(torch.Tensor(
-                self.projection_size,
-                self.output_size * self.num_matrices
-            ))
+        if self.custom_u is None:
+            if self.projection_size == 0:
+                self.weight = nn.Parameter(torch.Tensor(
+                    input_size,
+                    self.output_size * self.num_matrices
+                ))
+            else:
+                self.weight_proj = nn.Parameter(torch.Tensor(input_size, self.projection_size))
+                self.weight = nn.Parameter(torch.Tensor(
+                    self.projection_size,
+                    self.output_size * self.num_matrices
+                ))
 
         if self.custom_v is None:
             self.weight_c = nn.Parameter(torch.Tensor(self.output_size * 2))
@@ -303,8 +305,7 @@ class SRUCell(nn.Module):
         self.register_buffer('scale_x', torch.FloatTensor([0]))
 
         if layer_norm:
-            # Use the true input_size here
-            self.layer_norm = nn.LayerNorm(self.input_size)
+            self.layer_norm = nn.LayerNorm(self.output_size if project_first else self.input_size)
         else:
             self.layer_norm = None
         self.reset_parameters()
@@ -316,21 +317,35 @@ class SRUCell(nn.Module):
             Kaiming init: https://arxiv.org/abs/1502.01852
 
         """
-        # initialize weights such that E[w_ij]=0 and Var[w_ij]=1/d
-        d = self.weight.size(0)
-        val_range = (3.0 / d)**0.5
-        self.weight.data.uniform_(-val_range, val_range)
         if self.input_to_hidden is not None:
             val_range = (3.0 / self.input_to_hidden.weight.size(0))**0.5
             self.input_to_hidden.weight.data.uniform_(-val_range, val_range)
-        if self.projection_size > 0:
-            val_range = (3.0 / self.weight_proj.size(0))**0.5
-            self.weight_proj.data.uniform_(-val_range, val_range)
 
         # initialize bias
         self.bias.data.zero_()
         bias_val, output_size = self.highway_bias, self.output_size
         self.bias.data[output_size:].zero_().add_(bias_val)
+
+        self.scale_x.data[0] = 1
+        # If custom u was provided, end here
+        if self.custom_u is not None:
+            if self.custom_v is None:
+                if not self.v1:
+                    # intialize weight_c such that E[w]=0 and Var[w]=1
+                    self.weight_c.data.uniform_(-3.0**0.5, 3.0**0.5)
+                    self.weight_c.data.mul_(0.5**0.5)
+                else:
+                    self.weight_c.data.zero_()
+                    self.weight_c.requires_grad = False
+            return
+
+        # initialize weights such that E[w_ij]=0 and Var[w_ij]=1/d
+        d = self.weight.size(0)
+        val_range = (3.0 / d)**0.5
+        self.weight.data.uniform_(-val_range, val_range)
+        if self.projection_size > 0:
+            val_range = (3.0 / self.weight_proj.size(0))**0.5
+            self.weight_proj.data.uniform_(-val_range, val_range)
 
         # projection matrix as a tensor of size:
         #    (input_size, bidirection, hidden_size, num_matrices)
@@ -359,7 +374,6 @@ class SRUCell(nn.Module):
             w.mul_(0.1)
             #self.weight_c.data.mul_(0.25)
 
-        self.scale_x.data[0] = 1
         if not (self.rescale and self.has_skip_term):
             return
         # scalar used to properly scale the highway output
@@ -384,14 +398,14 @@ class SRUCell(nn.Module):
                 batch_size, self.output_size
             ).zero_())
 
+        # project if needed
+        if self.input_to_hidden is not None:
+            input = self.input_to_hidden(input)
+
         # apply layer norm before activation (i.e. before SRU computation)
         residual = input
         if self.layer_norm:
             input = self.layer_norm(input)
-
-        # project if needed
-        if self.input_to_hidden is not None:
-            input = self.input_to_hidden(input)
 
         # apply dropout for multiplication
         if self.training and (self.rnn_dropout > 0):
@@ -460,8 +474,8 @@ class SRUCell(nn.Module):
         """
         Composes the dropout mask for the `SRUCell`.
         """
-        w = self.weight.data
-        return Variable(w.new(*size).bernoulli_(1 - p).div_(1 - p))
+        b = self.bias.data
+        return Variable(b.new(*size).bernoulli_(1 - p).div_(1 - p))
 
     def extra_repr(self):
         s = "{input_size}, {hidden_size}"
@@ -484,6 +498,10 @@ class SRUCell(nn.Module):
             s += ", has_skip_term={has_skip_term}"
         if self.layer_norm:
             s += ", layer_norm=True"
+        if self.custom_u is not None:
+           s += ", custom_u" 
+        if self.custom_v is not None:
+           s += ", custom_v" 
         return s.format(**self.__dict__)
 
     def __repr__(self):
