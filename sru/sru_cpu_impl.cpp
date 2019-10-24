@@ -113,8 +113,8 @@ std::vector<at::Tensor> cpu_forward(
                 const float u2 = u[2];
 
                 const float* v = V_ptr + l*ncols_u + offset*2;
-                const float fw = forget_w_ptr[j];
-                const float rw = reset_w_ptr[j];
+                float fw = forget_w_ptr[j];
+                float rw = reset_w_ptr[j];
                 if (is_custom) {
                     fw = v[0];
                     rw = v[1];
@@ -204,8 +204,8 @@ std::vector<at::Tensor> cpu_bi_forward(
                 const float u2 = u[2];
 
                 const float* v = V_ptr + l*ncols_u + offset*2;
-                const float fw = forget_w_ptr[j];
-                const float rw = reset_w_ptr[j];
+                fw = forget_w_ptr[j];
+                rw = reset_w_ptr[j];
                 if (is_custom) {
                     fw = v[0];
                     rw = v[1];
