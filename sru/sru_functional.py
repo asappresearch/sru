@@ -25,8 +25,7 @@ def _lazy_load_cpu_kernel():
             extra_cflags=['-O3'],
             verbose=False
         )
-    except Exception as e:
-        print(e)
+    except:
         # use Python version instead
         SRU_CPU_kernel = False
     return SRU_CPU_kernel
