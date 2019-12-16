@@ -113,12 +113,14 @@ class SRU_Compute_GPU(Function):
 
         init_ = x.new_zeros(ncols) if init is None else init
         grad_u = u.new_zeros(*u.size())
-        #grad_wc = x.new(2*bidir*d).zero_()
-        #grad_bias = x.new(2*bidir*d).zero_()
-        grad_wc = x.new_zeros(2, batch, bidir*d)
-        grad_bias = x.new_zeros(2, batch, bidir*d)
         grad_init = x.new_zeros(batch, d*bidir)
         grad_x = x.new_zeros(*x.size()) if skip_type > 0 and k_ == 3 else None
+        grad_bias = x.new_zeros(2, batch, bidir*d)
+        if not is_custom:
+            grad_wc = x.new_zeros(2, batch, bidir*d)
+        else:
+            grad_wc = weight_c.new_zeros(*weight_c.size())
+
 
         if skip_type > 0 and k_ == 3:
             x_ = x.contiguous()*scale_x if scale_x is not None else x.contiguous()

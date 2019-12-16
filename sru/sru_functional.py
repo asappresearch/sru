@@ -298,9 +298,9 @@ class SRUCell(nn.Module):
                 ))
 
         if self.custom_v is None:
-            self.weight_c = nn.Parameter(torch.Tensor(self.output_size * 2))
+            self.weight_c = nn.Parameter(torch.Tensor(2 * self.output_size))
 
-        self.bias = nn.Parameter(torch.Tensor(self.output_size * 2))
+        self.bias = nn.Parameter(torch.Tensor(2 * self.output_size))
         # scaling constant used in highway connections when rescale=True
         self.register_buffer('scale_x', torch.FloatTensor([0]))
 
@@ -318,7 +318,7 @@ class SRUCell(nn.Module):
 
         """
         if self.input_to_hidden is not None:
-            val_range = (3.0 / self.input_to_hidden.weight.size(0))**0.5
+            val_range = (3.0 / self.input_to_hidden.weight.size(-1))**0.5
             self.input_to_hidden.weight.data.uniform_(-val_range, val_range)
 
         # initialize bias
@@ -409,14 +409,19 @@ class SRUCell(nn.Module):
 
         # apply dropout for multiplication
         if self.training and (self.rnn_dropout > 0):
-            mask = self.get_dropout_mask_((batch_size, input_size), self.rnn_dropout)
+            mask = self.get_dropout_mask_((batch_size, input.size(-1)), self.rnn_dropout)
             input = input * mask.expand_as(input)
 
-        # compute U that's (length, batch_size, output_size, num_matrices)
+        # compute U that's (length, batch_size, output_size * num_matrices)
         if self.custom_u is not None:
             U = self.custom_u(input)
         else:
             U = self.compute_U(input)
+        if U.size(-1) != self.output_size * self.num_matrices:
+            raise ValueError("U must have a last dimension of {} but got {}.".format(
+                self.output_size * self.num_matrices,
+                U.size(-1)
+            ))
 
         # get the scaling constant; scale_x is a scalar
         scale_val = self.scale_x if self.rescale else None
@@ -442,10 +447,16 @@ class SRUCell(nn.Module):
                 mask_pad
             )
 
+        # V is (length, batch_size, output_size * 2) if customized otherwise (output_size * 2,)
         if self.custom_v is not None:
             V = self.custom_v(input)
         else:
             V = self.weight_c
+        if V.size(-1) != self.output_size * 2:
+            raise ValueError("V must have a last dimension of {} but got {}.".format(
+                self.output_size * 2,
+                V.size(-1)
+            ))
 
         if self.training and (self.dropout > 0):
             mask_c = self.get_dropout_mask_((batch_size, self.output_size), self.dropout)
@@ -459,7 +470,7 @@ class SRUCell(nn.Module):
         """
         SRU performs grouped matrix multiplication to transform
         the input (length, batch_size, input_size) into a tensor
-        U of size (length, batch_size, output_size, num_matrices)
+        U of size (length * batch_size, output_size * num_matrices)
         """
         # collapse (length, batch_size) into one dimension if necessary
         x = input if input.dim() == 2 else input.contiguous().view(-1, self.input_size)
@@ -499,9 +510,9 @@ class SRUCell(nn.Module):
         if self.layer_norm:
             s += ", layer_norm=True"
         if self.custom_u is not None:
-           s += ", custom_u" 
+           s += ", custom_u"
         if self.custom_v is not None:
-           s += ", custom_v" 
+           s += ", custom_v"
         return s.format(**self.__dict__)
 
     def __repr__(self):

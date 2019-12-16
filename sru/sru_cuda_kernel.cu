@@ -52,9 +52,8 @@ __global__ void sru_cuda_forward_kernel(
     const int ncols_u = ncols*k;
     const int ncols_x = (k == 3) ? ncols : ncols_u;
 
-    const auto* vp = weight_c + (col*2);
-    auto wc1 = *(weight_c + (col%d));
-    auto wc2 = *(weight_c + (col%d) + d);
+    const auto* vp1 = is_custom ? (weight_c + col*2) : (weight_c + (col%d));
+    const auto* vp2 = is_custom ? (weight_c + col*2 + 1) : (weight_c + (col%d) + d);
 
     const auto bias1 = *(bias + (col%d));
     const auto bias2 = *(bias + (col%d) + d);
@@ -72,11 +71,9 @@ __global__ void sru_cuda_forward_kernel(
             const auto u0 = *up;
             const auto u1 = *(up + 1);
             const auto u2 = *(up + 2);
+            const auto wc1 = *vp1;
+            const auto wc2 = *vp2;
 
-            if (is_custom) {
-                wc1 = *vp;
-                wc2 = *(vp + 1);
-            }
             const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
             const auto g1 = sigmoidf(u1 + wc1*cur + bias1);
             const auto g2 = sigmoidf(u2 + wc2*cur + bias2);
@@ -93,6 +90,8 @@ __global__ void sru_cuda_forward_kernel(
         hp += ncols;
         xp = skip_type ? (xp + ncols_x) : NULL;
         pad_p = mask_pad ? (pad_p + batch) : NULL;
+        vp1 = is_custom ? (vp1 + ncols*2) : vp1;
+        vp2 = is_custom ? (vp2 + ncols*2) : vp2;
     }
 }
 
@@ -132,9 +131,10 @@ __global__ void sru_cuda_backward_kernel(
     const int ncols_u = ncols*k;
     const int ncols_x = (k == 3) ? ncols : ncols_u;
 
-    const auto* vp = weight_c + (col*2);
-    auto wc1 = *(weight_c + (col%d));
-    auto wc2 = *(weight_c + (col%d) + d);
+    const auto* vp1 = is_custom ? (weight_c + col*2 + (len-1)*ncols*2) : (weight_c + (col%d));
+    const auto* vp2 = is_custom ? (weight_c + col*2 + 1 + (len-1)*ncols*2) : (weight_c + (col%d) + d);
+    auto* gvp1 = is_custom ? (grad_wc + col*2 + (len-1)*ncols*2) : (grad_wc + col);
+    auto* gvp2 = is_custom ? (grad_wc + col*2 + 1 + (len-1)*ncols*2) : (grad_wc + col + ncols);
 
     const auto bias1 = *(bias + (col%d));
     const auto bias2 = *(bias + (col%d) + d);
@@ -165,11 +165,9 @@ __global__ void sru_cuda_backward_kernel(
             const auto u0 = *up;
             const auto u1 = *(up + 1);
             const auto u2 = *(up + 2);
+            const auto wc1 = *vp1;
+            const auto wc2 = *vp2;
 
-            if (is_custom) {
-                wc1 = *vp;
-                wc2 = *(vp + 1);
-            }
             const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
             const auto gh_val = *ghp;
             const auto g1 = sigmoidf(u1 + wc1*prev_c_val + bias1);
@@ -183,6 +181,7 @@ __global__ void sru_cuda_backward_kernel(
             const auto gg2 = gh_val*(c_val*mask-x_val)*(g2*(1.f-g2));
             gbias2 += gg2;
             gwc2 += gg2*prev_c_val;
+            *gvp2 = gg2*prev_c_val;
 
             // gradient with respect to c[t]
             const auto tmp = g2*calc_grad_activation(activation_type, c_val);
@@ -192,6 +191,7 @@ __global__ void sru_cuda_backward_kernel(
             const auto gg1 = gc*(prev_c_val-u0)*(g1*(1.f-g1));
             gbias1 += gg1;
             gwc1 += gg1*prev_c_val;
+            *gvp1 = gg1*prev_c_val;
 
             // gradient with respect to c[t-1]
             cur = gc*g1 + gg1*wc1 + gg2*wc2;
@@ -213,6 +213,10 @@ __global__ void sru_cuda_backward_kernel(
         xp = skip_type ? (xp - ncols_x) : NULL;
         gxp = skip_type ? (gxp - ncols_x) : NULL;
         pad_p = mask_pad ? (pad_p - batch) : NULL;
+        vp1 = is_custom ? (vp1 - ncols*2) : vp1;
+        vp2 = is_custom ? (vp2 - ncols*2) : vp2;
+        gvp1 = is_custom ? (gvp1 - ncols*2) : gvp1;
+        gvp2 = is_custom ? (gvp2 - ncols*2) : gvp2;
     }
 
     //const int bias_idx = col % d;
@@ -220,8 +224,10 @@ __global__ void sru_cuda_backward_kernel(
     //atomicAdd(grad_wc + bias_idx + d, gwc2);
     //atomicAdd(grad_bias + bias_idx, gbias1);
     //atomicAdd(grad_bias + bias_idx + d, gbias2);
-    *(grad_wc + col) = gwc1;
-    *(grad_wc + col + ncols) = gwc2;
+    if (!is_custom) {
+        *(grad_wc + col) = gwc1;
+        *(grad_wc + col + ncols) = gwc2;
+    }
     *(grad_bias + col) = gbias1;
     *(grad_bias + col + ncols) = gbias2;
     *(grad_init + col) = cur;
@@ -260,9 +266,8 @@ __global__ void sru_cuda_bi_forward_kernel(
     auto cur = *(init + col);
     const int d2 = d*2;
 
-    const auto* vp = weight_c + (col*2);
-    auto wc1 = *(weight_c + (col%d));
-    auto wc2 = *(weight_c + (col%d) + d);
+    const auto* vp1 = is_custom ? (weight_c + col*2) : (weight_c + (col%d2));
+    const auto* vp2 = is_custom ? (weight_c + col*2 + 1) : (weight_c + (col%d2) + d2);
 
     const auto bias1 = *(bias + (col%d2));
     const auto bias2 = *(bias + (col%d2) + d2);
@@ -279,6 +284,10 @@ __global__ void sru_cuda_bi_forward_kernel(
         hp += (len-1)*ncols;
         if (skip_type) xp += (len-1)*ncols_x;
         if (pad_p) pad_p += (len-1)*batch;
+        if (is_custom) {
+            vp1 += (len-1)*ncols*2;
+            vp2 += (len-1)*ncols*2;
+        }
     }
     const int ncols_u_ = flip ? -ncols_u : ncols_u;
     const int ncols_x_ = flip ? -ncols_x : ncols_x;
@@ -291,11 +300,9 @@ __global__ void sru_cuda_bi_forward_kernel(
             const auto u0 = *up;
             const auto u1 = *(up + 1);
             const auto u2 = *(up + 2);
+            const auto wc1 = *vp1;
+            const auto wc2 = *vp2;
 
-            if (is_custom) {
-                wc1 = *vp;
-                wc2 = *(vp + 1);
-            }
             const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
             const auto g1 = sigmoidf(u1 + wc1*cur + bias1);
             const auto g2 = sigmoidf(u2 + wc2*cur + bias2);
@@ -312,6 +319,8 @@ __global__ void sru_cuda_bi_forward_kernel(
         hp += ncols_;
         xp = skip_type ? (xp + ncols_x_) : NULL;
         pad_p = mask_pad ? (pad_p + batch_) : NULL;
+        vp1 = is_custom ? (vp1 + ncols_*2) : vp1;
+        vp2 = is_custom ? (vp2 + ncols_*2) : vp2;
     }
 }
 
@@ -358,9 +367,10 @@ __global__ void sru_cuda_bi_backward_kernel(
     auto cur = *(grad_last + col);
     const int d2 = d*2;
 
-    const auto* vp = weight_c + (col*2);
-    auto wc1 = *(weight_c + (col%d));
-    auto wc2 = *(weight_c + (col%d) + d);
+    const auto* vp1 = is_custom ? (weight_c + col*2) : (weight_c + (col%d2));
+    const auto* vp2 = is_custom ? (weight_c + col*2 + 1) : (weight_c + (col%d2) + d2);
+    auto* gvp1 = is_custom ? (grad_wc + col*2) : (grad_wc + col);
+    auto* gvp2 = is_custom ? (grad_wc + col*2 + 1) : (grad_wc + col + ncols);
 
     const auto bias1 = *(bias + (col%d2));
     const auto bias2 = *(bias + (col%d2) + d2);
@@ -388,6 +398,12 @@ __global__ void sru_cuda_bi_backward_kernel(
             gxp += (len-1)*ncols_x;
         }
         if (pad_p) pad_p += (len-1)*batch;
+        if (is_custom) {
+            vp1 += (len-1)*ncols*2;
+            vp2 += (len-1)*ncols*2;
+            gvp1 += (len-1)*ncols*2;
+            gvp2 += (len-1)*ncols*2;
+        }
     }
     const int ncols_u_ = flip ? -ncols_u : ncols_u;
     const int ncols_x_ = flip ? -ncols_x : ncols_x;
@@ -402,11 +418,8 @@ __global__ void sru_cuda_bi_backward_kernel(
             const auto u0 = *up;
             const auto u1 = *(up + 1);
             const auto u2 = *(up + 2);
-
-            if (is_custom) {
-                wc1 = *vp;
-                wc2 = *(vp + 1);
-            }
+            const auto wc1 = *vp1;
+            const auto wc2 = *vp2;
 
             const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
             const auto gh_val = *ghp;
@@ -421,6 +434,7 @@ __global__ void sru_cuda_bi_backward_kernel(
             const auto gg2 = gh_val*(c_val*mask-x_val)*(g2*(1.f-g2));
             gbias2 += gg2;
             gwc2 += gg2*prev_c_val;
+            *gvp2 = gg2*prev_c_val;
 
             // gradient with respect to c[t]
             const auto tmp = g2*calc_grad_activation(activation_type, c_val);
@@ -430,6 +444,7 @@ __global__ void sru_cuda_bi_backward_kernel(
             const auto gg1 = gc*(prev_c_val-u0)*(g1*(1.f-g1));
             gbias1 += gg1;
             gwc1 += gg1*prev_c_val;
+            *gvp1 = gg1*prev_c_val;
 
             // gradient with respect to c[t-1]
             cur = gc*g1 + gg1*wc1 + gg2*wc2;
@@ -451,6 +466,10 @@ __global__ void sru_cuda_bi_backward_kernel(
         xp = skip_type ? (xp - ncols_x_) : NULL;
         gxp = skip_type ? (gxp - ncols_x_) : NULL;
         pad_p = mask_pad ? (pad_p - batch_) : NULL;
+        vp1 = is_custom ? (vp1 - ncols_*2) : vp1;
+        vp2 = is_custom ? (vp2 - ncols_*2) : vp2;
+        gvp1 = is_custom ? (gvp1 - ncols_*2) : gvp1;
+        gvp2 = is_custom ? (gvp2 - ncols_*2) : gvp2;
     }
 
     //const int bias_idx = col % d2;
@@ -458,8 +477,10 @@ __global__ void sru_cuda_bi_backward_kernel(
     //atomicAdd(grad_wc + bias_idx + d2, gwc2);
     //atomicAdd(grad_bias + bias_idx, gbias1);
     //atomicAdd(grad_bias + bias_idx + d2, gbias2);
-    *(grad_wc + col) = gwc1;
-    *(grad_wc + col + ncols) = gwc2;
+    if (!is_custom) {
+        *(grad_wc + col) = gwc1;
+        *(grad_wc + col + ncols) = gwc2;
+    }
     *(grad_bias + col) = gbias1;
     *(grad_bias + col + ncols) = gbias2;
     *(grad_init +col) = cur;

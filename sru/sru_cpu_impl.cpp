@@ -111,14 +111,10 @@ std::vector<at::Tensor> cpu_forward(
                 const float u0 = u[0];
                 const float u1 = u[1];
                 const float u2 = u[2];
-
-                const float* v = V_ptr + l*ncols_u + offset*2;
-                float fw = forget_w_ptr[j];
-                float rw = reset_w_ptr[j];
-                if (is_custom) {
-                    fw = v[0];
-                    rw = v[1];
-                }
+                
+                // V[l,i,j,*]
+                const float fw = is_custom ? V_ptr[l*ncols*2 + offset*2] : forget_w_ptr[j];
+                const float rw = is_custom ? V_ptr[l*ncols*2 + offset*2 + 1] : reset_w_ptr[j];
 
                 const float fb = forget_b_ptr[j];
                 const float rb = reset_b_ptr[j];
@@ -203,13 +199,9 @@ std::vector<at::Tensor> cpu_bi_forward(
                 const float u1 = u[1];
                 const float u2 = u[2];
 
-                const float* v = V_ptr + l*ncols_u + offset*2;
-                fw = forget_w_ptr[j];
-                rw = reset_w_ptr[j];
-                if (is_custom) {
-                    fw = v[0];
-                    rw = v[1];
-                } 
+                // V[l,i,j,*]
+                const float fw = is_custom ? V_ptr[l*ncols*2 + offset*2] : forget_w_ptr[j];
+                const float rw = is_custom ? V_ptr[l*ncols*2 + offset*2 + 1] : reset_w_ptr[j];
 
                 const float fb = forget_b_ptr[j];
                 const float rb = reset_b_ptr[j];
