@@ -247,7 +247,6 @@ class SRUCell(nn.Module):
         self.rnn_dropout = rnn_dropout
         self.dropout = dropout
         self.bidirectional = bidirectional
-        #self.is_input_normalized = is_input_normalized
         self.has_skip_term = has_skip_term
         self.highway_bias = highway_bias
         self.v1 = v1
@@ -265,26 +264,12 @@ class SRUCell(nn.Module):
         if n_proj > 0 and n_proj < self.input_size and n_proj < self.output_size:
             self.projection_size = n_proj
 
-        # number of sub-matrices used in SRU
-        self.num_matrices = 3
-        project_first = False
-        is_custom = (self.custom_u is not None) or (self.custom_v is not None)
-        if has_skip_term and self.input_size != self.output_size:
-            if is_custom:
-                # If a custom u or v  is provided, project before u and v
-                project_first = True
-            else:
-                self.num_matrices = 4
-
-        if project_first:
-            input_size = self.output_size
-            self.input_to_hidden = nn.Linear(self.input_size, self.output_size, bias=False)
-        else:
-            input_size = self.input_size
-            self.input_to_hidden = None
-
         # make parameters
         if self.custom_u is None:
+            # number of sub-matrices used in SRU
+            self.num_matrices = 3
+            if has_skip_term and self.input_size != self.output_size:
+                self.num_matrices = 4
             if self.projection_size == 0:
                 self.weight = nn.Parameter(torch.Tensor(
                     input_size,
@@ -305,7 +290,7 @@ class SRUCell(nn.Module):
         self.register_buffer('scale_x', torch.FloatTensor([0]))
 
         if layer_norm:
-            self.layer_norm = nn.LayerNorm(self.output_size if project_first else self.input_size)
+            self.layer_norm = nn.LayerNorm(self.input_size)
         else:
             self.layer_norm = None
         self.reset_parameters()
@@ -317,70 +302,58 @@ class SRUCell(nn.Module):
             Kaiming init: https://arxiv.org/abs/1502.01852
 
         """
-        if self.input_to_hidden is not None:
-            val_range = (3.0 / self.input_to_hidden.weight.size(-1))**0.5
-            self.input_to_hidden.weight.data.uniform_(-val_range, val_range)
-
-        # initialize bias
+        # initialize bias and scaling constant
         self.bias.data.zero_()
         bias_val, output_size = self.highway_bias, self.output_size
         self.bias.data[output_size:].zero_().add_(bias_val)
-
         self.scale_x.data[0] = 1
-        # If custom u was provided, end here
-        if self.custom_u is not None:
-            if self.custom_v is None:
-                if not self.v1:
-                    # intialize weight_c such that E[w]=0 and Var[w]=1
-                    self.weight_c.data.uniform_(-3.0**0.5, 3.0**0.5)
-                    self.weight_c.data.mul_(0.5**0.5)
-                else:
-                    self.weight_c.data.zero_()
-                    self.weight_c.requires_grad = False
-            return
+        if self.rescale and self.has_skip_term:
+            # scalar used to properly scale the highway output
+            scale_val = (1 + math.exp(bias_val) * 2)**0.5
+            self.scale_x.data[0] = scale_val
 
-        # initialize weights such that E[w_ij]=0 and Var[w_ij]=1/d
-        d = self.weight.size(0)
-        val_range = (3.0 / d)**0.5
-        self.weight.data.uniform_(-val_range, val_range)
-        if self.projection_size > 0:
-            val_range = (3.0 / self.weight_proj.size(0))**0.5
-            self.weight_proj.data.uniform_(-val_range, val_range)
+        if self.custom_u is None:
+            # initialize weights such that E[w_ij]=0 and Var[w_ij]=1/d
+            d = self.weight.size(0)
+            val_range = (3.0 / d)**0.5
+            self.weight.data.uniform_(-val_range, val_range)
+            if self.projection_size > 0:
+                val_range = (3.0 / self.weight_proj.size(0))**0.5
+                self.weight_proj.data.uniform_(-val_range, val_range)
 
-        # projection matrix as a tensor of size:
-        #    (input_size, bidirection, hidden_size, num_matrices)
-        w = self.weight.data.view(d, -1, self.hidden_size, self.num_matrices)
-        if self.custom_v is None:
+            # projection matrix as a tensor of size:
+            #    (input_size, bidirection, hidden_size, num_matrices)
+            w = self.weight.data.view(d, -1, self.hidden_size, self.num_matrices)
+
+            # re-scale weights for dropout and normalized input for better gradient flow
+            if self.dropout > 0:
+                w[:, :, :, 0].mul_((1 - self.dropout)**0.5)
+            if self.rnn_dropout > 0:
+                w.mul_((1 - self.rnn_dropout)**0.5)
+
+            # making weights smaller when layer norm is used. need more tests
+            if self.layer_norm:
+                w.mul_(0.1)
+                #self.weight_c.data.mul_(0.25)
+
+            # properly scale the highway output
+            if self.rescale and self.has_skip_term and self.num_matrices == 4:
+                scale_val = (1 + math.exp(bias_val) * 2)**0.5
+                w[:, :, :, 3].mul_(scale_val)
+
+         if self.custom_v is None:
             if not self.v1:
                 # intialize weight_c such that E[w]=0 and Var[w]=1
                 self.weight_c.data.uniform_(-3.0**0.5, 3.0**0.5)
 
                 # rescale weight_c and the weight of sigmoid gates with a factor of sqrt(0.5)
-                w[:, :, :, 1].mul_(0.5**0.5)
-                w[:, :, :, 2].mul_(0.5**0.5)
+                if self.custom_u is None:
+                    w[:, :, :, 1].mul_(0.5**0.5)
+                    w[:, :, :, 2].mul_(0.5**0.5)
                 self.weight_c.data.mul_(0.5**0.5)
             else:
                 self.weight_c.data.zero_()
                 self.weight_c.requires_grad = False
-
-        # re-scale weights for dropout and normalized input for better gradient flow
-        if self.dropout > 0:
-            w[:, :, :, 0].mul_((1 - self.dropout)**0.5)
-        if self.rnn_dropout > 0:
-            w.mul_((1 - self.rnn_dropout)**0.5)
-
-        # making weights smaller when layer norm is used. need more tests
-        if self.layer_norm:
-            w.mul_(0.1)
-            #self.weight_c.data.mul_(0.25)
-
-        if not (self.rescale and self.has_skip_term):
-            return
-        # scalar used to properly scale the highway output
-        scale_val = (1 + math.exp(bias_val) * 2)**0.5
-        self.scale_x.data[0] = scale_val
-        if self.num_matrices == 4:
-            w[:, :, :, 3].mul_(scale_val)
 
     def forward(self, input, c0=None, mask_pad=None):
         """
@@ -397,10 +370,6 @@ class SRUCell(nn.Module):
             c0 = Variable(input.data.new(
                 batch_size, self.output_size
             ).zero_())
-
-        # project if needed
-        if self.input_to_hidden is not None:
-            input = self.input_to_hidden(input)
 
         # apply layer norm before activation (i.e. before SRU computation)
         residual = input
@@ -570,7 +539,8 @@ class SRU(nn.Module):
                  v1=False,
                  nn_rnn_compatible_return=False,
                  custom_u=None,
-                 custom_v=None):
+                 custom_v=None,
+                 proj_input_to_hidden_first=False):
 
         super(SRU, self).__init__()
         self.input_size = input_size
@@ -586,10 +556,23 @@ class SRU(nn.Module):
         self.has_skip_term = has_skip_term
         self.num_directions = 2 if bidirectional else 1
         self.nn_rnn_compatible_return = nn_rnn_compatible_return
+        if proj_input_to_hidden_first and input_size != output_size:
+            first_layer_input_size = output_size
+            self.input_to_hidden = nn.Linear(input_size, self.output_size, bias=False)
+        else:
+            first_layer_input_size = input_size
+            self.input_to_hidden = None
 
         for i in range(num_layers):
+            # get custom modules when provided
+            custom_u_i, custom_v_i = None, None
+            if custom_u is not None:
+                custom_u_i = custom_u[i] if isinstance(custom_u, list) else copy.deepcopy(custom_u)
+            if custom_v is not None:
+                custom_v_i = custom_v[i] if isinstance(custom_v, list) else copy.deepcopy(custom_v)
+            # create the i-th SRU layer
             l = SRUCell(
-                self.input_size if i == 0 else self.output_size,
+                first_layer_input_size if i == 0 else self.output_size,
                 self.hidden_size,
                 dropout=dropout if i + 1 != num_layers else 0,
                 rnn_dropout=rnn_dropout,
@@ -602,8 +585,8 @@ class SRU(nn.Module):
                 has_skip_term=has_skip_term,
                 rescale=rescale,
                 v1=v1,
-                custom_u=copy.deepcopy(custom_u) if custom_u is not None else None,
-                custom_v=copy.deepcopy(custom_v) if custom_v is not None else None
+                custom_u=custom_u_i,
+                custom_v=custom_v_i
             )
             self.rnn_lst.append(l)
 
@@ -651,7 +634,7 @@ class SRU(nn.Module):
                 raise ValueError("There must be 3 dimensions for (num_layers, batch_size, output_size)")
             c0 = [ x.squeeze(0) for x in c0.chunk(self.num_layers, 0) ]
 
-        prevx = input
+        prevx = input if self.input_to_hidden is None else self.input_to_hidden(input)
         lstc = []
         for i, rnn in enumerate(self.rnn_lst):
             h, c = rnn(prevx, c0[i], mask_pad=mask_pad)
