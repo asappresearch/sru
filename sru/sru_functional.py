@@ -264,12 +264,13 @@ class SRUCell(nn.Module):
         if n_proj > 0 and n_proj < self.input_size and n_proj < self.output_size:
             self.projection_size = n_proj
 
+        # number of sub-matrices used in SRU
+        self.num_matrices = 3
+        if has_skip_term and self.input_size != self.output_size:
+            self.num_matrices = 4
+
         # make parameters
         if self.custom_u is None:
-            # number of sub-matrices used in SRU
-            self.num_matrices = 3
-            if has_skip_term and self.input_size != self.output_size:
-                self.num_matrices = 4
             if self.projection_size == 0:
                 self.weight = nn.Parameter(torch.Tensor(
                     input_size,
@@ -341,7 +342,7 @@ class SRUCell(nn.Module):
                 scale_val = (1 + math.exp(bias_val) * 2)**0.5
                 w[:, :, :, 3].mul_(scale_val)
 
-         if self.custom_v is None:
+        if self.custom_v is None:
             if not self.v1:
                 # intialize weight_c such that E[w]=0 and Var[w]=1
                 self.weight_c.data.uniform_(-3.0**0.5, 3.0**0.5)
@@ -479,9 +480,9 @@ class SRUCell(nn.Module):
         if self.layer_norm:
             s += ", layer_norm=True"
         if self.custom_u is not None:
-           s += ", custom_u"
+           s += ", custom_u=" + str(self.custom_u)
         if self.custom_v is not None:
-           s += ", custom_v"
+           s += ", custom_v=" + str(self.custom_v)
         return s.format(**self.__dict__)
 
     def __repr__(self):
