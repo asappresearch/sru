@@ -170,7 +170,7 @@ std::vector<at::Tensor> cpu_bi_forward(
     // pointers to parameters
     const float* V_ptr = weight_c.data<float>();
     const float* forget_w_ptr = weight_c.data<float>();
-    const float* reset_w_ptr = forget_w_ptr + hidden_size;
+    const float* reset_w_ptr = forget_w_ptr + hidden_size*2;
 
     const float* forget_b_ptr = bias.data<float>();
     const float* reset_b_ptr = forget_b_ptr + hidden_size*2;

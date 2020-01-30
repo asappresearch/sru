@@ -6,7 +6,6 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.autograd import Variable
 
 SRU_CPU_kernel = None
 SRU_GPU_kernel = None
@@ -38,31 +37,25 @@ def _lazy_load_cuda_kernel():
         from cuda_functional import SRU_Compute_GPU
     return SRU_Compute_GPU
 
-def SRU_CPU_class(activation_type,
-                    d,
-                    bidirectional=False,
-                    has_skip_term=True,
-                    scale_x=None,
-                    mask_pad=None):
+
+class SRU_Compute_CPU():
     """CPU version of the core SRU computation.
 
     Has the same interface as SRU_Compute_GPU() but is a regular Python function
     instead of a torch.autograd.Function because we don't implement backward()
     explicitly.
-
-    Args:
-        activation_type (int) : 0 (identity), 1 (tanh), 2 (ReLU) or 3 (SeLU).
-        d (int) : the dimensionality of the hidden layer
-            of the `SRUCell`. This is not named very well; it is
-            nonetheless named as such to maintain consistency with
-            the GPU compute-kernel constructor.
-        bidirectional (bool) : whether or not to use bidirectional `SRUCell`s.
-            Default: False.
-        has_skip_term (bool) : whether or not to include `(1-r[t])*x[t]` skip-term in h[t]
-        scale_x (float) : scaling constant on the highway connection
     """
 
-    def sru_compute_cpu(u, x, weight_c, bias, init=None, mask_c=None):
+    @staticmethod
+    def apply(u, x, weight_c, bias,
+              init,
+              activation_type,
+              d,
+              bidirectional,
+              has_skip_term,
+              scale_x,
+              mask_c=None,
+              mask_pad=None):
         """
         An SRU is a recurrent neural network cell comprised of 5 equations, described
         in "Simple Recurrent Units for Highly Parallelizable Recurrence."
@@ -134,14 +127,14 @@ def SRU_CPU_class(activation_type,
             x_prime = None
         elif k == 3:
             x_prime = x.view(length, batch, bidir, d)
-            x_prime = x_prime*scale_x if scale_x is not None else x_prime
+            x_prime = x_prime * scale_x if scale_x is not None else x_prime
         else:
             x_prime = u[..., 3]
 
-        h = Variable(x.data.new(length, batch, bidir, d))
+        h = x.new_zeros(length, batch, bidir, d)
 
         if init is None:
-            c_init = Variable(x.data.new(batch, bidir, d).zero_())
+            c_init = x.new_zeros(size=(batch, bidir, d))
         else:
             c_init = init.view(batch, bidir, d)
 
@@ -198,8 +191,6 @@ def SRU_CPU_class(activation_type,
 
             c_final.append(c_t)
         return h.view(length, batch, -1), torch.stack(c_final, dim=1).view(batch, -1)
-
-    return sru_compute_cpu
 
 
 class SRUCell(nn.Module):
@@ -368,9 +359,7 @@ class SRUCell(nn.Module):
         input_size, hidden_size = self.input_size, self.hidden_size
         batch_size = input.size(-2)
         if c0 is None:
-            c0 = Variable(input.data.new(
-                batch_size, self.output_size
-            ).zero_())
+            c0 = input.new_zeros(batch_size, self.output_size)
 
         # apply layer norm before activation (i.e. before SRU computation)
         residual = input
@@ -393,30 +382,6 @@ class SRUCell(nn.Module):
                 U.size(-1)
             ))
 
-        # get the scaling constant; scale_x is a scalar
-        scale_val = self.scale_x if self.rescale else None
-
-        # Pytorch Function() doesn't accept NoneType in forward() call.
-        # So we put mask_pad as class attribute as a work around
-        if input.is_cuda:
-            SRU_Compute = _lazy_load_cuda_kernel()(
-                self.activation_type,
-                hidden_size,
-                self.bidirectional,
-                self.has_skip_term,
-                scale_val,
-                mask_pad
-            )
-        else:
-            SRU_Compute = SRU_CPU_class(
-                self.activation_type,
-                hidden_size,
-                self.bidirectional,
-                self.has_skip_term,
-                scale_val,
-                mask_pad
-            )
-
         # V is (length, batch_size, output_size * 2) if customized otherwise (output_size * 2,)
         if self.custom_v is not None:
             V = self.custom_v(input)
@@ -428,12 +393,24 @@ class SRUCell(nn.Module):
                 V.size(-1)
             ))
 
+        # get the scaling constant; scale_x is a scalar
+        scale_val = self.scale_x if self.rescale else None
+
+        # get dropout mask
         if self.training and (self.dropout > 0):
             mask_c = self.get_dropout_mask_((batch_size, self.output_size), self.dropout)
-            h, c = SRU_Compute(U, residual, V, self.bias, c0, mask_c)
         else:
-            h, c = SRU_Compute(U, residual, V, self.bias, c0)
+            mask_c = None
 
+        SRU_Compute = _lazy_load_cuda_kernel() if input.is_cuda else SRU_Compute_CPU
+        h, c = SRU_Compute.apply(U, residual, V, self.bias, c0,
+                                 self.activation_type,
+                                 hidden_size,
+                                 self.bidirectional,
+                                 self.has_skip_term,
+                                 scale_val,
+                                 mask_c,
+                                 mask_pad)
         return h, c
 
     def compute_U(self, input):
@@ -456,7 +433,7 @@ class SRUCell(nn.Module):
         Composes the dropout mask for the `SRUCell`.
         """
         b = self.bias.data
-        return Variable(b.new(*size).bernoulli_(1 - p).div_(1 - p))
+        return b.new(*size).bernoulli_(1 - p).div_(1 - p)
 
     def extra_repr(self):
         s = "{input_size}, {hidden_size}"
@@ -480,13 +457,17 @@ class SRUCell(nn.Module):
         if self.layer_norm:
             s += ", layer_norm=True"
         if self.custom_u is not None:
-           s += ", custom_u=" + str(self.custom_u)
+           s += ",\n  custom_u=" + str(self.custom_u)
         if self.custom_v is not None:
-           s += ", custom_v=" + str(self.custom_v)
+           s += ",\n  custom_v=" + str(self.custom_v)
         return s.format(**self.__dict__)
 
     def __repr__(self):
-        return "{}({})".format(self.__class__.__name__, self.extra_repr())
+        s = self.extra_repr()
+        if len(s.split('\n')) == 1:
+            return "{}({})".format(self.__class__.__name__, s)
+        else:
+            return "{}({}\n)".format(self.__class__.__name__, s)
 
 
 class SRU(nn.Module):
@@ -625,9 +606,9 @@ class SRU(nn.Module):
             raise ValueError("There must be 3 dimensions for (length, batch_size, input_size)")
 
         if c0 is None:
-            zeros = Variable(input.data.new(
+            zeros = input.data.new(
                 input.size(1), self.output_size
-            ).zero_())
+            ).zero_()
             c0 = [ zeros for i in range(self.num_layers) ]
         else:
             # The dimensions of `c0` should be: `(num_layers, batch_size, hidden_size * dir_)`.
