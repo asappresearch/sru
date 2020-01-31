@@ -57,7 +57,7 @@ setup(
     },
 
     # Dependencies
-    install_requires=['torch>=1.0.0'],
+    install_requires=get_requirements(),
     dependency_links=[
     ],
 

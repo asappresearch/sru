@@ -16,7 +16,8 @@ std::vector<at::Tensor> cpu_forward(
         const int64_t k,
         const int64_t activation_type,
         const bool has_skip_term, 
-        const double scale_x);
+        const double scale_x,
+        const bool is_custom);
 //  k: the number of sub-matrices in grouped multiplication
 //  U: the result of grouped multiplication
 //  The size of U is [length, batch_size, hidden_size, k]
@@ -35,7 +36,8 @@ std::vector<at::Tensor> cpu_bi_forward(
         const int64_t k,
         const int64_t activation_type,
         const bool has_skip_term, 
-        const double scale_x);
+        const double scale_x,
+        const bool is_custom);
 //  k: the number of sub-matrices in grouped multiplication
 //  U: the result of grouped multiplication
 //  The size of U is [length, batch_size, 2*hidden_size, k]
@@ -65,7 +67,8 @@ std::vector<at::Tensor> cpu_forward(
         const int64_t k,  // U is [length, batch_size, hidden_size*k]
         const int64_t activation_type,
         const bool has_skip_term, 
-        const double scale_x) {
+        const double scale_x,
+        const bool is_custom) {
     
     CHECK_FLOAT(U);
     CHECK_CONTIGUOUS(U);
@@ -79,8 +82,11 @@ std::vector<at::Tensor> cpu_forward(
     const int ncols_u = batch_size * hidden_size * k;
 
     // pointers to parameters
+    const float* V_ptr = weight_c.data<float>();
     const float* forget_w_ptr = weight_c.data<float>();
     const float* reset_w_ptr = forget_w_ptr + hidden_size;
+    
+    // 
     const float* forget_b_ptr = bias.data<float>();
     const float* reset_b_ptr = forget_b_ptr + hidden_size;
     const float* U_ptr = U.data<float>();
@@ -105,9 +111,11 @@ std::vector<at::Tensor> cpu_forward(
                 const float u0 = u[0];
                 const float u1 = u[1];
                 const float u2 = u[2];
+                
+                // V[l,i,j,*]
+                const float fw = is_custom ? V_ptr[l*ncols*2 + offset*2] : forget_w_ptr[j];
+                const float rw = is_custom ? V_ptr[l*ncols*2 + offset*2 + 1] : reset_w_ptr[j];
 
-                const float fw = forget_w_ptr[j];
-                const float rw = reset_w_ptr[j];
                 const float fb = forget_b_ptr[j];
                 const float rb = reset_b_ptr[j];
 
@@ -145,7 +153,8 @@ std::vector<at::Tensor> cpu_bi_forward(
         const int64_t k,  // U is [length, batch_size, 2*hidden_size*k]
         const int64_t activation_type,
         const bool has_skip_term, 
-        const double scale_x) {
+        const double scale_x,
+        const bool is_custom) {
     
     CHECK_FLOAT(U);
     CHECK_CONTIGUOUS(U);
@@ -159,8 +168,10 @@ std::vector<at::Tensor> cpu_bi_forward(
     const int ncols_u = batch_size * hidden_size * 2 * k;
 
     // pointers to parameters
+    const float* V_ptr = weight_c.data<float>();
     const float* forget_w_ptr = weight_c.data<float>();
     const float* reset_w_ptr = forget_w_ptr + hidden_size*2;
+
     const float* forget_b_ptr = bias.data<float>();
     const float* reset_b_ptr = forget_b_ptr + hidden_size*2;
     const float* U_ptr = U.data<float>();
@@ -188,11 +199,12 @@ std::vector<at::Tensor> cpu_bi_forward(
                 const float u1 = u[1];
                 const float u2 = u[2];
 
-                const float fw = forget_w_ptr[j];
-                const float rw = reset_w_ptr[j];
+                // V[l,i,j,*]
+                const float fw = is_custom ? V_ptr[l*ncols*2 + offset*2] : forget_w_ptr[j];
+                const float rw = is_custom ? V_ptr[l*ncols*2 + offset*2 + 1] : reset_w_ptr[j];
+
                 const float fb = forget_b_ptr[j];
                 const float rb = reset_b_ptr[j];
-
                 const float prev_c = c_ptr[offset];
 
                 // forget gate
