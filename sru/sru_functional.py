@@ -90,9 +90,9 @@ class SRU_Compute_CPU():
                               sru_cpu_impl.cpu_forward
                 mask_pad_ = torch.FloatTensor() if mask_pad is None else mask_pad.float()
                 return cpu_forward(
-                    u,
+                    u.contiguous(),
                     x.contiguous(),
-                    weight_c,
+                    weight_c.contiguous(),
                     bias,
                     init,
                     mask_pad_,
@@ -112,7 +112,7 @@ class SRU_Compute_CPU():
                           "Use Python version instead.")
 
         mask_pad_ = mask_pad.view(length, batch, 1).float() if mask_pad is not None else mask_pad
-        u = u.view(length, batch, bidir, d, k)
+        u = u.contiguous().view(length, batch, bidir, d, k)
 
         if is_custom:
             weight_c = weight_c.view(length, batch, bidir, d, 2)

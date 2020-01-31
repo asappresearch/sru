@@ -69,7 +69,7 @@ class SRU_Compute_GPU(Function):
             c,
             u.contiguous(),
             x_,
-            weight_c,
+            weight_c.contiguous(),
             bias,
             init.contiguous(),
             mask_c if mask_c is not None else empty_ftensor,
@@ -135,7 +135,7 @@ class SRU_Compute_GPU(Function):
             grad_init,
             u.contiguous(),
             x_,
-            weight_c,
+            weight_c.contiguous(),
             bias,
             init.contiguous(),
             mask_c if mask_c is not None else empty_ftensor,
@@ -154,6 +154,8 @@ class SRU_Compute_GPU(Function):
 
         if skip_type > 0 and k_ == 3 and scale_x is not None:
             grad_x.mul_(scale_x)
-        return grad_u, grad_x, grad_wc.sum(1).view(-1), grad_bias.sum(1).view(-1), grad_init, \
+        if not is_custom:
+            grad_wc = grad_wc.sum(1).view(-1)
+        return grad_u, grad_x, grad_wc, grad_bias.sum(1).view(-1), grad_init, \
                None, None, None, None, None, None, None
 
