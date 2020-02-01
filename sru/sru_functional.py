@@ -638,3 +638,34 @@ class SRU(nn.Module):
         for rnn in self.rnn_lst:
             rnn.reset_parameters()
 
+    def make_backward_compatible(self):
+        self.nn_rnn_compatible_return = getattr(self, 'nn_rnn_compatible_return', False)
+
+        # version <= 2.1.7
+        if hasattr(self, 'n_in'):
+            if len(self.ln_lst):
+                raise Exception("Layer norm is not backward compatible for sru<=2.1.7")
+            if self.use_weight_norm:
+                raise Exception("Weight norm removed in sru>=2.1.9")
+            self.input_size = self.n_in
+            self.hidden_size = self.n_out
+            self.output_size = self.out_size
+            self.num_layers = self.depth
+            self.projection_size = self.n_proj
+            self.use_layer_norm = False
+            for cell in self.rnn_lst:
+                cell.input_size = cell.n_in
+                cell.hidden_size = cell.n_out
+                cell.output_size = cell.n_out * 2 if cell.bidirectional else cell.n_out
+                cell.num_matrices = cell.k
+                cell.projection_size = cell.n_proj
+                cell.layer_norm = None
+                if cell.activation_type > 1:
+                    raise Exception("ReLU or SeLU activation removed in sru>=2.1.9")
+
+        # version <= 2.1.9
+        if not hasattr(self, 'input_to_hidden'):
+            self.input_to_hidden = None
+            for cell in self.rnn_lst:
+                cell.custom_u = None
+                cell.custom_v = None
