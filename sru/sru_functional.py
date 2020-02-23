@@ -327,6 +327,8 @@ class SRUCell(nn.Module):
             if self.rescale and self.has_skip_term and self.num_matrices == 4:
                 scale_val = (1 + math.exp(bias_val) * 2)**0.5
                 w[:, :, :, 3].mul_(scale_val)
+        else:
+            self.custom_m.reset_parameters()
 
         if not self.v1:
             # intialize weight_c such that E[w]=0 and Var[w]=1
@@ -616,9 +618,9 @@ class SRU(nn.Module):
         lstc_stack = torch.stack(lstc)
         if self.nn_rnn_compatible_return:
             batch_size = input.size(1)
-            lstc_stack = lstc_stack.view(self.num_layers, batch_size, self.num_directions, self.output_size)
+            lstc_stack = lstc_stack.view(self.num_layers, batch_size, self.num_directions, self.hidden_size)
             lstc_stack = lstc_stack.transpose(1, 2).contiguous()
-            lstc_stack = lstc_stack.view(self.num_layers * self.num_directions, batch_size, self.output_size)
+            lstc_stack = lstc_stack.view(self.num_layers * self.num_directions, batch_size, self.hidden_size)
         return prevx, lstc_stack
 
     def reset_parameters(self):
