@@ -42,8 +42,6 @@ __global__ void sru_cuda_forward_kernel(
                         const int is_custom)
 {
     assert ((skip_type >= 0) && (skip_type <= 2));
-    assert ((skip_type != 1) || (k == 3));
-    assert ((skip_type != 2) || (k == 4));
 
     const int ncols = batch*d;
     const int col = blockIdx.x * blockDim.x + threadIdx.x;
@@ -60,7 +58,7 @@ __global__ void sru_cuda_forward_kernel(
     const auto  mask = (mask_c == NULL) ? (scalar_t)1.f : (*(mask_c + col));
     auto cur = *(init + col);
     const auto* up = u + (col*k);
-    const auto* xp = (skip_type == 0) ? NULL : ((skip_type == 1) ? (x + col) : (up + 3));
+    const auto* xp = (k == 3) ? x + col : up + 3;
     const unsigned char* pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col/d));
     auto* cp = c + col;
     auto* hp = h + col;
@@ -74,12 +72,12 @@ __global__ void sru_cuda_forward_kernel(
             const auto wc1 = *vp1;
             const auto wc2 = *vp2;
 
-            const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
+            const auto x_val = *xp;
             const auto g1 = sigmoidf(u1 + wc1*cur + bias1);
             const auto g2 = sigmoidf(u2 + wc2*cur + bias2);
             cur = (cur-u0)*g1 + u0;
             const auto val = calc_activation(activation_type, cur);
-            *hp = skip_type ? ((val * mask - x_val) * g2 + x_val) : (val * mask * g2);
+            *hp = skip_type ? ((val - x_val) * g2 * mask + x_val) : (val * g2 * mask + x_val);
         } 
         //else {
         //    *hp = 0;  // output 0 for a pad token
@@ -88,7 +86,7 @@ __global__ void sru_cuda_forward_kernel(
         up += ncols_u;
         cp += ncols;
         hp += ncols;
-        xp = skip_type ? (xp + ncols_x) : NULL;
+        xp += ncols_x;
         pad_p = mask_pad ? (pad_p + batch) : NULL;
         vp1 = is_custom ? (vp1 + ncols*2) : vp1;
         vp2 = is_custom ? (vp2 + ncols*2) : vp2;
@@ -121,8 +119,6 @@ __global__ void sru_cuda_backward_kernel(
                         const int is_custom)
 {
     assert ((skip_type >= 0) && (skip_type <= 2));
-    assert ((skip_type != 1) || (k == 3));
-    assert ((skip_type != 2) || (k == 4));
 
     const int ncols = batch*d;
     const int col = blockIdx.x * blockDim.x + threadIdx.x;
@@ -146,16 +142,12 @@ __global__ void sru_cuda_backward_kernel(
     auto cur = *(grad_last + col);
 
     const auto* up = u + (col*k) + (len-1)*ncols_u;
-    const auto* xp = (skip_type == 0) ? NULL : (
-        (skip_type == 1) ? (x + col + (len-1)*ncols) : (up + 3)
-    );
+    const auto* xp = (k == 3) ? x + col + (len-1)*ncols : up + 3;
     const auto* cp = c + col + (len-1)*ncols;
     const auto* ghp = grad_h + col + (len-1)*ncols;
     const unsigned char* pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col/d) + (len-1)*batch);
     auto* gup = grad_u + (col*k) + (len-1)*ncols_u;
-    auto* gxp = (skip_type == 0) ? NULL : (
-        (skip_type == 1) ? (grad_x + col + (len-1)*ncols) : (gup + 3)
-    );
+    auto* gxp = (k == 3) ? (grad_x + col + (len-1)*ncols) : (gup + 3);
 
     for (int row = len-1; row >= 0; --row)
     {
@@ -168,17 +160,19 @@ __global__ void sru_cuda_backward_kernel(
             const auto wc1 = *vp1;
             const auto wc2 = *vp2;
 
-            const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
+            const auto x_val = *xp;
             const auto gh_val = *ghp;
             const auto g1 = sigmoidf(u1 + wc1*prev_c_val + bias1);
             const auto g2 = sigmoidf(u2 + wc2*prev_c_val + bias2);
             const auto c_val = calc_activation(activation_type, cp_val);
 
             // h = c*g2 + x*(1-g2) = (c-x)*g2 + x
-            // c = c'*g1 + u0*(1-g1) = (c'-u0)*g1 + g0
+            // h = c*g2 + x
+            // c = c'*g1 + u0*(1-g1) = (c'-u0)*g1 + u0
 
             // gradient with respect to values in the second gate g2
-            const auto gg2 = gh_val*(c_val*mask-x_val)*(g2*(1.f-g2));
+            const auto mul = skip_type ? c_val - x_val : c_val;
+            const auto gg2 = gh_val*mul*mask*(g2*(1.f-g2));
             gbias2 += gg2;
             gwc2 += gg2*prev_c_val;
             *gvp2 = gg2*prev_c_val;
@@ -202,16 +196,15 @@ __global__ void sru_cuda_backward_kernel(
             *(gup + 2) = gg2;
  
             // gradient with respect to x[t]
-            if (skip_type)
-                *gxp = gh_val*(1.f-g2);           
+            *gxp = skip_type ? gh_val*((scalar_t)1.f-g2*mask) : gh_val;
         }
 
         up -= ncols_u;
         cp -= ncols;
         gup -= ncols_u;
         ghp -= ncols;
-        xp = skip_type ? (xp - ncols_x) : NULL;
-        gxp = skip_type ? (gxp - ncols_x) : NULL;
+        xp -= ncols_x;
+        gxp -= ncols_x;
         pad_p = mask_pad ? (pad_p - batch) : NULL;
         vp1 = is_custom ? (vp1 - ncols*2) : vp1;
         vp2 = is_custom ? (vp2 - ncols*2) : vp2;
@@ -253,8 +246,6 @@ __global__ void sru_cuda_bi_forward_kernel(
                         const int is_custom)
 {
     assert ((skip_type >= 0) && (skip_type <= 2));
-    assert ((skip_type != 1) || (k == 3));
-    assert ((skip_type != 2) || (k == 4));
 
     const int ncols = batch*d*2;
     const int col = blockIdx.x * blockDim.x + threadIdx.x;
@@ -273,7 +264,7 @@ __global__ void sru_cuda_bi_forward_kernel(
     const auto bias2 = *(bias + (col%d2) + d2);
 
     const auto *up = u + (col*k);
-    const auto *xp = (skip_type == 0) ? NULL : ((skip_type == 1) ? (x + col) : (up + 3));
+    const auto *xp = (k == 3) ? (x + col) : (up + 3);
     const unsigned char *pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col/d2));
     auto *cp = c + col;
     auto *hp = h + col;
@@ -282,7 +273,7 @@ __global__ void sru_cuda_bi_forward_kernel(
         up += (len-1)*ncols_u;
         cp += (len-1)*ncols;
         hp += (len-1)*ncols;
-        if (skip_type) xp += (len-1)*ncols_x;
+        xp += (len-1)*ncols_x;
         if (pad_p) pad_p += (len-1)*batch;
         if (is_custom) {
             vp1 += (len-1)*ncols*2;
@@ -303,12 +294,12 @@ __global__ void sru_cuda_bi_forward_kernel(
             const auto wc1 = *vp1;
             const auto wc2 = *vp2;
 
-            const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
+            const auto x_val = *xp;
             const auto g1 = sigmoidf(u1 + wc1*cur + bias1);
             const auto g2 = sigmoidf(u2 + wc2*cur + bias2);
             cur = (cur-u0)*g1 + u0;
             const auto val = calc_activation(activation_type, cur);
-            *hp = skip_type ? ((val * mask - x_val) * g2 + x_val) : (val * mask * g2);
+            *hp = skip_type ? ((val - x_val) * g2 * mask + x_val) : (val * g2 * mask + x_val);
         } 
         //else {
         //    *hp = 0;  // ouptut 0 for a pad token
@@ -317,7 +308,7 @@ __global__ void sru_cuda_bi_forward_kernel(
         up += ncols_u_;
         cp += ncols_;
         hp += ncols_;
-        xp = skip_type ? (xp + ncols_x_) : NULL;
+        xp += ncols_x_;
         pad_p = mask_pad ? (pad_p + batch_) : NULL;
         vp1 = is_custom ? (vp1 + ncols_*2) : vp1;
         vp2 = is_custom ? (vp2 + ncols_*2) : vp2;
@@ -350,8 +341,6 @@ __global__ void sru_cuda_bi_backward_kernel(
                            const int is_custom)
 {
     assert ((skip_type >= 0) && (skip_type <= 2));
-    assert ((skip_type != 1) || (k == 3));
-    assert ((skip_type != 2) || (k == 4));
 
     int ncols = batch*d*2;
     int col = blockIdx.x * blockDim.x + threadIdx.x;
@@ -376,16 +365,12 @@ __global__ void sru_cuda_bi_backward_kernel(
     const auto bias2 = *(bias + (col%d2) + d2);
 
     const auto *up = u + (col*k);
-    const auto *xp = (skip_type == 0) ? NULL : (
-        (skip_type == 1) ? (x + col) : (up + 3)
-    );
+    const auto *xp = (k == 3) ? (x + col) : (up + 3);
     const auto *cp = c + col;
     const auto *ghp = grad_h + col;
     const unsigned char *pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col/d2));
     auto *gup = grad_u + (col*k);
-    auto *gxp = (skip_type == 0) ? NULL : (
-        (skip_type == 1) ? (grad_x + col) : (gup + 3)
-    );
+    auto *gxp = (k == 3) ? (grad_x + col) : (gup + 3);
 
     const bool flip = ((col%d2) >= d);
     if (!flip) {
@@ -393,10 +378,8 @@ __global__ void sru_cuda_bi_backward_kernel(
         cp += (len-1)*ncols;
         ghp += (len-1)*ncols;
         gup += (len-1)*ncols_u;
-        if (skip_type) {
-            xp += (len-1)*ncols_x;
-            gxp += (len-1)*ncols_x;
-        }
+        xp += (len-1)*ncols_x;
+        gxp += (len-1)*ncols_x;
         if (pad_p) pad_p += (len-1)*batch;
         if (is_custom) {
             vp1 += (len-1)*ncols*2;
@@ -421,17 +404,19 @@ __global__ void sru_cuda_bi_backward_kernel(
             const auto wc1 = *vp1;
             const auto wc2 = *vp2;
 
-            const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
+            const auto x_val = *xp;
             const auto gh_val = *ghp;
             const auto g1 = sigmoidf(u1 + wc1*prev_c_val + bias1);
             const auto g2 = sigmoidf(u2 + wc2*prev_c_val + bias2);
             const auto c_val = calc_activation(activation_type, cp_val);
 
             // h = c*g2 + x*(1-g2) = (c-x)*g2 + x
+            // h = c * g2 + x
             // c = c'*g1 + u0*(1-g1) = (c'-u0)*g1 + u0
 
             // gradient with respect to values in the second gate g2
-            const auto gg2 = gh_val*(c_val*mask-x_val)*(g2*(1.f-g2));
+            const auto mul = skip_type ? c_val - x_val : c_val;
+            const auto gg2 = gh_val*mul*mask*(g2*(1.f-g2));
             gbias2 += gg2;
             gwc2 += gg2*prev_c_val;
             *gvp2 = gg2*prev_c_val;
@@ -455,16 +440,15 @@ __global__ void sru_cuda_bi_backward_kernel(
             *(gup + 2) = gg2;
 
             // gradient with respect to x[t]
-            if (skip_type)
-                *gxp = gh_val*(1.f-g2);
+            *gxp = skip_type ? gh_val*((scalar_t)1.f-g2*mask) : gh_val;
         }
 
         up -= ncols_u_;
         cp -= ncols_;
         gup -= ncols_u_;
         ghp -= ncols_;
-        xp = skip_type ? (xp - ncols_x_) : NULL;
-        gxp = skip_type ? (gxp - ncols_x_) : NULL;
+        xp -= ncols_x_;
+        gxp -= ncols_x_;
         pad_p = mask_pad ? (pad_p - batch_) : NULL;
         vp1 = is_custom ? (vp1 - ncols_*2) : vp1;
         vp2 = is_custom ? (vp2 - ncols_*2) : vp2;

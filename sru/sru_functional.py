@@ -327,8 +327,8 @@ class SRUCell(nn.Module):
             if self.rescale and self.has_skip_term and self.num_matrices == 4:
                 scale_val = (1 + math.exp(bias_val) * 2)**0.5
                 w[:, :, :, 3].mul_(scale_val)
-        else:
-            self.custom_m.reset_parameters()
+        #else:
+        #    self.custom_m.reset_parameters()
 
         if not self.v1:
             # intialize weight_c such that E[w]=0 and Var[w]=1

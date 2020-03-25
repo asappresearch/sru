@@ -48,7 +48,7 @@ class SRU_Compute_GPU(Function):
             assert mask_pad.size(1) == batch
         k = u.size(-1) // d
         k_ = k // 2 if bidirectional else k
-        skip_type = 0 if not has_skip_term else (1 if k_ == 3 else 2)
+        skip_type = 0 if not has_skip_term else 1
         ncols = batch * d * bidir
 
         is_custom = len(weight_c.size()) > 1
@@ -57,7 +57,7 @@ class SRU_Compute_GPU(Function):
         c = x.new_zeros(*size)
         h = x.new_zeros(*size)
 
-        if skip_type > 0 and k_ == 3:
+        if k_ == 3:
             x_ = x.contiguous() * scale_x if scale_x is not None else x.contiguous()
         else:
             x_ = empty_ftensor
@@ -105,14 +105,14 @@ class SRU_Compute_GPU(Function):
         d = ctx.d_out
         k = u.size(-1) // d
         k_ = k // 2 if ctx.bidirectional else k
-        skip_type = 0 if not ctx.has_skip_term else (1 if k_ == 3 else 2)
+        skip_type = 0 if not ctx.has_skip_term else 1
         ncols = batch * d * bidir
 
         is_custom = len(weight_c.size()) > 1
 
         grad_u = u.new_zeros(*u.size())
         grad_init = x.new_zeros(batch, d * bidir)
-        grad_x = x.new_zeros(*x.size()) if skip_type > 0 and k_ == 3 else None
+        grad_x = x.new_zeros(*x.size()) if k_ == 3 else None
         grad_bias = x.new_zeros(2, batch, bidir * d)
         if not is_custom:
             grad_wc = x.new_zeros(2, batch, bidir * d)
@@ -120,7 +120,7 @@ class SRU_Compute_GPU(Function):
             grad_wc = weight_c.new_zeros(*weight_c.size())
 
 
-        if skip_type > 0 and k_ == 3:
+        if k_ == 3:
             x_ = x.contiguous() * scale_x if scale_x is not None else x.contiguous()
         else:
             x_ = empty_ftensor
@@ -129,7 +129,7 @@ class SRU_Compute_GPU(Function):
                 sru_cuda_lib.sru_backward
         backward_func(
             grad_u,
-            grad_x if skip_type > 0 and k_ == 3 else empty_ftensor,
+            grad_x if k_ == 3 else empty_ftensor,
             grad_wc,
             grad_bias,
             grad_init,
