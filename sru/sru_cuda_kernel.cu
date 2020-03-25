@@ -79,7 +79,7 @@ __global__ void sru_cuda_forward_kernel(
             const auto g2 = sigmoidf(u2 + wc2*cur + bias2);
             cur = (cur-u0)*g1 + u0;
             const auto val = calc_activation(activation_type, cur);
-            *hp = skip_type ? ((val * mask - x_val) * g2 + x_val) : (val * mask * g2);
+            *hp = skip_type ? ((val - x_val) * mask * g2 + x_val) : (val * mask * g2);
         } 
         //else {
         //    *hp = 0;  // output 0 for a pad token
@@ -178,7 +178,7 @@ __global__ void sru_cuda_backward_kernel(
             // c = c'*g1 + u0*(1-g1) = (c'-u0)*g1 + g0
 
             // gradient with respect to values in the second gate g2
-            const auto gg2 = gh_val*(c_val*mask-x_val)*(g2*(1.f-g2));
+            const auto gg2 = gh_val*(c_val-x_val)*mask*(g2*(1.f-g2));
             gbias2 += gg2;
             gwc2 += gg2*prev_c_val;
             *gvp2 = gg2*prev_c_val;
@@ -203,7 +203,7 @@ __global__ void sru_cuda_backward_kernel(
  
             // gradient with respect to x[t]
             if (skip_type)
-                *gxp = gh_val*(1.f-g2);           
+                *gxp = gh_val*(1.f-g2*mask);
         }
 
         up -= ncols_u;
@@ -308,7 +308,7 @@ __global__ void sru_cuda_bi_forward_kernel(
             const auto g2 = sigmoidf(u2 + wc2*cur + bias2);
             cur = (cur-u0)*g1 + u0;
             const auto val = calc_activation(activation_type, cur);
-            *hp = skip_type ? ((val * mask - x_val) * g2 + x_val) : (val * mask * g2);
+            *hp = skip_type ? ((val - x_val) * mask * g2 + x_val) : (val * mask * g2);
         } 
         //else {
         //    *hp = 0;  // ouptut 0 for a pad token
@@ -431,7 +431,7 @@ __global__ void sru_cuda_bi_backward_kernel(
             // c = c'*g1 + u0*(1-g1) = (c'-u0)*g1 + u0
 
             // gradient with respect to values in the second gate g2
-            const auto gg2 = gh_val*(c_val*mask-x_val)*(g2*(1.f-g2));
+            const auto gg2 = gh_val*(c_val-x_val)*mask*(g2*(1.f-g2));
             gbias2 += gg2;
             gwc2 += gg2*prev_c_val;
             *gvp2 = gg2*prev_c_val;
@@ -456,7 +456,7 @@ __global__ void sru_cuda_bi_backward_kernel(
 
             // gradient with respect to x[t]
             if (skip_type)
-                *gxp = gh_val*(1.f-g2);
+                *gxp = gh_val*(1.f-g2*mask);
         }
 
         up -= ncols_u_;
