@@ -176,20 +176,18 @@ class SRU_Compute_CPU():
                     g_c_t = c_t
                 elif activation_type == 1:
                     g_c_t = c_t.tanh()
-                elif activation_type == 2:
-                    g_c_t = nn.functional.relu(c_t)
                 else:
-                    raise ValueError('Activation type must be 0, 1, or 2, not {}'.format(activation_type))
+                    raise ValueError('Activation type must be 0 or 1, not {}'.format(activation_type))
 
                 if x_prime is not None:
-                    h_t = xp[t] + (g_c_t * mask_c_ - xp[t]) * reset_t
+                    h_t = xp[t] + (g_c_t - xp[t]) * mask_c_ * reset_t
                 else:
                     h_t = g_c_t * mask_c_ * reset_t
                 if mask_pad_ is not None:
                     h_t = h_t * (1-mask_pad_[t])
                 h[t, :, di, :] = h_t
 
-            c_final.append(c_t)
+            c_final.append(c_t.view(batch, d))
         return h.view(length, batch, -1), torch.stack(c_final, dim=1).view(batch, -1)
 
 
@@ -328,7 +326,11 @@ class SRUCell(nn.Module):
                 scale_val = (1 + math.exp(bias_val) * 2)**0.5
                 w[:, :, :, 3].mul_(scale_val)
         else:
-            self.custom_m.reset_parameters()
+            if hasattr(self.custom_m, 'reset_parameters'):
+                self.custom_m.reset_parameters()
+            else:
+                warnings.warn("Unable to reset parameters for custom module. "
+                              "reset_parameters() method not found for custom module.")
 
         if not self.v1:
             # intialize weight_c such that E[w]=0 and Var[w]=1
