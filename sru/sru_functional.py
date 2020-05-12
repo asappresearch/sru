@@ -533,8 +533,8 @@ class SRU(nn.Module):
         self.has_skip_term = has_skip_term
         self.num_directions = 2 if bidirectional else 1
         self.nn_rnn_compatible_return = nn_rnn_compatible_return
-        if proj_input_to_hidden_first and input_size != output_size:
-            first_layer_input_size = output_size
+        if proj_input_to_hidden_first and input_size != self.output_size:
+            first_layer_input_size = self.output_size
             self.input_to_hidden = nn.Linear(input_size, self.output_size, bias=False)
         else:
             first_layer_input_size = input_size
