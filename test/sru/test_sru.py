@@ -13,6 +13,9 @@ import torch
 )
 def test_cell(cuda, with_grad, compat):
     torch.manual_seed(123)
+    if cuda:
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
 
     def run():
         eps = 1e-4
