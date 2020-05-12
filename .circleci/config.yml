@@ -10,10 +10,16 @@ jobs:
       - checkout
       - python/load-cache
       - python/install-deps
+      - run:
+          name: setup
+          command: |
+            pip install -r requirements-test.txt
+            pip install -e ./
       - python/save-cache
       - run:
-          command: ./manage.py test
           name: Test
+          command: |
+            pytest -sv test
 
 workflows:
   main:
