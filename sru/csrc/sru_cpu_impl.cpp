@@ -256,12 +256,20 @@ inline float apply_activation(int64_t type, float x) {
     return x;
 }
 
-TORCH_LIBRARY(sru_cpu, m) {
-  m.def("cpu_forward", &cpu_forward);
-  m.def("cpu_bi_forward", &cpu_bi_forward);
-}
+// This way of registing custom op is based on earlier PRs of Pytorch:
+// https://github.com/pytorch/pytorch/pull/28229
+// 
+// In Pytorch 1.6, the recommended way is to use TORCH_LIBRARY(), e.g.
+//
+//   TORCH_LIBRARY(sru_cpu, m) {
+//       m.def("cpu_forward", &cpu_forward);
+//       m.def("cpu_bi_forward", &cpu_bi_forward);
+//   }
+//
+// We choose this way for backward compatibility.
+static auto registory = 
+    torch::RegisterOperators("sru_cpu::cpu_forward", &cpu_forward);
 
-//PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-//  m.def("cpu_forward", &cpu_forward);
-//  m.def("cpu_bi_forward", &cpu_bi_forward);
-//}
+static auto registory_bi = 
+    torch::RegisterOperators("sru_cpu::cpu_bi_forward", &cpu_bi_forward);
+

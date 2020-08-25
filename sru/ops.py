@@ -2,16 +2,14 @@
 from typing import Tuple, List, Optional, Union
 import os
 import time
-import sys
 
 import torch
-import torch.nn as nn
 from torch import Tensor
 from torch.utils.cpp_extension import load
 import sru
 
 # JIT compilation of elementwise fwd operator (CPU version)
-cpu_source = os.path.join(os.path.dirname(__file__), os.path.join("csrc", "sru_cpu_impl.cpp"))
+cpu_source = os.path.join(os.path.dirname(__file__), "csrc", "sru_cpu_impl.cpp")
 load(
     name="sru_cpu",
     sources=[cpu_source],

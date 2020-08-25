@@ -4,11 +4,10 @@ import copy
 import warnings
 import math
 import time
-from typing import List, Tuple, Union, Optional, overload
+from typing import List, Tuple, Union, Optional
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch import Tensor
 from torch.nn.utils.rnn import PackedSequence
 
@@ -47,31 +46,41 @@ class SRUCell(nn.Module):
         input_size: int
             the number of features in the input `x`
         hidden_size: int
-            the number of features in the hidden state *for each direction*
+            the number of features in the hidden state *for each
+            direction*
         dropout: float, optional
             the dropout value applied between layers (default=0)
         rnn_dropout: float, optional
             [DEPRECATED] the variational dropout value (default=0)
         bidirectional: bool, optional
-            if True, set the module as a bidirectional SRU (default=False)
+            if True, set the module as a bidirectional SRU
+            (default=False)
         n_proj: int, optional
-            if non-zero, factorize the ``weight`` parameter matrix as a product of two
-            parameter matrices, using an innder dimension ``n_proj`` (default=0)
+            if non-zero, factorize the ``weight`` parameter matrix as a
+            product of two parameter matrices, using an innder dimension
+            ``n_proj`` (default=0)
         use_tanh: bool, optional
-            [DEPRECATED] if True, apply `tanh` activation to the hidden state (default=False)
+            [DEPRECATED] if True, apply `tanh` activation to the hidden
+            state (default=False)
         highway_bias: float, optional
-            the initial value of the bias used in the highway (sigmoid) gate (defulat=0)
+            the initial value of the bias used in the highway (sigmoid)
+            gate (defulat=0)
         has_skip_term: bool, optional
-            whether to include a residual connection for output hidden state `h` (default=True)
+            whether to include a residual connection for output hidden
+            state `h` (default=True)
         layer_norm: bool, optional
-            whether to apply pre- layer normalization for this layer (default=False)
+            whether to apply pre- layer normalization for this layer
+            (default=False)
         rescale: bool, optional
-            whether to apply a constant rescaling multiplier for the residual term (default=True)
+            whether to apply a constant rescaling multiplier for the
+            residual term (default=True)
         v1: bool, optional
-            [DEPRECATED] whether to use the an ealier v1 implementation of SRU (default=False)
+            [DEPRECATED] whether to use the an ealier v1 implementation
+            of SRU (default=False)
         custom_m: nn.Module, optional
-            use the give module instead of the batched matrix multiplication to compute the
-            intermediate representations U needed for the elementwise recurrrence operation
+            use the give module instead of the batched matrix
+            multiplication to compute the intermediate representations U
+            needed for the elementwise recurrrence operation
             (default=None)
 
         """
@@ -130,9 +139,12 @@ class SRUCell(nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self):
-        """Properly initialize the weights of SRU, following the same recipe as:
-            Xavier init:  http://proceedings.mlr.press/v9/glorot10a/glorot10a.pdf
-            Kaiming init: https://arxiv.org/abs/1502.01852
+        """Properly initialize the weights of SRU, following the same
+        recipe as:
+        Xavier init:
+            http://proceedings.mlr.press/v9/glorot10a/glorot10a.pdf
+        Kaiming init:
+            https://arxiv.org/abs/1502.01852
 
         """
         # initialize bias and scaling constant
@@ -249,7 +261,8 @@ class SRUCell(nn.Module):
                          mask_c: Optional[Tensor],
                          mask_pad: Optional[Tensor]) -> List[Tensor]:
         """
-        Apply the elementwise recurrence computation on given input tensors
+        Apply the elementwise recurrence computation on given input
+        tensors
 
         """
         if self.bias.is_cuda:
@@ -282,22 +295,21 @@ class SRUCell(nn.Module):
                    c0: Optional[Tensor],
                    mask_pad: Optional[Tensor]) -> Tuple[Tensor, Tensor]:
         """
-        SRU performs grouped matrix multiplication to transform
-        the input (length, batch_size, input_size) into a tensor
-        U of size (length * batch_size, output_size * num_matrices).
+        SRU performs grouped matrix multiplication to transform the
+        input (length, batch_size, input_size) into a tensor U of size
+        (length * batch_size, output_size * num_matrices).
 
         When a custom module `custom_m` is given, U will be computed by
-        the given module. In addition, the module can return an additional
-        tensor V (length, batch_size, output_size * 2) that will be added
-        to the hidden-to-hidden coefficient terms in sigmoid gates, i.e.,
-        (V[t, b, d] + weight_c[d]) * c[t-1].
+        the given module. In addition, the module can return an
+        additional tensor V (length, batch_size, output_size * 2) that
+        will be added to the hidden-to-hidden coefficient terms in
+        sigmoid gates, i.e., (V[t, b, d] + weight_c[d]) * c[t-1].
 
         """
         if self.custom_m is None:
             U = self.compute_U(input)
             V = self.weight_c
         else:
-            #ret = self.custom_m(input, c0=c0, mask_pad=mask_pad)
             ret = self.custom_m(input)
             if isinstance(ret, tuple) or isinstance(ret, list):
                 if len(ret) > 2:
@@ -323,9 +335,9 @@ class SRUCell(nn.Module):
     def compute_U(self,
                   input: Tensor) -> Tensor:
         """
-        SRU performs grouped matrix multiplication to transform
-        the input (length, batch_size, input_size) into a tensor
-        U of size (length * batch_size, output_size * num_matrices)
+        SRU performs grouped matrix multiplication to transform the
+        input (length, batch_size, input_size) into a tensor U of size
+        (length * batch_size, output_size * num_matrices)
         """
         # collapse (length, batch_size) into one dimension if necessary
         x = input if input.dim() == 2 else input.contiguous().view(-1, self.input_size)
@@ -345,7 +357,6 @@ class SRUCell(nn.Module):
         """
         b = self.bias.data
         return b.new_empty(size).bernoulli_(1 - p).div_(1 - p)
-        #return b.new(*size).bernoulli_(1 - p).div_(1 - p)
 
     def extra_repr(self):
         s = "{input_size}, {hidden_size}"
@@ -414,7 +425,8 @@ class SRU(nn.Module):
         input_size: int
             the number of features in the input `x`
         hidden_size: int
-            the number of features in the hidden state *for each direction*
+            the number of features in the hidden state *for each
+            direction*
         num_layers: int
             the number of stacked SRU layers (default=2)
         dropout: float, optional
@@ -422,29 +434,39 @@ class SRU(nn.Module):
         rnn_dropout: float, optional
             [DEPRECATED] the variational dropout value (default=0)
         bidirectional: bool, optional
-            if True, set the module as a bidirectional SRU (default=False)
+            if True, set the module as a bidirectional SRU
+            (default=False)
         projection_size: int, optional
-            if non-zero, factorize the ``weight`` parameter in each layeras a product
-            of two parameter matrices, using an innder dimension ``projection_size``
-            (default=0)
+            if non-zero, factorize the ``weight`` parameter in each
+            layeras a product of two parameter matrices, using an innder
+            dimension ``projection_size`` (default=0)
         use_tanh: bool, optional
-            [DEPRECATED] if True, apply `tanh` activation to the hidden state (default=False)
+            [DEPRECATED] if True, apply `tanh` activation to the hidden
+            state (default=False)
         layer_norm: bool, optional
-            whether to apply pre- layer normalization for this layer (default=False)
+            whether to apply pre- layer normalization for this layer
+            (default=False)
         highway_bias: float, optional
-            the initial value of the bias used in the highway (sigmoid) gate (defulat=0)
+            the initial value of the bias used in the highway (sigmoid)
+            gate (defulat=0)
         has_skip_term: bool, optional
-            whether to include a residual connection for output hidden state `h` (default=True)
+            whether to include a residual connection for output hidden
+            state `h` (default=True)
         rescale: bool, optional
-            whether to apply a constant rescaling multiplier for the residual term (default=False)
+            whether to apply a constant rescaling multiplier for the
+            residual term (default=False)
         v1: bool, optional
-            [DEPRECATED] whether to use the an ealier v1 implementation of SRU (default=False)
+            [DEPRECATED] whether to use the an ealier v1 implementation
+            of SRU (default=False)
         custom_m: Union[nn.Module, List[nn.Module]], optional
-            use the give module(s) instead of the batched matrix multiplication to compute the
-            intermediate representations U needed for the elementwise recurrrence operation.
-            The module must take input x of shape (seq_len, batch_size, hidden_size). It returns
-            a tensor U of shape (seq_len, batch_size, hidden_size * num_matrices), and one optional
-            tensor V of shape (seq_len, batch_size, hidden_size * 2). (default=None)
+            use the give module(s) instead of the batched matrix
+            multiplication to compute the intermediate representations U
+            needed for the elementwise recurrrence operation.  The
+            module must take input x of shape (seq_len, batch_size,
+            hidden_size). It returns a tensor U of shape (seq_len,
+            batch_size, hidden_size * num_matrices), and one optional
+            tensor V of shape (seq_len, batch_size, hidden_size * 2).
+            (default=None)
 
         """
 
@@ -496,23 +518,33 @@ class SRU(nn.Module):
     def forward(self, input: Tensor,
                       c0: Optional[Tensor] = None,
                       mask_pad: Optional[Tensor] = None) -> Tuple[Tensor, Tensor]:
-        """
-        Feeds `input` forward through `num_layers` `SRUCell`s, where `num_layers`
-        is a parameter on the constructor of this class.
+        """The forward method of SRU module
 
-        parameters:
-        - input (FloatTensor): (sequence_length, batch_size, input_size)
-        - c0 (FloatTensor): (num_layers, batch_size, hidden_size * num_directions)
-        - mask_pad (ByteTensor): (sequence_length, batch_size): set to 1 to ignore the value at that position
+        Parameters
+        ----------
+        input: Tensor
+            the input feature. shape: (length, batch_size, input_size)
+        c0: Tensor, optional
+            the initial internal hidden state. shape: (num_layers,
+            batch_size, output_size) where
+            output_size = hidden_size * num_direction
+        mask_pad: Tensor, optional
+            the mask where a non-zero value indicates if an input token
+            is pad token that should be ignored in forward and backward
+            computation. shape: (length, batch_size)
 
-        input can be packed, which will lead to worse execution speed, but is compatible with many usages
-        of nn.RNN.
+        Returns
+        ----------
+        h: Tensor
+            the output hidden state. shape: (length, batch_size,
+            output_size) where
+            output_size = hidden_size * num_direction
+        c: Tensor
+            the last internal hidden state. shape: (num_layers,
+            batch_size, output_size), or (num_layers * num_directions,
+            batch_size, hidden_size) if `nn_rnn_compatible_return` is
+            set `True`
 
-        Return:
-        - prevx: output: FloatTensor, (sequence_length, batch_size, num_directions * hidden_size)
-        - lstc_stack: state:
-            (FloatTensor): (num_layers, batch_size, num_directions * hidden_size) if not nn_rnn_compatible_return, else
-            (FloatTensor): (num_layers * num_directions, batch, hidden_size)
         """
         # unpack packed, if input is packed. packing and then unpacking will be slower than not packing
         # at all, but makes SRU usage compatible with nn.RNN usage

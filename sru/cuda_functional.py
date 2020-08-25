@@ -4,8 +4,8 @@ from torch.autograd import Function
 
 from torch.utils.cpp_extension import load
 sources = [
-    os.path.join(os.path.dirname(__file__), os.path.join("csrc", "sru_cuda_impl.cpp")),
-    os.path.join(os.path.dirname(__file__), os.path.join("csrc", "sru_cuda_kernel.cu")),
+    os.path.join(os.path.dirname(__file__), "csrc", "sru_cuda_impl.cpp"),
+    os.path.join(os.path.dirname(__file__), "csrc", "sru_cuda_kernel.cu"),
 ]
 sru_cuda_lib = load(
     name="sru_cuda_impl",
