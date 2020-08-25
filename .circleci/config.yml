@@ -8,16 +8,14 @@ jobs:
     executor: python/default
     steps:
       - checkout
-      - python/load-cache
+      # - python/load-cache
       - python/install-deps
       - run:
           name: setup
           command: |
             pip install -r requirements-test.txt
             pip install -e ./
-            pip uninstall -y pytest
-            pip install pytest
-      - python/save-cache
+      # - python/save-cache
       - run:
           name: Test
           command: |
