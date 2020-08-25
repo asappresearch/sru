@@ -15,6 +15,8 @@ jobs:
           command: |
             pip install -r requirements-test.txt
             pip install -e ./
+            pip uninstall -y pytest
+            pip install pytest
       - python/save-cache
       - run:
           name: Test
