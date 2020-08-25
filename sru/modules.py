@@ -23,7 +23,7 @@ class SRUCell(nn.Module):
     __constants__ = ['input_size', 'hidden_size', 'output_size', 'rnn_dropout',
                      'dropout', 'bidirectional', 'has_skip_term', 'highway_bias',
                      'v1', 'rescale', 'activation_type', 'activation', 'custom_m',
-                     'projection_size', 'num_matrices', 'layer_norm', ]
+                     'projection_size', 'num_matrices', 'layer_norm', 'weight_proj']
 
     def __init__(self,
                  input_size: int,
@@ -88,8 +88,8 @@ class SRUCell(nn.Module):
         self.input_size = input_size
         self.hidden_size = hidden_size  # hidden size per direction
         self.output_size = hidden_size * 2 if bidirectional else hidden_size
-        self.rnn_dropout = rnn_dropout
-        self.dropout = dropout
+        self.rnn_dropout = float(rnn_dropout)
+        self.dropout = float(dropout)
         self.bidirectional = bidirectional
         self.has_skip_term = has_skip_term
         self.highway_bias = highway_bias
@@ -218,7 +218,8 @@ class SRUCell(nn.Module):
         input_size, hidden_size = self.input_size, self.hidden_size
         batch_size = input.size(-2)
         if c0 is None:
-            c0 = input.new_zeros(batch_size, self.output_size)
+            c0 = torch.zeros(batch_size, self.output_size, dtype=input.dtype,
+                             device=input.device)
 
         # apply layer norm before activation (i.e. before SRU computation)
         residual = input
@@ -274,16 +275,14 @@ class SRUCell(nn.Module):
                                               scale_val, mask_c, mask_pad)
 
         if not torch.jit.is_scripting():
-            if torch.is_grad_enabled():
-                warnings.warn("Running SRU on CPU with grad_enabled=True. Are you sure?")
-                return elementwise_recurrence_naive(U, residual, V, self.bias, c0,
-                                                  self.activation_type,
-                                                  self.hidden_size,
-                                                  self.bidirectional,
-                                                  self.has_skip_term,
-                                                  scale_val, mask_c, mask_pad)
-
-        return elementwise_recurrence_cpu(U, residual, V, self.bias, c0,
+            return elementwise_recurrence_naive(U, residual, V, self.bias, c0,
+                                              self.activation_type,
+                                              self.hidden_size,
+                                              self.bidirectional,
+                                              self.has_skip_term,
+                                              scale_val, mask_c, mask_pad)
+        else:
+            return elementwise_recurrence_cpu(U, residual, V, self.bias, c0,
                                               self.activation_type,
                                               self.hidden_size,
                                               self.bidirectional,
@@ -341,7 +340,6 @@ class SRUCell(nn.Module):
         """
         # collapse (length, batch_size) into one dimension if necessary
         x = input if input.dim() == 2 else input.contiguous().view(-1, self.input_size)
-        #if self.projection_size > 0:
         if self.weight_proj is not None:
             x_projected = x.mm(self.weight_proj)
             U = x_projected.mm(self.weight)
@@ -567,7 +565,8 @@ class SRU(nn.Module):
             raise ValueError("There must be 3 dimensions for (length, batch_size, input_size)")
 
         if c0 is None:
-            zeros = input.new_zeros(input.size(1), self.output_size)
+            zeros = torch.zeros(input.size(1), self.output_size, dtype=input.dtype,
+                                device=input.device)
             c0_ = [ zeros for i in range(self.num_layers) ]
         else:
             # The dimensions of `c0` should be: `(num_layers, batch_size, hidden_size * dir_)`.
@@ -580,10 +579,12 @@ class SRU(nn.Module):
         else:
             prevx = self.input_to_hidden(input)
         lstc = []
-        for i, rnn in enumerate(self.rnn_lst):
+        i = 0
+        for rnn in self.rnn_lst:
             h, c = rnn(prevx, c0_[i], mask_pad=mask_pad)
             prevx = h
             lstc.append(c)
+            i += 1
 
         lstc_stack = torch.stack(lstc)
         if self.nn_rnn_compatible_return:

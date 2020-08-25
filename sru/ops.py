@@ -2,6 +2,7 @@
 from typing import Tuple, List, Optional, Union
 import os
 import time
+import warnings
 
 import torch
 from torch import Tensor
@@ -125,6 +126,14 @@ def elementwise_recurrence_naive(U: Tensor,
     """Elementwise forward operation of SRU in pure Python.
 
     """
+    if torch.is_grad_enabled():
+        warnings.warn("Running SRU on CPU with grad_enabled=True. Are you sure?")
+    else:
+        return elementwise_recurrence_cpu(U, x, weight_c, bias, c_init,
+                                          activation_type, hidden_size,
+                                          bidirectional, has_skip_term,
+                                          scale_x, dropout_mask_c, mask_pad)
+
     bidir = 2 if bidirectional else 1
     length = x.size(0) if x.dim() == 3 else 1
     batch = x.size(-2)
@@ -222,6 +231,8 @@ if __name__ == "__main__":
     U = srucell.compute_U(x)
     c0 = torch.zeros(4, 256)
     h, c = srucell(x)
+    print(U.size())
+    print(h.size())
     for func in [elementwise_recurrence_cpu,
                  elementwise_recurrence_naive]:
         h2, c2 = func(U, x, srucell.weight_c, srucell.bias,
