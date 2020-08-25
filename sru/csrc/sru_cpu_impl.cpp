@@ -1,5 +1,6 @@
 
-#include <torch/torch.h>
+//#include <torch/torch.h>
+#include <torch/script.h>
 #include <vector>
 
 //  unidirectional forward()
@@ -255,7 +256,12 @@ inline float apply_activation(int64_t type, float x) {
     return x;
 }
 
-PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-  m.def("cpu_forward", &cpu_forward, "SRU forward (CPU version)");
-  m.def("cpu_bi_forward", &cpu_bi_forward, "SRU bidirectional forward (CPU version)");
+TORCH_LIBRARY(sru_cpu, m) {
+  m.def("cpu_forward", &cpu_forward);
+  m.def("cpu_bi_forward", &cpu_bi_forward);
 }
+
+//PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+//  m.def("cpu_forward", &cpu_forward);
+//  m.def("cpu_bi_forward", &cpu_bi_forward);
+//}

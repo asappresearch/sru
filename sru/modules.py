@@ -3,230 +3,78 @@ import sys
 import copy
 import warnings
 import math
+import time
+from typing import List, Tuple, Union, Optional, overload
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch import Tensor
+from torch.nn.utils.rnn import PackedSequence
 
-SRU_CPU_kernel = None
-SRU_GPU_kernel = None
-
-# load C++ implementation for CPU computation
-def _lazy_load_cpu_kernel():
-    global SRU_CPU_kernel
-    if SRU_CPU_kernel is not None:
-        return SRU_CPU_kernel
-    try:
-        from torch.utils.cpp_extension import load
-        cpu_source = os.path.join(os.path.dirname(__file__), "sru_cpu_impl.cpp")
-        SRU_CPU_kernel = load(
-            name="sru_cpu_impl",
-            sources=[cpu_source],
-            extra_cflags=['-O3'],
-            verbose=False
-        )
-    except:
-        # use Python version instead
-        SRU_CPU_kernel = False
-    return SRU_CPU_kernel
-
-# load C++ implementation for GPU computation
-def _lazy_load_cuda_kernel():
-    try:
-        from .cuda_functional import SRU_Compute_GPU
-    except:
-        from cuda_functional import SRU_Compute_GPU
-    return SRU_Compute_GPU
-
-
-class SRU_Compute_CPU():
-    """CPU version of the core SRU computation.
-
-    Has the same interface as SRU_Compute_GPU() but is a regular Python function
-    instead of a torch.autograd.Function because we don't implement backward()
-    explicitly.
-    """
-
-    @staticmethod
-    def apply(u, x, weight_c, bias,
-              init,
-              activation_type,
-              d,
-              bidirectional,
-              has_skip_term,
-              scale_x,
-              mask_c=None,
-              mask_pad=None):
-        """
-        An SRU is a recurrent neural network cell comprised of 5 equations, described
-        in "Simple Recurrent Units for Highly Parallelizable Recurrence."
-
-        The first 3 of these equations each require a matrix-multiply component,
-        i.e. the input vector x_t dotted with a weight matrix W_i, where i is in
-        {0, 1, 2}.
-
-        As each weight matrix W is dotted with the same input x_t, we can fuse these
-        computations into a single matrix-multiply, i.e. `x_t <dot> stack([W_0, W_1, W_2])`.
-        We call the result of this computation `U`.
-
-        sru_compute_cpu() accepts 'u' and 'x' (along with a tensor of biases,
-        an initial memory cell `c0`, and an optional dropout mask) and computes
-        equations (3) - (7). It returns a tensor containing all `t` hidden states
-        (where `t` is the number of elements in our input sequence) and the final
-        memory cell `c_T`.
-        """
-
-        bidir = 2 if bidirectional else 1
-        length = x.size(0) if x.dim() == 3 else 1
-        batch = x.size(-2)
-        k = u.size(-1) // d // bidir
-
-        is_custom = len(weight_c.size()) > 1
-
-        sru_cpu_impl = _lazy_load_cpu_kernel()
-        if (sru_cpu_impl is not None) and (sru_cpu_impl != False):
-            if not torch.is_grad_enabled():
-                assert mask_c is None
-                cpu_forward = sru_cpu_impl.cpu_bi_forward if bidirectional else \
-                              sru_cpu_impl.cpu_forward
-                mask_pad_ = torch.FloatTensor() if mask_pad is None else mask_pad.float()
-                return cpu_forward(
-                    u.contiguous(),
-                    x.contiguous(),
-                    weight_c.contiguous(),
-                    bias,
-                    init,
-                    mask_pad_,
-                    length,
-                    batch,
-                    d,
-                    k,
-                    activation_type,
-                    has_skip_term,
-                    scale_x.item() if scale_x is not None else 1.0,
-                    is_custom
-                )
-            else:
-                warnings.warn("Running SRU on CPU with grad_enabled=True. Are you sure?")
-        else:
-            warnings.warn("C++ kernel for SRU CPU inference was not loaded. "
-                          "Use Python version instead.")
-
-        mask_pad_ = mask_pad.view(length, batch, 1).float() if mask_pad is not None else mask_pad
-        u = u.contiguous().view(length, batch, bidir, d, k)
-
-        if is_custom:
-            weight_c = weight_c.view(length, batch, bidir, d, 2)
-            forget_wc = weight_c[..., 0]
-            reset_wc = weight_c[..., 1]
-        else:
-            forget_wc, reset_wc = weight_c.view(2, bidir, d)
-
-        forget_bias, reset_bias = bias.view(2, bidir, d)
-
-        if not has_skip_term:
-            x_prime = None
-        elif k == 3:
-            x_prime = x.view(length, batch, bidir, d)
-            x_prime = x_prime * scale_x if scale_x is not None else x_prime
-        else:
-            x_prime = u[..., 3]
-
-        h = x.new_zeros(length, batch, bidir, d)
-
-        if init is None:
-            c_init = x.new_zeros(size=(batch, bidir, d))
-        else:
-            c_init = init.view(batch, bidir, d)
-
-        c_final = []
-        for di in range(bidir):
-            if di == 0:
-                time_seq = range(length)
-            else:
-                time_seq = range(length - 1, -1, -1)
-
-            mask_c_ = 1 if mask_c is None else mask_c.view(batch, bidir, d)[:, di, :]
-            c_prev = c_init[:, di, :]
-            fb, rb = forget_bias[di], reset_bias[di]
-            if is_custom:
-                fw = forget_wc[:, :, di, :].chunk(length)
-                rw = reset_wc[:, :, di, :].chunk(length)
-            else:
-                fw = forget_wc[di].expand(batch, d)
-                rw = reset_wc[di].expand(batch, d)
-            u0 = u[:, :, di, :, 0].chunk(length)
-            u1 = (u[:, :, di, :, 1] + fb).chunk(length)
-            u2 = (u[:, :, di, :, 2] + rb).chunk(length)
-            if x_prime is not None:
-                xp = x_prime[:, :, di, :].chunk(length)
-
-            for t in time_seq:
-                if is_custom:
-                    forget_t = (u1[t] + c_prev*fw[t]).sigmoid()
-                    reset_t = (u2[t] + c_prev*rw[t]).sigmoid()
-                else:
-                    forget_t = (u1[t] + c_prev*fw).sigmoid()
-                    reset_t = (u2[t] + c_prev*rw).sigmoid()
-                c_t = u0[t] + (c_prev - u0[t]) * forget_t
-                if mask_pad_ is not None:
-                    c_t = c_t * (1-mask_pad_[t]) + c_prev * mask_pad_[t]
-                c_prev = c_t
-
-                if activation_type == 0:
-                    g_c_t = c_t
-                elif activation_type == 1:
-                    g_c_t = c_t.tanh()
-                else:
-                    raise ValueError('Activation type must be 0 or 1, not {}'.format(activation_type))
-
-                if x_prime is not None:
-                    h_t = xp[t] + (g_c_t - xp[t]) * mask_c_ * reset_t
-                else:
-                    h_t = g_c_t * mask_c_ * reset_t
-                if mask_pad_ is not None:
-                    h_t = h_t * (1-mask_pad_[t])
-                h[t, :, di, :] = h_t
-
-            c_final.append(c_t.view(batch, d))
-        return h.view(length, batch, -1), torch.stack(c_final, dim=1).view(batch, -1)
-
+from sru.ops import (elementwise_recurrence_cpu,
+                     elementwise_recurrence_gpu,
+                     elementwise_recurrence_naive)
 
 class SRUCell(nn.Module):
     """
-    An SRU cell, i.e. a single recurrent neural network cell,
-    as per `LSTMCell`, `GRUCell` and `RNNCell` in PyTorch.
-
-    Args:
-        input_size (int) : the number of dimensions in a single
-            input sequence element. For example, if the input sequence
-            is a sequence of word embeddings, `input_size` is the
-            dimensionality of a single word embedding, e.g. 300.
-        hidden_size (int) : the dimensionality of the hidden state
-            of this cell.
-        dropout (float) : a number between 0.0 and 1.0. The amount of dropout
-            applied to `g(c_t)` internally in this cell.
-        rnn_dropout (float) : the amount of dropout applied to the input of
-            this cell.
-        use_tanh (bool) : use tanh activation
-        is_input_normalized (bool) : whether the input is normalized (e.g. batch norm / layer norm)
-        bidirectional (bool) : whether or not to employ a bidirectional cell.
+    A single SRU layer as per `LSTMCell`, `GRUCell` in Pytorch.
     """
 
-    def __init__(self,
-                 input_size,
-                 hidden_size,
-                 dropout=0,
-                 rnn_dropout=0,
-                 bidirectional=False,
-                 n_proj=0,
-                 use_tanh=0,
-                 highway_bias=0,
-                 has_skip_term=True,
-                 layer_norm=False,
-                 rescale=True,
-                 v1=False,
-                 custom_m=None):
+    __constants__ = ['input_size', 'hidden_size', 'output_size', 'rnn_dropout',
+                     'dropout', 'bidirectional', 'has_skip_term', 'highway_bias',
+                     'v1', 'rescale', 'activation_type', 'activation', 'custom_m',
+                     'projection_size', 'num_matrices', 'layer_norm', ]
 
+    def __init__(self,
+                 input_size: int,
+                 hidden_size: int,
+                 dropout: float = 0.0,
+                 rnn_dropout: float = 0.0,
+                 bidirectional: bool = False,
+                 n_proj: int = 0,
+                 use_tanh: bool = False,
+                 highway_bias: float = 0.0,
+                 has_skip_term: bool = True,
+                 layer_norm: bool = False,
+                 rescale: bool = True,
+                 v1: bool = False,
+                 custom_m: Optional[nn.Module] = None):
+        """Initialize the SRUCell module.
+
+        Parameters
+        ----------
+        input_size: int
+            the number of features in the input `x`
+        hidden_size: int
+            the number of features in the hidden state *for each direction*
+        dropout: float, optional
+            the dropout value applied between layers (default=0)
+        rnn_dropout: float, optional
+            [DEPRECATED] the variational dropout value (default=0)
+        bidirectional: bool, optional
+            if True, set the module as a bidirectional SRU (default=False)
+        n_proj: int, optional
+            if non-zero, factorize the ``weight`` parameter matrix as a product of two
+            parameter matrices, using an innder dimension ``n_proj`` (default=0)
+        use_tanh: bool, optional
+            [DEPRECATED] if True, apply `tanh` activation to the hidden state (default=False)
+        highway_bias: float, optional
+            the initial value of the bias used in the highway (sigmoid) gate (defulat=0)
+        has_skip_term: bool, optional
+            whether to include a residual connection for output hidden state `h` (default=True)
+        layer_norm: bool, optional
+            whether to apply pre- layer normalization for this layer (default=False)
+        rescale: bool, optional
+            whether to apply a constant rescaling multiplier for the residual term (default=True)
+        v1: bool, optional
+            [DEPRECATED] whether to use the an ealier v1 implementation of SRU (default=False)
+        custom_m: nn.Module, optional
+            use the give module instead of the batched matrix multiplication to compute the
+            intermediate representations U needed for the elementwise recurrrence operation
+            (default=None)
+
+        """
         super(SRUCell, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size  # hidden size per direction
@@ -258,6 +106,7 @@ class SRUCell(nn.Module):
         # make parameters
         if self.custom_m is None:
             if self.projection_size == 0:
+                self.weight_proj = None
                 self.weight = nn.Parameter(torch.Tensor(
                     input_size,
                     self.output_size * self.num_matrices
@@ -281,8 +130,7 @@ class SRUCell(nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self):
-        """
-        Properly initialize the weights of SRU, following the same recipe as:
+        """Properly initialize the weights of SRU, following the same recipe as:
             Xavier init:  http://proceedings.mlr.press/v9/glorot10a/glorot10a.pdf
             Kaiming init: https://arxiv.org/abs/1502.01852
 
@@ -345,10 +193,11 @@ class SRUCell(nn.Module):
             self.weight_c.data.zero_()
             self.weight_c.requires_grad = False
 
-    def forward(self, input, c0=None, mask_pad=None, **kwargs):
-        """
-        This method computes `U`. In addition, it computes the remaining components
-        in `SRU_Compute_GPU` or `SRU_Compute_CPU` and return the results.
+    def forward(self,
+                input: Tensor,
+                c0: Optional[Tensor] = None,
+                mask_pad: Optional[Tensor] = None) -> Tuple[Tensor, Tensor]:
+        """The forward method of the SRU layer.
         """
 
         if input.dim() != 2 and input.dim() != 3:
@@ -361,7 +210,7 @@ class SRUCell(nn.Module):
 
         # apply layer norm before activation (i.e. before SRU computation)
         residual = input
-        if self.layer_norm:
+        if self.layer_norm is not None:
             input = self.layer_norm(input)
 
         # apply dropout for multiplication
@@ -369,14 +218,87 @@ class SRUCell(nn.Module):
             mask = self.get_dropout_mask_((batch_size, input.size(-1)), self.rnn_dropout)
             input = input * mask.expand_as(input)
 
+        # get the scaling constant; scale_x is a scalar
+        scale_val = self.scale_x if self.rescale else None
+
+        # get dropout mask
+        if self.training and (self.dropout > 0):
+            mask_c = self.get_dropout_mask_((batch_size, self.output_size), self.dropout)
+        else:
+            mask_c = None
+
         # compute U, V
         #   U is (length, batch_size, output_size * num_matrices)
         #   V is (output_size*2,) or (length, batch_size, output_size * 2) if provided
+        U, V = self.compute_UV(input, c0, mask_pad)
+
+        # apply elementwise recurrence to get hidden states h and c
+        h, c = self.apply_recurrence(U, V,
+                                     residual, c0,
+                                     scale_val,
+                                     mask_c,
+                                     mask_pad)
+        return h, c
+
+    def apply_recurrence(self,
+                         U: Tensor,
+                         V: Tensor,
+                         residual: Tensor,
+                         c0: Tensor,
+                         scale_val: Optional[Tensor],
+                         mask_c: Optional[Tensor],
+                         mask_pad: Optional[Tensor]) -> List[Tensor]:
+        """
+        Apply the elementwise recurrence computation on given input tensors
+
+        """
+        if self.bias.is_cuda:
+            return elementwise_recurrence_gpu(U, residual, V, self.bias, c0,
+                                              self.activation_type,
+                                              self.hidden_size,
+                                              self.bidirectional,
+                                              self.has_skip_term,
+                                              scale_val, mask_c, mask_pad)
+
+        if not torch.jit.is_scripting():
+            if torch.is_grad_enabled():
+                warnings.warn("Running SRU on CPU with grad_enabled=True. Are you sure?")
+                return elementwise_recurrence_naive(U, residual, V, self.bias, c0,
+                                                  self.activation_type,
+                                                  self.hidden_size,
+                                                  self.bidirectional,
+                                                  self.has_skip_term,
+                                                  scale_val, mask_c, mask_pad)
+
+        return elementwise_recurrence_cpu(U, residual, V, self.bias, c0,
+                                              self.activation_type,
+                                              self.hidden_size,
+                                              self.bidirectional,
+                                              self.has_skip_term,
+                                              scale_val, mask_c, mask_pad)
+
+    def compute_UV(self,
+                   input: Tensor,
+                   c0: Optional[Tensor],
+                   mask_pad: Optional[Tensor]) -> Tuple[Tensor, Tensor]:
+        """
+        SRU performs grouped matrix multiplication to transform
+        the input (length, batch_size, input_size) into a tensor
+        U of size (length * batch_size, output_size * num_matrices).
+
+        When a custom module `custom_m` is given, U will be computed by
+        the given module. In addition, the module can return an additional
+        tensor V (length, batch_size, output_size * 2) that will be added
+        to the hidden-to-hidden coefficient terms in sigmoid gates, i.e.,
+        (V[t, b, d] + weight_c[d]) * c[t-1].
+
+        """
         if self.custom_m is None:
             U = self.compute_U(input)
             V = self.weight_c
         else:
-            ret = self.custom_m(input, c0=c0, mask_pad=mask_pad, **kwargs)
+            #ret = self.custom_m(input, c0=c0, mask_pad=mask_pad)
+            ret = self.custom_m(input)
             if isinstance(ret, tuple) or isinstance(ret, list):
                 if len(ret) > 2:
                     raise Exception("Custom module must return 1 or 2 tensors but got {}.".format(
@@ -396,28 +318,10 @@ class SRUCell(nn.Module):
                     self.output_size * 2,
                     V.size(-1)
                 ))
+        return U, V
 
-        # get the scaling constant; scale_x is a scalar
-        scale_val = self.scale_x if self.rescale else None
-
-        # get dropout mask
-        if self.training and (self.dropout > 0):
-            mask_c = self.get_dropout_mask_((batch_size, self.output_size), self.dropout)
-        else:
-            mask_c = None
-
-        SRU_Compute = _lazy_load_cuda_kernel() if input.is_cuda else SRU_Compute_CPU
-        h, c = SRU_Compute.apply(U, residual, V, self.bias, c0,
-                                 self.activation_type,
-                                 hidden_size,
-                                 self.bidirectional,
-                                 self.has_skip_term,
-                                 scale_val,
-                                 mask_c,
-                                 mask_pad)
-        return h, c
-
-    def compute_U(self, input):
+    def compute_U(self,
+                  input: Tensor) -> Tensor:
         """
         SRU performs grouped matrix multiplication to transform
         the input (length, batch_size, input_size) into a tensor
@@ -425,19 +329,23 @@ class SRUCell(nn.Module):
         """
         # collapse (length, batch_size) into one dimension if necessary
         x = input if input.dim() == 2 else input.contiguous().view(-1, self.input_size)
-        if self.projection_size > 0:
+        #if self.projection_size > 0:
+        if self.weight_proj is not None:
             x_projected = x.mm(self.weight_proj)
             U = x_projected.mm(self.weight)
         else:
             U = x.mm(self.weight)
         return U
 
-    def get_dropout_mask_(self, size, p):
+    def get_dropout_mask_(self,
+                          size: Tuple[int, int],
+                          p: float) -> Tensor:
         """
         Composes the dropout mask for the `SRUCell`.
         """
         b = self.bias.data
-        return b.new(*size).bernoulli_(1 - p).div_(1 - p)
+        return b.new_empty(size).bernoulli_(1 - p).div_(1 - p)
+        #return b.new(*size).bernoulli_(1 - p).div_(1 - p)
 
     def extra_repr(self):
         s = "{input_size}, {hidden_size}"
@@ -474,50 +382,71 @@ class SRUCell(nn.Module):
 
 class SRU(nn.Module):
     """
-    PyTorch SRU model. In effect, simply wraps an arbitrary number of contiguous `SRUCell`s, and
-    returns the matrix and hidden states , as well as final memory cell (`c_t`), from the last of
-    these `SRUCell`s.
-
-    Args:
-        input_size (int) : the number of dimensions in a single input sequence element. For example,
-            if the input sequence is a sequence of word embeddings, `input_size` is the dimensionality
-            of a single word embedding, e.g. 300.
-        hidden_size (int) : the dimensionality of the hidden state of the SRU cell.
-        num_layers (int) : number of `SRUCell`s to use in the model.
-        dropout (float) : a number between 0.0 and 1.0. The amount of dropout applied to `g(c_t)`
-            internally in each `SRUCell`.
-        rnn_dropout (float) : the amount of dropout applied to the input of each `SRUCell`.
-        use_tanh (bool) : use tanh activation
-        layer_norm (bool) : whether or not to use layer normalization on the output of each layer
-        bidirectional (bool) : whether or not to use bidirectional `SRUCell`s.
-        highway_bias (float) : initial bias of the highway gate, typicially <= 0
-        nn_rnn_compatible_return (bool) : set to True to change the layout of returned state to
-            match that of pytorch nn.RNN, ie (num_layers * num_directions, batch, hidden_size)
-            (this will be slower, but can make SRU a drop-in replacement for nn.RNN and nn.GRU)
-        custom_m (nn.Module or List[nn.Module]) : use a custom module to compute the U matrix (and V
-            matrix) given the input. The module must take as input a tensor of shape (seq_len,
-            batch_size, hidden_size).
-            It returns a tensor U of shape (seq_len, batch_size, hidden_size * 3), or one optional
-            tensor V of shape (seq_len, batch_size, hidden_size * 2).
+    Implementation of Simple Recurrent Unit (SRU)
     """
 
+    __constants__ = ['input_size', 'hidden_size', 'output_size', 'num_layers',
+                     'dropout', 'rnn_dropout', 'projection_size', 'rnn_lst',
+                     'bidirectional', 'use_layer_norm', 'has_skip_term',
+                     'num_directions', 'nn_rnn_compatible_return', 'input_to_hidden']
+
     def __init__(self,
-                 input_size,
-                 hidden_size,
-                 num_layers=2,
-                 dropout=0,
-                 rnn_dropout=0,
-                 bidirectional=False,
-                 projection_size=0,
-                 use_tanh=False,
-                 layer_norm=False,
-                 highway_bias=0,
-                 has_skip_term=True,
-                 rescale=False,
-                 v1=False,
-                 nn_rnn_compatible_return=False,
-                 custom_m=None,
-                 proj_input_to_hidden_first=False):
+                 input_size: int,
+                 hidden_size: int,
+                 num_layers: int = 2,
+                 dropout: float = 0.0,
+                 rnn_dropout: float = 0.0,
+                 bidirectional: bool = False,
+                 projection_size: int = 0,
+                 use_tanh: bool = False,
+                 layer_norm: bool = False,
+                 highway_bias: float = 0.0,
+                 has_skip_term: bool = True,
+                 rescale: bool = False,
+                 v1: bool = False,
+                 nn_rnn_compatible_return: bool = False,
+                 custom_m: Optional[Union[nn.Module, List[nn.Module]]] = None,
+                 proj_input_to_hidden_first: bool = False):
+        """Initialize the SRU module.
+
+        Parameters
+        ----------
+        input_size: int
+            the number of features in the input `x`
+        hidden_size: int
+            the number of features in the hidden state *for each direction*
+        num_layers: int
+            the number of stacked SRU layers (default=2)
+        dropout: float, optional
+            the dropout value applied between layers (default=0)
+        rnn_dropout: float, optional
+            [DEPRECATED] the variational dropout value (default=0)
+        bidirectional: bool, optional
+            if True, set the module as a bidirectional SRU (default=False)
+        projection_size: int, optional
+            if non-zero, factorize the ``weight`` parameter in each layeras a product
+            of two parameter matrices, using an innder dimension ``projection_size``
+            (default=0)
+        use_tanh: bool, optional
+            [DEPRECATED] if True, apply `tanh` activation to the hidden state (default=False)
+        layer_norm: bool, optional
+            whether to apply pre- layer normalization for this layer (default=False)
+        highway_bias: float, optional
+            the initial value of the bias used in the highway (sigmoid) gate (defulat=0)
+        has_skip_term: bool, optional
+            whether to include a residual connection for output hidden state `h` (default=True)
+        rescale: bool, optional
+            whether to apply a constant rescaling multiplier for the residual term (default=False)
+        v1: bool, optional
+            [DEPRECATED] whether to use the an ealier v1 implementation of SRU (default=False)
+        custom_m: Union[nn.Module, List[nn.Module]], optional
+            use the give module(s) instead of the batched matrix multiplication to compute the
+            intermediate representations U needed for the elementwise recurrrence operation.
+            The module must take input x of shape (seq_len, batch_size, hidden_size). It returns
+            a tensor U of shape (seq_len, batch_size, hidden_size * num_matrices), and one optional
+            tensor V of shape (seq_len, batch_size, hidden_size * 2). (default=None)
+
+        """
 
         super(SRU, self).__init__()
         self.input_size = input_size
@@ -527,7 +456,6 @@ class SRU(nn.Module):
         self.dropout = dropout
         self.rnn_dropout = rnn_dropout
         self.projection_size = projection_size
-        self.rnn_lst = nn.ModuleList()
         self.bidirectional = bidirectional
         self.use_layer_norm = layer_norm
         self.has_skip_term = has_skip_term
@@ -540,6 +468,7 @@ class SRU(nn.Module):
             first_layer_input_size = input_size
             self.input_to_hidden = None
 
+        rnn_lst = nn.ModuleList()
         for i in range(num_layers):
             # get custom modules when provided
             custom_m_i = None
@@ -561,9 +490,12 @@ class SRU(nn.Module):
                 v1=v1,
                 custom_m=custom_m_i
             )
-            self.rnn_lst.append(l)
+            rnn_lst.append(l)
+        self.rnn_lst = rnn_lst
 
-    def forward(self, input, c0=None, mask_pad=None):
+    def forward(self, input: Tensor,
+                      c0: Optional[Tensor] = None,
+                      mask_pad: Optional[Tensor] = None) -> Tuple[Tensor, Tensor]:
         """
         Feeds `input` forward through `num_layers` `SRUCell`s, where `num_layers`
         is a parameter on the constructor of this class.
@@ -582,40 +514,44 @@ class SRU(nn.Module):
             (FloatTensor): (num_layers, batch_size, num_directions * hidden_size) if not nn_rnn_compatible_return, else
             (FloatTensor): (num_layers * num_directions, batch, hidden_size)
         """
-
         # unpack packed, if input is packed. packing and then unpacking will be slower than not packing
         # at all, but makes SRU usage compatible with nn.RNN usage
-        input_packed = isinstance(input, nn.utils.rnn.PackedSequence)
-        if input_packed:
-            input, lengths = nn.utils.rnn.pad_packed_sequence(input)
-            max_length = lengths.max().item()
-            mask_pad = torch.ByteTensor([[0] * l + [1] * (max_length - l) for l in lengths.tolist()])
-            mask_pad = mask_pad.to(input.device).transpose(0, 1).contiguous()
+        orig_input = input
+        if isinstance(orig_input, PackedSequence):
+            input, batch_sizes, sorted_indices, unsorted_indices = input
+            length = input.size(0)
+            batch_size = input.size(1)
+            mask_pad = torch.arange(batch_size, device=batch_sizes.device).expand(length, batch_size)
+            mask_pad = (mask_pad >= batch_sizes.view(length, 1)).contiguous()
+        else:
+            length = input.size(0)
+            batch_size = input.size(1)
+            batch_sizes = None
+            sorted_indices = None
+            unsorted_indices = None
 
         # The dimensions of `input` should be: `(sequence_length, batch_size, input_size)`.
         if input.dim() != 3:
             raise ValueError("There must be 3 dimensions for (length, batch_size, input_size)")
 
         if c0 is None:
-            zeros = input.data.new(
-                input.size(1), self.output_size
-            ).zero_()
-            c0 = [ zeros for i in range(self.num_layers) ]
+            zeros = input.new_zeros(input.size(1), self.output_size)
+            c0_ = [ zeros for i in range(self.num_layers) ]
         else:
             # The dimensions of `c0` should be: `(num_layers, batch_size, hidden_size * dir_)`.
             if c0.dim() != 3:
                 raise ValueError("There must be 3 dimensions for (num_layers, batch_size, output_size)")
-            c0 = [ x.squeeze(0) for x in c0.chunk(self.num_layers, 0) ]
+            c0_ = [ x.squeeze(0) for x in c0.chunk(self.num_layers, 0) ]
 
-        prevx = input if self.input_to_hidden is None else self.input_to_hidden(input)
+        if self.input_to_hidden is None:
+            prevx = input
+        else:
+            prevx = self.input_to_hidden(input)
         lstc = []
         for i, rnn in enumerate(self.rnn_lst):
-            h, c = rnn(prevx, c0[i], mask_pad=mask_pad)
+            h, c = rnn(prevx, c0_[i], mask_pad=mask_pad)
             prevx = h
             lstc.append(c)
-
-        if input_packed:
-            prevx = nn.utils.rnn.pack_padded_sequence(prevx, lengths, enforce_sorted=False)
 
         lstc_stack = torch.stack(lstc)
         if self.nn_rnn_compatible_return:
@@ -623,7 +559,12 @@ class SRU(nn.Module):
             lstc_stack = lstc_stack.view(self.num_layers, batch_size, self.num_directions, self.hidden_size)
             lstc_stack = lstc_stack.transpose(1, 2).contiguous()
             lstc_stack = lstc_stack.view(self.num_layers * self.num_directions, batch_size, self.hidden_size)
-        return prevx, lstc_stack
+
+        if isinstance(orig_input, PackedSequence):
+            prevx = PackedSequence(prevx, batch_sizes, sorted_indices, unsorted_indices)
+            return prevx, lstc_stack
+        else:
+            return prevx, lstc_stack
 
     def reset_parameters(self):
         for rnn in self.rnn_lst:
@@ -659,3 +600,42 @@ class SRU(nn.Module):
             self.input_to_hidden = None
             for cell in self.rnn_lst:
                 cell.custom_m = None
+
+# some test code
+if __name__ == "__main__":
+    x = torch.ones(3, 2, 4)
+    srucell = torch.jit.script(SRUCell(4, 4))
+    print(srucell.apply_recurrence.code)
+
+    sru = SRU(4, 4)
+    sru.eval()
+    sru_ts = torch.jit.script(sru)
+    sru_ts.save('sru_ts.pt')
+    h, c = sru(x)
+    print("Python:")
+    print(h)
+    print(c)
+
+    h, c, = sru_ts(x)
+    print("")
+    print("Python + Torchscript:")
+    print(h)
+    print(c)
+
+    with torch.no_grad():
+        x2 = torch.randn(16, 16, 128)
+        sru2 = SRU(128, 128)
+        sru2_ts = torch.jit.script(sru2)
+
+        start_time = time.time()
+        for i in range(1000):
+            h, c  = sru2(x2)
+        print(time.time() - start_time)
+
+        start_time = time.time()
+        for i in range(1000):
+            h2, c2 = sru2_ts(x2)
+        print(time.time() - start_time)
+
+        print((h-h2).abs().max())
+        print((c-c2).abs().max())

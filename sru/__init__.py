@@ -5,7 +5,4 @@ sru provides a PyTorch implementation of the simple recurrent neural network cel
 in "Simple Recurrent Units for Highly Parallelizable Recurrence."
 """
 from .version import __version__
-try:
-    from .sru_functional import *
-except:
-    from sru_functional import *
+from .modules import *
