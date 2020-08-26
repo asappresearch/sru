@@ -52,6 +52,9 @@ class SRUCell(nn.Module):
             the dropout value applied between layers (default=0)
         rnn_dropout: float, optional
             [DEPRECATED] the variational dropout value (default=0)
+            This option is deprecated because minimal performance
+            improvement, and increases codebase size. This option will
+            be removed at the next major version upgrade
         bidirectional: bool, optional
             if True, set the module as a bidirectional SRU
             (default=False)
@@ -61,7 +64,9 @@ class SRUCell(nn.Module):
             ``n_proj`` (default=0)
         use_tanh: bool, optional
             [DEPRECATED] if True, apply `tanh` activation to the hidden
-            state (default=False)
+            state (default=False). `tanh` is deprecated because minimal
+            performance improvement, and increases codebase size. This
+            option will be removed at the next major version upgrade.
         highway_bias: float, optional
             the initial value of the bias used in the highway (sigmoid)
             gate (defulat=0)
@@ -431,6 +436,9 @@ class SRU(nn.Module):
             the dropout value applied between layers (default=0)
         rnn_dropout: float, optional
             [DEPRECATED] the variational dropout value (default=0)
+            This option is deprecated because minimal performance
+            improvement, and increases codebase size. This option will
+            be removed at the next major version upgrade
         bidirectional: bool, optional
             if True, set the module as a bidirectional SRU
             (default=False)
@@ -440,7 +448,9 @@ class SRU(nn.Module):
             dimension ``projection_size`` (default=0)
         use_tanh: bool, optional
             [DEPRECATED] if True, apply `tanh` activation to the hidden
-            state (default=False)
+            state (default=False). `tanh` is deprecated because minimal
+            performance improvement, and increases codebase size. This
+            option will be removed at the next major version upgrade.
         layer_norm: bool, optional
             whether to apply pre- layer normalization for this layer
             (default=False)
@@ -457,7 +467,7 @@ class SRU(nn.Module):
             [DEPRECATED] whether to use the an ealier v1 implementation
             of SRU (default=False)
         custom_m: Union[nn.Module, List[nn.Module]], optional
-            use the give module(s) instead of the batched matrix
+            use the given module(s) instead of the batched matrix
             multiplication to compute the intermediate representations U
             needed for the elementwise recurrrence operation.  The
             module must take input x of shape (seq_len, batch_size,
@@ -487,6 +497,13 @@ class SRU(nn.Module):
         else:
             first_layer_input_size = input_size
             self.input_to_hidden = None
+
+        if rnn_dropout > 0:
+            warnings.warn("rnn_dropout > 0 is deprecated and will be removed in"
+                          "next major version of SRU. Please use dropout instead.")
+        if use_tanh:
+            warnings.warn("use_tanh = True is deprecated and will be removed in"
+                          "next major version of SRU.")
 
         rnn_lst = nn.ModuleList()
         for i in range(num_layers):
@@ -602,6 +619,8 @@ class SRU(nn.Module):
     def reset_parameters(self):
         for rnn in self.rnn_lst:
             rnn.reset_parameters()
+        if self.input_to_hidden is not None:
+            self.input_to_hidden.reset_parameters()
 
     def make_backward_compatible(self):
         self.nn_rnn_compatible_return = getattr(self, 'nn_rnn_compatible_return', False)
@@ -633,42 +652,3 @@ class SRU(nn.Module):
             self.input_to_hidden = None
             for cell in self.rnn_lst:
                 cell.custom_m = None
-
-# some test code
-if __name__ == "__main__":
-    x = torch.ones(3, 2, 4)
-    srucell = torch.jit.script(SRUCell(4, 4))
-    print(srucell.apply_recurrence.code)
-
-    sru = SRU(4, 4)
-    sru.eval()
-    sru_ts = torch.jit.script(sru)
-    sru_ts.save('sru_ts.pt')
-    h, c = sru(x)
-    print("Python:")
-    print(h)
-    print(c)
-
-    h, c, = sru_ts(x)
-    print("")
-    print("Python + Torchscript:")
-    print(h)
-    print(c)
-
-    with torch.no_grad():
-        x2 = torch.randn(16, 16, 128)
-        sru2 = SRU(128, 128)
-        sru2_ts = torch.jit.script(sru2)
-
-        start_time = time.time()
-        for i in range(1000):
-            h, c  = sru2(x2)
-        print(time.time() - start_time)
-
-        start_time = time.time()
-        for i in range(1000):
-            h2, c2 = sru2_ts(x2)
-        print(time.time() - start_time)
-
-        print((h-h2).abs().max())
-        print((c-c2).abs().max())
