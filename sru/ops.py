@@ -41,7 +41,7 @@ def elementwise_recurrence_cpu(U: Tensor,
     batch = x.size(-2)
     k = U.size(-1) // hidden_size // bidir
     is_custom = weight_c.dim() > 1
-    mask_pad_ = torch.empty(0) if mask_pad is None else mask_pad.float()
+    mask_pad = None if mask_pad is None else mask_pad.float().contiguous()
     if not bidirectional:
         return torch.ops.sru_cpu.cpu_forward(
             U.contiguous(),
@@ -49,7 +49,7 @@ def elementwise_recurrence_cpu(U: Tensor,
             weight_c.contiguous(),
             bias.contiguous(),
             c_init.contiguous(),
-            mask_pad_.contiguous(),
+            mask_pad,
             length,
             batch,
             hidden_size,
@@ -66,7 +66,7 @@ def elementwise_recurrence_cpu(U: Tensor,
             weight_c.contiguous(),
             bias.contiguous(),
             c_init.contiguous(),
-            mask_pad_.contiguous(),
+            mask_pad,
             length,
             batch,
             hidden_size,
