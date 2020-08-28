@@ -1,4 +1,5 @@
 set -e
+export USE_CUDA=0
 cd sru/csrc/
 mkdir build
 cd build
