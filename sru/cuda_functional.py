@@ -17,6 +17,7 @@ sru_cuda_lib = load(
 empty_btensor = torch.ByteTensor()
 empty_ftensor = torch.FloatTensor()
 
+
 class SRU_Compute_GPU(Function):
 
     @staticmethod
@@ -35,7 +36,7 @@ class SRU_Compute_GPU(Function):
         ctx.bidirectional = bidirectional
         ctx.has_skip_term = has_skip_term
         ctx.scale_x = scale_x
-         # ensure mask_pad is a byte tensor
+        # ensure mask_pad is a byte tensor
         mask_pad = mask_pad.byte().contiguous() if mask_pad is not None else None
         ctx.mask_pad = mask_pad
 
@@ -49,7 +50,6 @@ class SRU_Compute_GPU(Function):
         k = u.size(-1) // d
         k_ = k // 2 if bidirectional else k
         skip_type = 0 if not has_skip_term else (1 if k_ == 3 else 2)
-        ncols = batch * d * bidir
 
         is_custom = len(weight_c.size()) > 1
 
@@ -63,7 +63,7 @@ class SRU_Compute_GPU(Function):
             x_ = empty_ftensor
 
         forward_func = sru_cuda_lib.sru_bi_forward if bidirectional else \
-                sru_cuda_lib.sru_forward
+            sru_cuda_lib.sru_forward
         forward_func(
             h,
             c,
@@ -106,7 +106,6 @@ class SRU_Compute_GPU(Function):
         k = u.size(-1) // d
         k_ = k // 2 if ctx.bidirectional else k
         skip_type = 0 if not ctx.has_skip_term else (1 if k_ == 3 else 2)
-        ncols = batch * d * bidir
 
         is_custom = len(weight_c.size()) > 1
 
@@ -119,14 +118,13 @@ class SRU_Compute_GPU(Function):
         else:
             grad_wc = weight_c.new_zeros(*weight_c.size())
 
-
         if skip_type > 0 and k_ == 3:
             x_ = x.contiguous() * scale_x if scale_x is not None else x.contiguous()
         else:
             x_ = empty_ftensor
 
         backward_func = sru_cuda_lib.sru_bi_backward if ctx.bidirectional else \
-                sru_cuda_lib.sru_backward
+            sru_cuda_lib.sru_backward
         backward_func(
             grad_u,
             grad_x if skip_type > 0 and k_ == 3 else empty_ftensor,
@@ -157,5 +155,5 @@ class SRU_Compute_GPU(Function):
         if not is_custom:
             grad_wc = grad_wc.sum(1).view(-1)
         return grad_u, grad_x, grad_wc, grad_bias.sum(1).view(-1), grad_init, \
-               None, None, None, None, None, None, None
+            None, None, None, None, None, None, None
 

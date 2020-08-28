@@ -1,5 +1,5 @@
 
-from typing import Tuple, List, Optional, Union
+from typing import List, Optional
 import os
 import warnings
 
@@ -16,6 +16,7 @@ load(
     is_python_module=False,
     verbose=False
 )
+
 
 @torch.jit.script
 def elementwise_recurrence_cpu(U: Tensor,
@@ -93,7 +94,7 @@ def elementwise_recurrence_gpu(U: Tensor,
 
     """
     from .cuda_functional import SRU_Compute_GPU
-    SRU_Compute_GPU.apply(
+    return SRU_Compute_GPU.apply(
         U,
         x,
         weight_c,
@@ -108,19 +109,20 @@ def elementwise_recurrence_gpu(U: Tensor,
         mask_pad
     )
 
+
 @torch.jit.unused
 def elementwise_recurrence_naive(U: Tensor,
-                               x: Tensor,
-                               weight_c: Tensor,
-                               bias: Tensor,
-                               c_init: Tensor,
-                               activation_type: int,
-                               hidden_size: int,
-                               bidirectional: bool,
-                               has_skip_term: bool,
-                               scale_x: Optional[Tensor] = None,
-                               dropout_mask_c: Optional[Tensor] = None,
-                               mask_pad: Optional[Tensor] = None) -> List[Tensor]:
+                                 x: Tensor,
+                                 weight_c: Tensor,
+                                 bias: Tensor,
+                                 c_init: Tensor,
+                                 activation_type: int,
+                                 hidden_size: int,
+                                 bidirectional: bool,
+                                 has_skip_term: bool,
+                                 scale_x: Optional[Tensor] = None,
+                                 dropout_mask_c: Optional[Tensor] = None,
+                                 mask_pad: Optional[Tensor] = None) -> List[Tensor]:
     """Elementwise forward operation of SRU in pure Python.
 
     """
@@ -177,8 +179,8 @@ def elementwise_recurrence_naive(U: Tensor,
             fw = forget_wc[:, :, di, :].chunk(length)
             rw = reset_wc[:, :, di, :].chunk(length)
         else:
-            fw = forget_wc[di].expand(batch, d)
-            rw = reset_wc[di].expand(batch, d)
+            fw = forget_wc[di].expand(batch, d)  # type: ignore
+            rw = reset_wc[di].expand(batch, d)  # type: ignore
         u0 = U[:, :, di, :, 0].chunk(length)
         u1 = (U[:, :, di, :, 1] + fb).chunk(length)
         u2 = (U[:, :, di, :, 2] + rb).chunk(length)
@@ -213,4 +215,4 @@ def elementwise_recurrence_naive(U: Tensor,
             h[t, :, di, :] = h_t
         c_final.append(c_t.view(batch, d))
 
-    return h.view(length, batch, -1), torch.stack(c_final, dim=1).view(batch, -1)
+    return h.view(length, batch, -1), torch.stack(c_final, dim=1).view(batch, -1)  # type: ignore

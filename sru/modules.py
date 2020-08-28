@@ -1,4 +1,3 @@
-import os
 import copy
 import warnings
 import math
@@ -13,6 +12,7 @@ from sru.ops import (elementwise_recurrence_cpu,
                      elementwise_recurrence_gpu,
                      elementwise_recurrence_naive)
 
+
 class SRUCell(nn.Module):
     """
     A single SRU layer as per `LSTMCell`, `GRUCell` in Pytorch.
@@ -21,7 +21,12 @@ class SRUCell(nn.Module):
     __constants__ = ['input_size', 'hidden_size', 'output_size', 'rnn_dropout',
                      'dropout', 'bidirectional', 'has_skip_term', 'highway_bias',
                      'v1', 'rescale', 'activation_type', 'activation', 'custom_m',
-                     'projection_size', 'num_matrices', 'layer_norm', 'weight_proj']
+                     'projection_size', 'num_matrices', 'layer_norm', 'weight_proj',
+                     'scale_x']
+
+    scale_x: Optional[Tensor]
+    weight_proj: Optional[Tensor]
+    layer_norm: Optional[nn.Module]
 
     def __init__(self,
                  input_size: int,
@@ -135,10 +140,10 @@ class SRUCell(nn.Module):
         # scaling constant used in highway connections when rescale=True
         self.register_buffer('scale_x', torch.FloatTensor([0]))
 
+        self.layer_norm = None
         if layer_norm:
             self.layer_norm = nn.LayerNorm(self.input_size)
-        else:
-            self.layer_norm = None
+
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -182,7 +187,7 @@ class SRUCell(nn.Module):
             # making weights smaller when layer norm is used. need more tests
             if self.layer_norm:
                 w.mul_(0.1)
-                #self.weight_c.data.mul_(0.25)
+                # self.weight_c.data.mul_(0.25)
 
             # properly scale the highway output
             if self.rescale and self.has_skip_term and self.num_matrices == 4:
@@ -218,7 +223,6 @@ class SRUCell(nn.Module):
         if input.dim() != 2 and input.dim() != 3:
             raise ValueError("Input must be 2 or 3 dimensional")
 
-        input_size, hidden_size = self.input_size, self.hidden_size
         batch_size = input.size(-2)
         if c0 is None:
             c0 = torch.zeros(batch_size, self.output_size, dtype=input.dtype,
@@ -235,11 +239,12 @@ class SRUCell(nn.Module):
             input = input * mask.expand_as(input)
 
         # get the scaling constant; scale_x is a scalar
-        scale_val = self.scale_x if self.rescale else None
+        scale_val = self.scale_x if self.rescale else None  # type: Optional[Tensor]
 
         # get dropout mask
         if self.training and (self.dropout > 0):
-            mask_c = self.get_dropout_mask_((batch_size, self.output_size), self.dropout)
+            mask_c = self.get_dropout_mask_((batch_size, self.output_size),
+                                            self.dropout)  # type: Optional[Tensor]
         else:
             mask_c = None
 
@@ -279,11 +284,11 @@ class SRUCell(nn.Module):
 
         if not torch.jit.is_scripting():
             return elementwise_recurrence_naive(U, residual, V, self.bias, c0,
-                                              self.activation_type,
-                                              self.hidden_size,
-                                              self.bidirectional,
-                                              self.has_skip_term,
-                                              scale_val, mask_c, mask_pad)
+                                                self.activation_type,
+                                                self.hidden_size,
+                                                self.bidirectional,
+                                                self.has_skip_term,
+                                                scale_val, mask_c, mask_pad)
         else:
             return elementwise_recurrence_cpu(U, residual, V, self.bias, c0,
                                               self.activation_type,
@@ -381,7 +386,7 @@ class SRUCell(nn.Module):
         if self.layer_norm:
             s += ", layer_norm=True"
         if self.custom_m is not None:
-           s += ",\n  custom_m=" + str(self.custom_m)
+            s += ",\n  custom_m=" + str(self.custom_m)
         return s.format(**self.__dict__)
 
     def __repr__(self):
@@ -489,12 +494,12 @@ class SRU(nn.Module):
         self.has_skip_term = has_skip_term
         self.num_directions = 2 if bidirectional else 1
         self.nn_rnn_compatible_return = nn_rnn_compatible_return
+        self.input_to_hidden = None
         if proj_input_to_hidden_first and input_size != self.output_size:
             first_layer_input_size = self.output_size
             self.input_to_hidden = nn.Linear(input_size, self.output_size, bias=False)
         else:
             first_layer_input_size = input_size
-            self.input_to_hidden = None
 
         if rnn_dropout > 0:
             warnings.warn("rnn_dropout > 0 is deprecated and will be removed in"
@@ -510,7 +515,7 @@ class SRU(nn.Module):
             if custom_m is not None:
                 custom_m_i = custom_m[i] if isinstance(custom_m, list) else copy.deepcopy(custom_m)
             # create the i-th SRU layer
-            l = SRUCell(
+            layer_i = SRUCell(
                 first_layer_input_size if i == 0 else self.output_size,
                 self.hidden_size,
                 dropout=dropout if i + 1 != num_layers else 0,
@@ -525,12 +530,12 @@ class SRU(nn.Module):
                 v1=v1,
                 custom_m=custom_m_i
             )
-            rnn_lst.append(l)
+            rnn_lst.append(layer_i)
         self.rnn_lst = rnn_lst
 
     def forward(self, input: Tensor,
-                      c0: Optional[Tensor] = None,
-                      mask_pad: Optional[Tensor] = None) -> Tuple[Tensor, Tensor]:
+                c0: Optional[Tensor] = None,
+                mask_pad: Optional[Tensor] = None) -> Tuple[Tensor, Tensor]:
         """The forward method of SRU module
 
         Parameters
@@ -559,14 +564,15 @@ class SRU(nn.Module):
             set `True`
 
         """
-        # unpack packed, if input is packed. packing and then unpacking will be slower than not packing
-        # at all, but makes SRU usage compatible with nn.RNN usage
+        # unpack packed, if input is packed. packing and then unpacking will be slower than not
+        # packing at all, but makes SRU usage compatible with nn.RNN usage
         orig_input = input
         if isinstance(orig_input, PackedSequence):
             input, batch_sizes, sorted_indices, unsorted_indices = input
             length = input.size(0)
             batch_size = input.size(1)
-            mask_pad = torch.arange(batch_size, device=batch_sizes.device).expand(length, batch_size)
+            mask_pad = torch.arange(batch_size,
+                                    device=batch_sizes.device).expand(length, batch_size)
             mask_pad = (mask_pad >= batch_sizes.view(length, 1)).contiguous()
         else:
             length = input.size(0)
@@ -582,12 +588,12 @@ class SRU(nn.Module):
         if c0 is None:
             zeros = torch.zeros(input.size(1), self.output_size, dtype=input.dtype,
                                 device=input.device)
-            c0_ = [ zeros for i in range(self.num_layers) ]
+            c0_ = [zeros for i in range(self.num_layers)]
         else:
             # The dimensions of `c0` should be: `(num_layers, batch_size, hidden_size * dir_)`.
             if c0.dim() != 3:
-                raise ValueError("There must be 3 dimensions for (num_layers, batch_size, output_size)")
-            c0_ = [ x.squeeze(0) for x in c0.chunk(self.num_layers, 0) ]
+                raise ValueError("c0 must be 3 dim (num_layers, batch_size, output_size)")
+            c0_ = [x.squeeze(0) for x in c0.chunk(self.num_layers, 0)]
 
         if self.input_to_hidden is None:
             prevx = input
@@ -604,9 +610,11 @@ class SRU(nn.Module):
         lstc_stack = torch.stack(lstc)
         if self.nn_rnn_compatible_return:
             batch_size = input.size(1)
-            lstc_stack = lstc_stack.view(self.num_layers, batch_size, self.num_directions, self.hidden_size)
+            lstc_stack = lstc_stack.view(self.num_layers, batch_size,
+                                         self.num_directions, self.hidden_size)
             lstc_stack = lstc_stack.transpose(1, 2).contiguous()
-            lstc_stack = lstc_stack.view(self.num_layers * self.num_directions, batch_size, self.hidden_size)
+            lstc_stack = lstc_stack.view(self.num_layers * self.num_directions,
+                                         batch_size, self.hidden_size)
 
         if isinstance(orig_input, PackedSequence):
             prevx = PackedSequence(prevx, batch_sizes, sorted_indices, unsorted_indices)
