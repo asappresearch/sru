@@ -13,7 +13,8 @@ int main(int argc, const char* argv[]) {
 
   // Deserialize the ScriptModule from a file using torch::jit::load().
   torch::jit::script::Module module = torch::jit::load(argv[1]);
-
+  
+  auto num_layers = module.attr("num_layers").toInt();
   auto input_size = module.attr("input_size").toInt();
   auto hidden_size = module.attr("hidden_size").toInt();
   
@@ -29,7 +30,7 @@ int main(int argc, const char* argv[]) {
               std::cout << std::setprecision(4) << h[i][j][k].item<float>() << ' ';
   std::cout << std::endl;
 
-  for (int i = 0; i < 2; ++i)
+  for (int i = 0; i < num_layers; ++i)
       for (int j = 0; j < 2; ++j)
           for (int k = 0; k < hidden_size; ++k)
               std::cout << std::setprecision(4) << c[i][j][k].item<float>() << ' ';
