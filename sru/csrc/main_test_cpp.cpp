@@ -27,12 +27,12 @@ int main(int argc, const char* argv[]) {
   for (int i = 0; i < 3; ++i)
       for (int j = 0; j < 2; ++j)
           for (int k = 0; k < hidden_size; ++k)
-              std::cout << std::setprecision(4) << h[i][j][k].item<float>() << ' ';
+              std::cout << std::fixed << std::setprecision(4) << h[i][j][k].item<float>() << ' ';
   std::cout << std::endl;
 
   for (int i = 0; i < num_layers; ++i)
       for (int j = 0; j < 2; ++j)
           for (int k = 0; k < hidden_size; ++k)
-              std::cout << std::setprecision(4) << c[i][j][k].item<float>() << ' ';
+              std::cout << std::fixed << std::setprecision(4) << c[i][j][k].item<float>() << ' ';
   std::cout << std::endl;
 }
