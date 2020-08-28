@@ -239,14 +239,13 @@ class SRUCell(nn.Module):
             input = input * mask.expand_as(input)
 
         # get the scaling constant; scale_x is a scalar
-        scale_val = self.scale_x if self.rescale else None  # type: Optional[Tensor]
+        scale_val = self.scale_x if self.rescale else None
 
         # get dropout mask
+        mask_c = None
         if self.training and (self.dropout > 0):
             mask_c = self.get_dropout_mask_((batch_size, self.output_size),
-                                            self.dropout)  # type: Optional[Tensor]
-        else:
-            mask_c = None
+                                            self.dropout)
 
         # compute U, V
         #   U is (length, batch_size, output_size * num_matrices)
