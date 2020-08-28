@@ -16,6 +16,7 @@ jobs:
             pip install -r requirements-test.txt
             pip install -e ./
             pip install torch>=1.6.0
+            apt-get -y install cmake
       # - python/save-cache
       - run:
           name: Test
