@@ -156,4 +156,3 @@ class SRU_Compute_GPU(Function):
             grad_wc = grad_wc.sum(1).view(-1)
         return grad_u, grad_x, grad_wc, grad_bias.sum(1).view(-1), grad_init, \
             None, None, None, None, None, None, None
-

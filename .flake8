@@ -8,5 +8,4 @@ exclude =
     language_model
     misc
     speech
-    test
     .eggs
