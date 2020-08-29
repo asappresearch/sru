@@ -1,0 +1,12 @@
+[flake8]
+max-line-length = 100
+extend-ignore = E203
+exclude =
+    docs
+    DrQA
+    classification
+    language_model
+    misc
+    speech
+    test
+    .eggs

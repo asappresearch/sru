@@ -13,9 +13,8 @@ jobs:
       - run:
           name: setup
           command: |
-            pip install -r requirements-test.txt
             pip install -e ./
-            pip install torch==1.6.0+cpu -f https://download.pytorch.org/whl/torch_stable.html
+            pip install -r requirements-test.txt -f https://download.pytorch.org/whl/torch_stable.html
             sudo apt-get -y install cmake
       # - python/save-cache
       - run:
@@ -23,6 +22,7 @@ jobs:
           command: |
             pytest -sv test
             bash test/test.sh
+            flake8 . --count --exit-zero --statistics
 
 workflows:
   main:

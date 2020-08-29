@@ -2,6 +2,7 @@ import pytest
 import torch
 import sru
 
+
 @pytest.mark.parametrize("bidirectional", [False, True])
 @pytest.mark.parametrize("rescale", [False, True])
 def test_all(bidirectional, rescale):
@@ -27,4 +28,3 @@ def test_all(bidirectional, rescale):
     h_, c_ = ts_model(x)
     assert (h - h_).abs().max() <= eps
     assert (c - c_).abs().max() <= eps
-
