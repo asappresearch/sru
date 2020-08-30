@@ -73,11 +73,15 @@ __global__ void sru_cuda_forward_kernel(
             const auto u2 = *(up + 2);
             const auto wc1 = *vp1;
             const auto wc2 = *vp2;
+            const auto delta = cur - u0;
+            const auto delta_w = delta * wc1;
+            const bool is_clipped = (delta_w >= (scalar_t)1.f) || (delta_w <= (scalar_t)-1.f);
+            const auto clipped_wc1 = is_clipped ? (sign(wc1) / abs(delta)) : wc1;
 
             const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
-            const auto g1 = sigmoidf(u1 + wc1*cur + bias1);
+            const auto g1 = sigmoidf(u1 + clipped_wc1*cur + bias1);
             const auto g2 = sigmoidf(u2 + wc2*cur + bias2);
-            cur = (cur-u0)*g1 + u0;
+            cur = delta*g1 + u0;
             const auto val = calc_activation(activation_type, cur);
             *hp = skip_type ? ((val - x_val) * mask * g2 + x_val) : (val * mask * g2);
         } 
@@ -167,10 +171,14 @@ __global__ void sru_cuda_backward_kernel(
             const auto u2 = *(up + 2);
             const auto wc1 = *vp1;
             const auto wc2 = *vp2;
+            const auto delta = prev_c_val - u0;
+            const auto delta_w = delta * wc1;
+            const bool is_clipped = (delta_w >= (scalar_t)1.f) || (delta_w <= (scalar_t)-1.f);
+            const auto clipped_wc1 = is_clipped ? (sign(wc1) / abs(delta)) : wc1;
 
             const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
             const auto gh_val = *ghp;
-            const auto g1 = sigmoidf(u1 + wc1*prev_c_val + bias1);
+            const auto g1 = sigmoidf(u1 + clipped_wc1*prev_c_val + bias1);
             const auto g2 = sigmoidf(u2 + wc2*prev_c_val + bias2);
             const auto c_val = calc_activation(activation_type, cp_val);
 
@@ -188,13 +196,13 @@ __global__ void sru_cuda_backward_kernel(
             const auto gc = gh_val*mask*tmp + cur;
 
             // gradient with respect to values in the first gate g1
-            const auto gg1 = gc*(prev_c_val-u0)*(g1*(1.f-g1));
+            const auto gg1 = gc*delta*(g1*(1.f-g1));
             gbias1 += gg1;
-            gwc1 += gg1*prev_c_val;
-            *gvp1 = gg1*prev_c_val;
+            gwc1 += is_clipped ? (scalar_t)0.f : gg1*prev_c_val;
+            *gvp1 = is_clipped ? (scalar_t)0.f : gg1*prev_c_val;
 
             // gradient with respect to c[t-1]
-            cur = gc*g1 + gg1*wc1 + gg2*wc2;
+            cur = gc*g1 + gg1*clipped_wc1 + gg2*wc2;
 
             // gradient with respect to U
             *gup = gc*(1.f-g1);
@@ -302,11 +310,15 @@ __global__ void sru_cuda_bi_forward_kernel(
             const auto u2 = *(up + 2);
             const auto wc1 = *vp1;
             const auto wc2 = *vp2;
+            const auto delta = cur - u0;
+            const auto delta_w = delta * wc1;
+            const bool is_clipped = (delta_w >= (scalar_t)1.f) || (delta_w <= (scalar_t)-1.f);
+            const auto clipped_wc1 = is_clipped ? (sign(wc1) / abs(delta)) : wc1;
 
             const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
-            const auto g1 = sigmoidf(u1 + wc1*cur + bias1);
+            const auto g1 = sigmoidf(u1 + clipped_wc1*cur + bias1);
             const auto g2 = sigmoidf(u2 + wc2*cur + bias2);
-            cur = (cur-u0)*g1 + u0;
+            cur = delta*g1 + u0;
             const auto val = calc_activation(activation_type, cur);
             *hp = skip_type ? ((val - x_val) * mask * g2 + x_val) : (val * mask * g2);
         } 
@@ -420,6 +432,10 @@ __global__ void sru_cuda_bi_backward_kernel(
             const auto u2 = *(up + 2);
             const auto wc1 = *vp1;
             const auto wc2 = *vp2;
+            const auto delta = prev_c_val - u0;
+            const auto delta_w = delta * wc1;
+            const bool is_clipped = (delta_w >= (scalar_t)1.f) || (delta_w <= (scalar_t)-1.f);
+            const auto clipped_wc1 = is_clipped ? (sign(wc1) / abs(delta)) : wc1;
 
             const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
             const auto gh_val = *ghp;
@@ -441,13 +457,13 @@ __global__ void sru_cuda_bi_backward_kernel(
             const auto gc = gh_val*mask*tmp + cur;
 
             // gradient with respect to values in the first gate g1
-            const auto gg1 = gc*(prev_c_val-u0)*(g1*(1.f-g1));
+            const auto gg1 = gc*delta*(g1*(1.f-g1));
             gbias1 += gg1;
-            gwc1 += gg1*prev_c_val;
-            *gvp1 = gg1*prev_c_val;
+            gwc1 += is_clipped ? (scalar_t)0.f : gg1*prev_c_val;
+            *gvp1 = is_clipped ? (scalar_t)0.f : gg1*prev_c_val;
 
             // gradient with respect to c[t-1]
-            cur = gc*g1 + gg1*wc1 + gg2*wc2;
+            cur = gc*g1 + gg1*clipped_wc1 + gg2*wc2;
 
             // gradient with respect to U
             *gup = gc*(1.f-g1);
