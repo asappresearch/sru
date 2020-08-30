@@ -23,6 +23,11 @@ __forceinline__ __device__ scalar_t calc_grad_activation(int type, scalar_t x)
 }
 
 template <typename scalar_t>
+__forceinline__ __device__ scalar_t sign(scalar_t x) {
+    return (x >= 0) ? (scalar_t) 1.f : (scalar_t) -1.f;
+}
+
+template <typename scalar_t>
 __global__ void sru_cuda_forward_kernel(
                         scalar_t* __restrict__ h,
                         scalar_t* __restrict__ c,
@@ -76,7 +81,7 @@ __global__ void sru_cuda_forward_kernel(
             const auto delta = cur - u0;
             const auto delta_w = delta * wc1;
             const bool is_clipped = (delta_w >= (scalar_t)1.f) || (delta_w <= (scalar_t)-1.f);
-            const auto clipped_wc1 = is_clipped ? (sign(wc1) / abs(delta)) : wc1;
+            const auto clipped_wc1 = is_clipped ? (scalar_t) (sign(wc1) / abs(delta)) : wc1;
 
             const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
             const auto g1 = sigmoidf(u1 + clipped_wc1*cur + bias1);
@@ -174,7 +179,7 @@ __global__ void sru_cuda_backward_kernel(
             const auto delta = prev_c_val - u0;
             const auto delta_w = delta * wc1;
             const bool is_clipped = (delta_w >= (scalar_t)1.f) || (delta_w <= (scalar_t)-1.f);
-            const auto clipped_wc1 = is_clipped ? (sign(wc1) / abs(delta)) : wc1;
+            const auto clipped_wc1 = is_clipped ? (scalar_t) (sign(wc1) / abs(delta)) : wc1;
 
             const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
             const auto gh_val = *ghp;
@@ -196,7 +201,7 @@ __global__ void sru_cuda_backward_kernel(
             const auto gc = gh_val*mask*tmp + cur;
 
             // gradient with respect to values in the first gate g1
-            const auto gg1 = gc*delta*(g1*(1.f-g1));
+            const auto gg1 = gc*delta*(g1*((scalar_t)1.f-g1));
             gbias1 += gg1;
             gwc1 += is_clipped ? (scalar_t)0.f : gg1*prev_c_val;
             *gvp1 = is_clipped ? (scalar_t)0.f : gg1*prev_c_val;
@@ -313,7 +318,7 @@ __global__ void sru_cuda_bi_forward_kernel(
             const auto delta = cur - u0;
             const auto delta_w = delta * wc1;
             const bool is_clipped = (delta_w >= (scalar_t)1.f) || (delta_w <= (scalar_t)-1.f);
-            const auto clipped_wc1 = is_clipped ? (sign(wc1) / abs(delta)) : wc1;
+            const auto clipped_wc1 = is_clipped ? (scalar_t) (sign(wc1) / abs(delta)) : wc1;
 
             const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
             const auto g1 = sigmoidf(u1 + clipped_wc1*cur + bias1);
@@ -435,7 +440,7 @@ __global__ void sru_cuda_bi_backward_kernel(
             const auto delta = prev_c_val - u0;
             const auto delta_w = delta * wc1;
             const bool is_clipped = (delta_w >= (scalar_t)1.f) || (delta_w <= (scalar_t)-1.f);
-            const auto clipped_wc1 = is_clipped ? (sign(wc1) / abs(delta)) : wc1;
+            const auto clipped_wc1 = is_clipped ? (scalar_t) (sign(wc1) / abs(delta)) : wc1;
 
             const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
             const auto gh_val = *ghp;
@@ -457,7 +462,7 @@ __global__ void sru_cuda_bi_backward_kernel(
             const auto gc = gh_val*mask*tmp + cur;
 
             // gradient with respect to values in the first gate g1
-            const auto gg1 = gc*delta*(g1*(1.f-g1));
+            const auto gg1 = gc*delta*(g1*((scalar_t)1.f-g1));
             gbias1 += gg1;
             gwc1 += is_clipped ? (scalar_t)0.f : gg1*prev_c_val;
             *gvp1 = is_clipped ? (scalar_t)0.f : gg1*prev_c_val;
