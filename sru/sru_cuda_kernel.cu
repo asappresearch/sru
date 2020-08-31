@@ -27,6 +27,8 @@ __forceinline__ __device__ scalar_t sign(scalar_t x) {
     return (x >= 0) ? (scalar_t) 1.f : (scalar_t) -1.f;
 }
 
+#define VBOUND 2.233639
+
 template <typename scalar_t>
 __global__ void sru_cuda_forward_kernel(
                         scalar_t* __restrict__ h,
@@ -79,12 +81,12 @@ __global__ void sru_cuda_forward_kernel(
             const auto wc1 = *vp1;
             const auto wc2 = *vp2;
             const auto delta = cur - u0;
-            const auto delta_w = delta * wc1;
-            const bool is_clipped = (delta_w >= (scalar_t)1.f) || (delta_w <= (scalar_t)-1.f);
-            const auto clipped_wc1 = is_clipped ? (scalar_t) (sign(wc1) / abs(delta)) : wc1;
+            const bool is_clipped = (wc1 > VBOUND) || (wc1 < -VBOUND);
+            const scalar_t clipped_wc1 = (wc1 > VBOUND) ? VBOUND : (
+                    (wc1 < -VBOUND) ? (-VBOUND) : wc1);
 
             const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
-            const auto g1 = sigmoidf(u1 + clipped_wc1*cur + bias1);
+            const auto g1 = sigmoidf(u1 + clipped_wc1*tanh(delta) + bias1);
             const auto g2 = sigmoidf(u2 + wc2*cur + bias2);
             cur = delta*g1 + u0;
             const auto val = calc_activation(activation_type, cur);
@@ -177,13 +179,14 @@ __global__ void sru_cuda_backward_kernel(
             const auto wc1 = *vp1;
             const auto wc2 = *vp2;
             const auto delta = prev_c_val - u0;
-            const auto delta_w = delta * wc1;
-            const bool is_clipped = (delta_w >= (scalar_t)1.f) || (delta_w <= (scalar_t)-1.f);
-            const auto clipped_wc1 = is_clipped ? (scalar_t) (sign(wc1) / abs(delta)) : wc1;
+            const auto tanhd = tanh(delta);
+            const bool is_clipped = (wc1 > VBOUND) || (wc1 < -VBOUND);
+            const scalar_t clipped_wc1 = (wc1 > VBOUND) ? VBOUND : (
+                    (wc1 < -VBOUND) ? (-VBOUND) : wc1);
 
             const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
             const auto gh_val = *ghp;
-            const auto g1 = sigmoidf(u1 + clipped_wc1*prev_c_val + bias1);
+            const auto g1 = sigmoidf(u1 + clipped_wc1*tanhd + bias1);
             const auto g2 = sigmoidf(u2 + wc2*prev_c_val + bias2);
             const auto c_val = calc_activation(activation_type, cp_val);
 
@@ -203,14 +206,15 @@ __global__ void sru_cuda_backward_kernel(
             // gradient with respect to values in the first gate g1
             const auto gg1 = gc*delta*(g1*((scalar_t)1.f-g1));
             gbias1 += gg1;
-            gwc1 += is_clipped ? (scalar_t)0.f : gg1*prev_c_val;
-            *gvp1 = is_clipped ? (scalar_t)0.f : gg1*prev_c_val;
+            gwc1 += is_clipped ? (scalar_t)0.f : gg1*tanhd;
+            *gvp1 = is_clipped ? (scalar_t)0.f : gg1*tanhd;
 
             // gradient with respect to c[t-1]
-            cur = gc*g1 + gg1*clipped_wc1 + gg2*wc2;
+            const auto gdelta = gg1 * clipped_wc1 * ((scalar_t)1.f - tanhd * tanhd);
+            cur = gc*g1 + gdelta + gg2*wc2;
 
             // gradient with respect to U
-            *gup = gc*(1.f-g1);
+            *gup = gc*(1.f-g1) - gdelta;
             *(gup + 1) = gg1;
             *(gup + 2) = gg2;
  
@@ -316,12 +320,12 @@ __global__ void sru_cuda_bi_forward_kernel(
             const auto wc1 = *vp1;
             const auto wc2 = *vp2;
             const auto delta = cur - u0;
-            const auto delta_w = delta * wc1;
-            const bool is_clipped = (delta_w >= (scalar_t)1.f) || (delta_w <= (scalar_t)-1.f);
-            const auto clipped_wc1 = is_clipped ? (scalar_t) (sign(wc1) / abs(delta)) : wc1;
+            const bool is_clipped = (wc1 > VBOUND) || (wc1 < -VBOUND);
+            const scalar_t clipped_wc1 = (wc1 > VBOUND) ? VBOUND : (
+                    (wc1 < -VBOUND) ? (-VBOUND) : wc1);
 
             const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
-            const auto g1 = sigmoidf(u1 + clipped_wc1*cur + bias1);
+            const auto g1 = sigmoidf(u1 + clipped_wc1*tanh(delta) + bias1);
             const auto g2 = sigmoidf(u2 + wc2*cur + bias2);
             cur = delta*g1 + u0;
             const auto val = calc_activation(activation_type, cur);
@@ -438,13 +442,14 @@ __global__ void sru_cuda_bi_backward_kernel(
             const auto wc1 = *vp1;
             const auto wc2 = *vp2;
             const auto delta = prev_c_val - u0;
-            const auto delta_w = delta * wc1;
-            const bool is_clipped = (delta_w >= (scalar_t)1.f) || (delta_w <= (scalar_t)-1.f);
-            const auto clipped_wc1 = is_clipped ? (scalar_t) (sign(wc1) / abs(delta)) : wc1;
+            const auto tanhd = tanh(delta);
+            const bool is_clipped = (wc1 > VBOUND) || (wc1 < -VBOUND);
+            const scalar_t clipped_wc1 = (wc1 > VBOUND) ? VBOUND : (
+                    (wc1 < -VBOUND) ? (-VBOUND) : wc1);
 
             const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
             const auto gh_val = *ghp;
-            const auto g1 = sigmoidf(u1 + wc1*prev_c_val + bias1);
+            const auto g1 = sigmoidf(u1 + wc1*tanhd + bias1);
             const auto g2 = sigmoidf(u2 + wc2*prev_c_val + bias2);
             const auto c_val = calc_activation(activation_type, cp_val);
 
@@ -464,14 +469,15 @@ __global__ void sru_cuda_bi_backward_kernel(
             // gradient with respect to values in the first gate g1
             const auto gg1 = gc*delta*(g1*((scalar_t)1.f-g1));
             gbias1 += gg1;
-            gwc1 += is_clipped ? (scalar_t)0.f : gg1*prev_c_val;
-            *gvp1 = is_clipped ? (scalar_t)0.f : gg1*prev_c_val;
+            gwc1 += is_clipped ? (scalar_t)0.f : gg1*tanhd;
+            *gvp1 = is_clipped ? (scalar_t)0.f : gg1*tanhd;
 
             // gradient with respect to c[t-1]
-            cur = gc*g1 + gg1*clipped_wc1 + gg2*wc2;
+            const auto gdelta = gg1 * clipped_wc1 * ((scalar_t)1.f - tanhd * tanhd);
+            cur = gc*g1 + gdelta + gg2*wc2;
 
             // gradient with respect to U
-            *gup = gc*(1.f-g1);
+            *gup = gc*(1.f-g1) - gdelta;
             *(gup + 1) = gg1;
             *(gup + 2) = gg2;
 
