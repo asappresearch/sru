@@ -27,7 +27,7 @@ __forceinline__ __device__ scalar_t sign(scalar_t x) {
     return (x >= 0) ? (scalar_t) 1.f : (scalar_t) -1.f;
 }
 
-#define VBOUND 2.233639
+#define VBOUND (scalar_t)2.233639
 
 template <typename scalar_t>
 __global__ void sru_cuda_forward_kernel(
@@ -81,12 +81,11 @@ __global__ void sru_cuda_forward_kernel(
             const auto wc1 = *vp1;
             const auto wc2 = *vp2;
             const auto delta = cur - u0;
-            const bool is_clipped = (wc1 > VBOUND) || (wc1 < -VBOUND);
-            const scalar_t clipped_wc1 = (wc1 > VBOUND) ? VBOUND : (
-                    (wc1 < -VBOUND) ? (-VBOUND) : wc1);
+            const scalar_t clipped_wc1 = (wc1 > VBOUND) ? (scalar_t)VBOUND : (
+                    (wc1 < (scalar_t)-VBOUND) ? ((scalar_t)-VBOUND) : wc1);
 
             const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
-            const auto g1 = sigmoidf(u1 + clipped_wc1*tanh(delta) + bias1);
+            const auto g1 = sigmoidf(u1 + clipped_wc1*(scalar_t)tanh(delta) + bias1);
             const auto g2 = sigmoidf(u2 + wc2*cur + bias2);
             cur = delta*g1 + u0;
             const auto val = calc_activation(activation_type, cur);
@@ -179,7 +178,7 @@ __global__ void sru_cuda_backward_kernel(
             const auto wc1 = *vp1;
             const auto wc2 = *vp2;
             const auto delta = prev_c_val - u0;
-            const auto tanhd = tanh(delta);
+            const auto tanhd = (scalar_t)tanh(delta);
             const bool is_clipped = (wc1 > VBOUND) || (wc1 < -VBOUND);
             const scalar_t clipped_wc1 = (wc1 > VBOUND) ? VBOUND : (
                     (wc1 < -VBOUND) ? (-VBOUND) : wc1);
@@ -194,7 +193,7 @@ __global__ void sru_cuda_backward_kernel(
             // c = c'*g1 + u0*(1-g1) = (c'-u0)*g1 + g0
 
             // gradient with respect to values in the second gate g2
-            const auto gg2 = gh_val*(c_val-x_val)*mask*(g2*(1.f-g2));
+            const auto gg2 = gh_val*(c_val-x_val)*mask*(g2*((scalar_t)1.f-g2));
             gbias2 += gg2;
             gwc2 += gg2*prev_c_val;
             *gvp2 = gg2*prev_c_val;
@@ -320,12 +319,11 @@ __global__ void sru_cuda_bi_forward_kernel(
             const auto wc1 = *vp1;
             const auto wc2 = *vp2;
             const auto delta = cur - u0;
-            const bool is_clipped = (wc1 > VBOUND) || (wc1 < -VBOUND);
             const scalar_t clipped_wc1 = (wc1 > VBOUND) ? VBOUND : (
                     (wc1 < -VBOUND) ? (-VBOUND) : wc1);
 
             const auto x_val = (skip_type) ? (*xp) : (scalar_t)0.f;
-            const auto g1 = sigmoidf(u1 + clipped_wc1*tanh(delta) + bias1);
+            const auto g1 = sigmoidf(u1 + clipped_wc1*(scalar_t)tanh(delta) + bias1);
             const auto g2 = sigmoidf(u2 + wc2*cur + bias2);
             cur = delta*g1 + u0;
             const auto val = calc_activation(activation_type, cur);
@@ -442,7 +440,7 @@ __global__ void sru_cuda_bi_backward_kernel(
             const auto wc1 = *vp1;
             const auto wc2 = *vp2;
             const auto delta = prev_c_val - u0;
-            const auto tanhd = tanh(delta);
+            const auto tanhd = (scalar_t)tanh(delta);
             const bool is_clipped = (wc1 > VBOUND) || (wc1 < -VBOUND);
             const scalar_t clipped_wc1 = (wc1 > VBOUND) ? VBOUND : (
                     (wc1 < -VBOUND) ? (-VBOUND) : wc1);
