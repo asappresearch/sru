@@ -1,5 +1,4 @@
-
-#include <torch/torch.h>
+#include <torch/script.h>
 #include <vector>
 
 //  unidirectional forward()
@@ -9,7 +8,7 @@ std::vector<at::Tensor> cpu_forward(
         const at::Tensor & weight_c,
         const at::Tensor & bias,
         const at::Tensor & c_init,
-        const at::Tensor & mask_pad,
+        const at::optional<at::Tensor> & mask_pad,
         const int64_t length, 
         const int64_t batch_size, 
         const int64_t hidden_size, 
@@ -29,7 +28,7 @@ std::vector<at::Tensor> cpu_bi_forward(
         const at::Tensor & weight_c,
         const at::Tensor & bias,
         const at::Tensor & c_init,
-        const at::Tensor & mask_pad,
+        const at::optional<at::Tensor> & mask_pad,
         const int64_t length, 
         const int64_t batch_size, 
         const int64_t hidden_size, 
@@ -60,7 +59,7 @@ std::vector<at::Tensor> cpu_forward(
         const at::Tensor & weight_c,
         const at::Tensor & bias,
         const at::Tensor & c_init,
-        const at::Tensor & mask_pad,
+        const at::optional<at::Tensor> & mask_pad,
         const int64_t length, 
         const int64_t batch_size, 
         const int64_t hidden_size, 
@@ -70,34 +69,34 @@ std::vector<at::Tensor> cpu_forward(
         const double scale_x,
         const bool is_custom) {
     
-    CHECK_FLOAT(U);
     CHECK_CONTIGUOUS(U);
     CHECK_CONTIGUOUS(x);
     CHECK_CONTIGUOUS(weight_c);
     CHECK_CONTIGUOUS(bias);
     CHECK_CONTIGUOUS(c_init);
-    CHECK_CONTIGUOUS(mask_pad);
+    if (mask_pad.has_value())
+        CHECK_CONTIGUOUS(mask_pad.value());
     
     const int ncols = batch_size * hidden_size;
     const int ncols_u = batch_size * hidden_size * k;
 
     // pointers to parameters
-    const float* V_ptr = weight_c.data<float>();
-    const float* forget_w_ptr = weight_c.data<float>();
+    const float* V_ptr = weight_c.data_ptr<float>();
+    const float* forget_w_ptr = weight_c.data_ptr<float>();
     const float* reset_w_ptr = forget_w_ptr + hidden_size;
     
     // 
-    const float* forget_b_ptr = bias.data<float>();
+    const float* forget_b_ptr = bias.data_ptr<float>();
     const float* reset_b_ptr = forget_b_ptr + hidden_size;
-    const float* U_ptr = U.data<float>();
-    const float* x_ptr = x.data<float>();
-    const float* pad_ptr = (mask_pad.numel() == 0) ? NULL : 
-                                    mask_pad.data<float>();
+    const float* U_ptr = U.data_ptr<float>();
+    const float* x_ptr = x.data_ptr<float>();
+    const float* pad_ptr = mask_pad.has_value() ? 
+                           mask_pad.value().data_ptr<float>() : NULL;
 
     auto h = at::zeros({length, batch_size, hidden_size}, U.options());
     auto c = c_init.clone();
-    auto h_ptr = h.data<float>();
-    auto c_ptr = c.data<float>();
+    auto h_ptr = h.data_ptr<float>();
+    auto c_ptr = c.data_ptr<float>();
 
     for (int l = 0; l < length; l++) {
         for (int i = 0; i < batch_size; i++) {
@@ -146,7 +145,7 @@ std::vector<at::Tensor> cpu_bi_forward(
         const at::Tensor & weight_c,
         const at::Tensor & bias,
         const at::Tensor & c_init,
-        const at::Tensor & mask_pad,
+        const at::optional<at::Tensor> & mask_pad,
         const int64_t length, 
         const int64_t batch_size, 
         const int64_t hidden_size, 
@@ -156,33 +155,33 @@ std::vector<at::Tensor> cpu_bi_forward(
         const double scale_x,
         const bool is_custom) {
     
-    CHECK_FLOAT(U);
     CHECK_CONTIGUOUS(U);
     CHECK_CONTIGUOUS(x);
     CHECK_CONTIGUOUS(weight_c);
     CHECK_CONTIGUOUS(bias);
     CHECK_CONTIGUOUS(c_init);
-    CHECK_CONTIGUOUS(mask_pad);
-
+    if (mask_pad.has_value())
+        CHECK_CONTIGUOUS(mask_pad.value());
+    
     const int ncols = batch_size * hidden_size * 2;
     const int ncols_u = batch_size * hidden_size * 2 * k;
 
     // pointers to parameters
-    const float* V_ptr = weight_c.data<float>();
-    const float* forget_w_ptr = weight_c.data<float>();
+    const float* V_ptr = weight_c.data_ptr<float>();
+    const float* forget_w_ptr = weight_c.data_ptr<float>();
     const float* reset_w_ptr = forget_w_ptr + hidden_size*2;
 
-    const float* forget_b_ptr = bias.data<float>();
+    const float* forget_b_ptr = bias.data_ptr<float>();
     const float* reset_b_ptr = forget_b_ptr + hidden_size*2;
-    const float* U_ptr = U.data<float>();
-    const float* x_ptr = x.data<float>();
-    const float* pad_ptr = (mask_pad.numel() == 0) ? NULL : 
-                                    mask_pad.data<float>();
+    const float* U_ptr = U.data_ptr<float>();
+    const float* x_ptr = x.data_ptr<float>();
+    const float* pad_ptr = mask_pad.has_value() ? 
+                           mask_pad.value().data_ptr<float>() : NULL;
 
     auto h = at::zeros({length, batch_size, hidden_size*2}, U.options());
     auto c = c_init.clone();
-    auto h_ptr = h.data<float>();
-    auto c_ptr = c.data<float>();
+    auto h_ptr = h.data_ptr<float>();
+    auto c_ptr = c.data_ptr<float>();
 
     for (int l = 0; l < length; l++) {
         for (int i = 0; i < batch_size; i++) {
@@ -255,7 +254,20 @@ inline float apply_activation(int64_t type, float x) {
     return x;
 }
 
-PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-  m.def("cpu_forward", &cpu_forward, "SRU forward (CPU version)");
-  m.def("cpu_bi_forward", &cpu_bi_forward, "SRU bidirectional forward (CPU version)");
-}
+// This way of registing custom op is based on earlier PRs of Pytorch:
+// https://github.com/pytorch/pytorch/pull/28229
+// 
+// In Pytorch 1.6, the recommended way is to use TORCH_LIBRARY(), e.g.
+//
+//   TORCH_LIBRARY(sru_cpu, m) {
+//       m.def("cpu_forward", &cpu_forward);
+//       m.def("cpu_bi_forward", &cpu_bi_forward);
+//   }
+//
+// We choose this way for backward compatibility.
+static auto registory = 
+    torch::RegisterOperators("sru_cpu::cpu_forward", &cpu_forward);
+
+static auto registory_bi = 
+    torch::RegisterOperators("sru_cpu::cpu_bi_forward", &cpu_bi_forward);
+

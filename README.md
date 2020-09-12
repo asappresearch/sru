@@ -23,7 +23,7 @@ Simple Recurrent Units for Highly Parallelizable Recurrence
 <br>
 
 ## Requirements
- - [PyTorch](http://pytorch.org/) >=1.0.0 recommended, [pytorch installation details](docs/pytorch_installation.md)
+ - [PyTorch](http://pytorch.org/) >=1.3.1 recommended, [pytorch installation details](docs/pytorch_installation.md)
  - [ninja](https://ninja-build.org/)
 
 Install requirements via `pip install -r requirements.txt`.
@@ -52,11 +52,10 @@ export LD_LIBRARY_PATH=/usr/local/cuda/lib64
 The usage of SRU is similar to `nn.LSTM`. SRU likely requires more stacking layers than LSTM. We recommend starting by 2 layers and use more if necessary (see our report for more experimental details).
 ```python
 import torch
-from torch.autograd import Variable
 from sru import SRU, SRUCell
 
 # input has length 20, batch size 32 and dimension 128
-x = Variable(torch.FloatTensor(20, 32, 128).cuda())
+x = torch.FloatTensor(20, 32, 128).cuda()
 
 input_size, hidden_size = 128, 128
 
