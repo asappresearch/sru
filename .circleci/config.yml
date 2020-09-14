@@ -13,7 +13,7 @@ jobs:
       - run:
           name: setup
           command: |
-            pip install -e ./
+            pip install .
             pip install -r requirements-test.txt -f https://download.pytorch.org/whl/torch_stable.html
             sudo apt-get -y install cmake
       # - python/save-cache
