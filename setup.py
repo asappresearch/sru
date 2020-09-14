@@ -49,7 +49,7 @@ setup(
     license='MIT',
 
     # What is packaged here.
-    packages=['sru'],
+    packages=['sru', 'sru/csrc'],
 
     # What to include
     package_data={
