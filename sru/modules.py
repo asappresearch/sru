@@ -568,18 +568,10 @@ class SRU(nn.Module):
         # packing at all, but makes SRU usage compatible with nn.RNN usage
         orig_input = input
         if isinstance(orig_input, PackedSequence):
-            input, batch_sizes, sorted_indices, unsorted_indices = input
-            length = input.size(0)
-            batch_size = input.size(1)
-            mask_pad = torch.arange(batch_size,
-                                    device=batch_sizes.device).expand(length, batch_size)
-            mask_pad = (mask_pad >= batch_sizes.view(length, 1)).contiguous()
-        else:
-            length = input.size(0)
-            batch_size = input.size(1)
-            batch_sizes = None
-            sorted_indices = None
-            unsorted_indices = None
+            input, lengths = nn.utils.rnn.pad_packed_sequence(input)
+            max_length = lengths.max().item()
+            mask_pad = torch.ByteTensor([[0] * l + [1] * (max_length - l) for l in lengths.tolist()])
+            mask_pad = mask_pad.to(input.device).transpose(0, 1).contiguous()
 
         # The dimensions of `input` should be: `(sequence_length, batch_size, input_size)`.
         if input.dim() != 3:
@@ -617,7 +609,7 @@ class SRU(nn.Module):
                                          batch_size, self.hidden_size)
 
         if isinstance(orig_input, PackedSequence):
-            prevx = PackedSequence(prevx, batch_sizes, sorted_indices, unsorted_indices)
+            prevx = nn.utils.rnn.pack_padded_sequence(prevx, lengths, enforce_sorted=False)
             return prevx, lstc_stack
         else:
             return prevx, lstc_stack
