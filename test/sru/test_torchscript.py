@@ -5,6 +5,7 @@ import sru
 
 @pytest.mark.parametrize("bidirectional", [False, True])
 @pytest.mark.parametrize("rescale", [False, True])
+@pytest.mark.parametrize("proj", [0, 4])
 def test_all(bidirectional, rescale):
     eps = 1e-4
     torch.manual_seed(1234)
@@ -13,6 +14,7 @@ def test_all(bidirectional, rescale):
     D = 32
     x = torch.randn(L, B, D)
     model = sru.SRU(D, D, bidirectional=bidirectional,
+                    projection_size=proj,
                     rescale=rescale)
     model.eval()
 
