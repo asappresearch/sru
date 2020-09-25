@@ -348,8 +348,9 @@ class SRUCell(nn.Module):
         """
         # collapse (length, batch_size) into one dimension if necessary
         x = input if input.dim() == 2 else input.contiguous().view(-1, self.input_size)
-        if self.weight_proj is not None:
-            x_projected = x.mm(self.weight_proj)
+        weight_proj = self.weight_proj
+        if weight_proj is not None:
+            x_projected = x.mm(weight_proj)
             U = x_projected.mm(self.weight)
         else:
             U = x.mm(self.weight)
@@ -570,7 +571,8 @@ class SRU(nn.Module):
         if isinstance(orig_input, PackedSequence):
             input, lengths = nn.utils.rnn.pad_packed_sequence(input)
             max_length = lengths.max().item()
-            mask_pad = torch.ByteTensor([[0] * l + [1] * (max_length - l) for l in lengths.tolist()])
+            mask_pad = torch.ByteTensor([[0] * length + [1] * (max_length - length)
+                                        for length in lengths.tolist()])
             mask_pad = mask_pad.to(input.device).transpose(0, 1).contiguous()
 
         # The dimensions of `input` should be: `(sequence_length, batch_size, input_size)`.
