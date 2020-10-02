@@ -254,12 +254,21 @@ class SRUCell(nn.Module):
         U, V = self.compute_UV(input, c0, mask_pad)
 
         # apply elementwise recurrence to get hidden states h and c
+
+        # if we are using amp, we need to turn off autocast, and cast
+        # tensors to float32 first
+
+        use_amp = False
         if U.is_cuda:
+            if 'amp' in torch.cuda.__dict__:  # No amp in torch < 1.6
+                use_amp = True
+        if use_amp:
             with torch.cuda.amp.autocast(enabled=False):
                 if scale_val is not None:
                     scale_val = scale_val.float()
-                h, c = self.apply_recurrence(U.float(), V.float(),
-                                             residual.float(), c0.float(),
+                    U, V, residual, co = U.float(), V.float(), residual.float(), c0.float()
+                h, c = self.apply_recurrence(U, V,
+                                             residual, c0,
                                              scale_val,
                                              mask_c,
                                              mask_pad)
@@ -269,6 +278,8 @@ class SRUCell(nn.Module):
                                          scale_val,
                                          mask_c,
                                          mask_pad)
+
+
         return h, c
 
     def apply_recurrence(self,
