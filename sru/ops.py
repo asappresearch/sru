@@ -108,7 +108,6 @@ def elementwise_recurrence_gpu(U: Tensor,
             c_init = cast(c_init)
             scale_x = cast(scale_x) if scale_x is not None else scale_x
             dropout_mask_c = cast(dropout_mask_c) if dropout_mask_c is not None else dropout_mask_c
-            mask_pad = cast(mask_pad) if mask_pad is not None else mask_pad
 
             return SRU_Compute_GPU.apply(
                 U,
