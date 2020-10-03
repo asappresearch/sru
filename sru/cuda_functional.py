@@ -64,8 +64,6 @@ class SRU_Compute_GPU(Function):
 
         forward_func = sru_cuda_lib.sru_bi_forward if bidirectional else \
             sru_cuda_lib.sru_forward
-        if h.dtype == torch.float16:
-            bias = bias.half()
         forward_func(
             h,
             c,
