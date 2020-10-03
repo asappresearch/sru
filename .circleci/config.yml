@@ -13,8 +13,9 @@ jobs:
       - run:
           name: setup
           command: |
+            pip install torch==1.6.0+cpu -f https://download.pytorch.org/whl/torch_stable.html
             pip install .
-            pip install -r requirements-test.txt -f https://download.pytorch.org/whl/torch_stable.html
+            pip install -r requirements-test.txt
             sudo apt-get -y install cmake
       # - python/save-cache
       - run:
