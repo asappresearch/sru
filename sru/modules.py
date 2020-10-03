@@ -41,7 +41,8 @@ class SRUCell(nn.Module):
                  layer_norm: bool = False,
                  rescale: bool = True,
                  v1: bool = False,
-                 custom_m: Optional[nn.Module] = None):
+                 custom_m: Optional[nn.Module] = None,
+                 amp_recurrence_fp16: bool = False):
         """Initialize the SRUCell module.
 
         Parameters
@@ -90,7 +91,10 @@ class SRUCell(nn.Module):
             multiplication to compute the intermediate representations U
             needed for the elementwise recurrrence operation
             (default=None)
-
+        amp_recurrence_fp16: Type, optional
+            When using AMP autocast, selects which type to use
+            for recurrence custom kernel.
+            False: torch.float32, True: torch.float16
         """
         super(SRUCell, self).__init__()
         self.input_size = input_size
@@ -109,6 +113,7 @@ class SRUCell(nn.Module):
         if use_tanh:
             self.activation_type = 1
             self.activation = 'tanh'
+        self.amp_recurrence_fp16 = amp_recurrence_fp16
 
         # projection dimension
         self.projection_size = 0
@@ -254,32 +259,7 @@ class SRUCell(nn.Module):
         U, V = self.compute_UV(input, c0, mask_pad)
 
         # apply elementwise recurrence to get hidden states h and c
-
-        # if we are using amp, we need to turn off autocast, and cast
-        # tensors to float32 first
-
-        use_amp = False
-        if U.is_cuda:
-            if 'amp' in torch.cuda.__dict__:  # No amp in torch < 1.6
-                use_amp = True
-        if use_amp:
-            with torch.cuda.amp.autocast(enabled=False):
-                if scale_val is not None:
-                    scale_val = scale_val.float()
-                    U, V, residual, co = U.float(), V.float(), residual.float(), c0.float()
-                h, c = self.apply_recurrence(U, V,
-                                             residual, c0,
-                                             scale_val,
-                                             mask_c,
-                                             mask_pad)
-        else:
-            h, c = self.apply_recurrence(U, V,
-                                         residual, c0,
-                                         scale_val,
-                                         mask_c,
-                                         mask_pad)
-
-
+        h, c = self.apply_recurrence(U, V, residual, c0, scale_val, mask_c, mask_pad)
         return h, c
 
     def apply_recurrence(self,
@@ -301,7 +281,8 @@ class SRUCell(nn.Module):
                                               self.hidden_size,
                                               self.bidirectional,
                                               self.has_skip_term,
-                                              scale_val, mask_c, mask_pad)
+                                              scale_val, mask_c, mask_pad,
+                                              self.amp_recurrence_fp16)
 
         if not torch.jit.is_scripting():
             return elementwise_recurrence_naive(U, residual, V, self.bias, c0,
@@ -445,7 +426,8 @@ class SRU(nn.Module):
                  v1: bool = False,
                  nn_rnn_compatible_return: bool = False,
                  custom_m: Optional[Union[nn.Module, List[nn.Module]]] = None,
-                 proj_input_to_hidden_first: bool = False):
+                 proj_input_to_hidden_first: bool = False,
+                 amp_recurrence_fp16: bool = False):
         """Initialize the SRU module.
 
         Parameters
@@ -500,6 +482,10 @@ class SRU(nn.Module):
             batch_size, hidden_size * num_matrices), and one optional
             tensor V of shape (seq_len, batch_size, hidden_size * 2).
             (default=None)
+        amp_recurrence_fp16: Type, optional
+            When using AMP autocast, selects which type to use
+            for recurrence custom kernel.
+            False: torch.float32, True: torch.float16
 
         """
 
@@ -522,6 +508,7 @@ class SRU(nn.Module):
             self.input_to_hidden = nn.Linear(input_size, self.output_size, bias=False)
         else:
             first_layer_input_size = input_size
+        self.amp_recurrence_fp16 = amp_recurrence_fp16
 
         if rnn_dropout > 0:
             warnings.warn("rnn_dropout > 0 is deprecated and will be removed in"
@@ -550,7 +537,8 @@ class SRU(nn.Module):
                 has_skip_term=has_skip_term,
                 rescale=rescale,
                 v1=v1,
-                custom_m=custom_m_i
+                custom_m=custom_m_i,
+                amp_recurrence_fp16=amp_recurrence_fp16
             )
             rnn_lst.append(layer_i)
         self.rnn_lst = rnn_lst
