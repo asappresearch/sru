@@ -9,7 +9,7 @@ jobs:
     steps:
       - checkout
       # - python/load-cache
-      - python/install-deps
+      # - python/install-deps
       - run:
           name: setup
           command: |
