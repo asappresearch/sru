@@ -41,26 +41,8 @@ jobs:
             source .venv/bin/activate
             bash test/test.sh
 
-  regression:
-    executor: python/default
-    steps:
-      - checkout
-      - run:
-          name: setup
-          command: |
-            virtualenv -p python3.7 .venv
-            source .venv/bin/activate
-            pip install -q torch==1.6.0+cpu -f https://download.pytorch.org/whl/torch_stable.html
-            pip install -q .
-      - run:
-          name: Test
-          command: |
-            source .venv/bin/activate
-            bash test/test_regression.sh
-
 workflows:
   main:
     jobs:
       - unit-tests
       - torchscript
-      - regression
