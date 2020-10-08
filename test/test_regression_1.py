@@ -15,9 +15,9 @@ def run(args):
     torch.manual_seed(1)
 
     batch_size = 200
-    input_size = 304
-    hidden_size = 304
-    seq_len = 304
+    input_size = 300
+    hidden_size = 250
+    seq_len = 150
 
     inputs = torch.rand(seq_len, batch_size, input_size)
     model = sru.SRU(
@@ -31,12 +31,15 @@ def run(args):
 
     with torch.no_grad():
         outputs = model(inputs)
-        torch.save(outputs, args.out_outputs)
-        torch.save(model.state_dict(), args.out_model)
+    torch.save(inputs, args.out_inputs)
+    torch.save(outputs, args.out_outputs)
+    torch.save(model.state_dict(), args.out_model)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument('--out-inputs', type=str, required=True,
+                        help='filepath to store inputs')
     parser.add_argument('--out-outputs', type=str, required=True,
                         help='filepath to store outputs')
     parser.add_argument('--out-model', type=str, required=True,

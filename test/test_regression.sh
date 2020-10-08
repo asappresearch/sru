@@ -29,10 +29,12 @@ git clone -b ${BASE_VERSION} . ../${BASE_VERSION}
     pip install -q -e ./
     python ../project/test/test_regression_1.py \
         --out-outputs ../project/outputs.pt \
-        --out-model ../project/model.pt
+        --out-model ../project/model.pt \
+        --out-inputs ../project/inputs.pt
 )
 
 source .venv/bin/activate
     python test/test_regression_2.py \
         --in-outputs outputs.pt \
-        --in-model model.pt
+        --in-model model.pt \
+        --in-inputs inputs.pt
