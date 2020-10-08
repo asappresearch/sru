@@ -9,3 +9,4 @@ exclude =
     misc
     speech
     .eggs
+    .venv

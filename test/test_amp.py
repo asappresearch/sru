@@ -12,7 +12,6 @@ from torch import optim
 import contextlib
 
 
-
 class NullGradScalar(object):
     def scale(self, loss):
         return loss
