@@ -27,6 +27,7 @@ jobs:
             pytest -sv test
             bash test/test.sh
             flake8 . --count --exit-zero --statistics
+            bash test/test_upgrade.sh
 
 workflows:
   main:
