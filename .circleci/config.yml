@@ -15,9 +15,9 @@ jobs:
           command: |
             virtualenv -p python3.7 .venv
             source .venv/bin/activate
-            pip install torch==1.6.0+cpu -f https://download.pytorch.org/whl/torch_stable.html
-            pip install .
-            pip install -r requirements-test.txt
+            pip install -q torch==1.6.0+cpu -f https://download.pytorch.org/whl/torch_stable.html
+            pip install -q .
+            pip install -q -r requirements-test.txt
             sudo apt-get -y install cmake
       # - python/save-cache
       - run:
