@@ -14,10 +14,10 @@ set -e
 set -x
 
 BASE_VERSION=2.3.5
-CURRENT_VERSION=$(git rev-parse HEAD)
 
-echo CURRENT: ${CURRENT_VERSION}
 echo BASE: ${BASE_VERSION}
+
+PROJECT_DIR=$PWD
 
 git clone -b ${BASE_VERSION} . ../${BASE_VERSION}
 
@@ -27,10 +27,10 @@ git clone -b ${BASE_VERSION} . ../${BASE_VERSION}
     source .venv/bin/activate
     pip install -q torch==1.6.0+cpu -f https://download.pytorch.org/whl/torch_stable.html
     pip install -q -e ./
-    python ../project/test/test_regression_1.py \
-        --out-outputs ../project/outputs.pt \
-        --out-model ../project/model.pt \
-        --out-inputs ../project/inputs.pt
+    python ${PROJECT_DIR}/test/test_regression_1.py \
+        --out-outputs ${PROJECT_DIR}/outputs.pt \
+        --out-model ${PROJECT_DIR}/model.pt \
+        --out-inputs ${PROJECT_DIR}/inputs.pt
 )
 
 source .venv/bin/activate
