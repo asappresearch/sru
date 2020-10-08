@@ -41,7 +41,7 @@ def run(args):
     artifact_dict = {
         'outputs': outputs,
         'inputs': inputs,
-        'model': model,
+        'model_state': model.state_dict(),
         'sru_kwargs': sru_kwargs,
         'sru.__version__': sru.__version__
     }
