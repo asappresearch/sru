@@ -25,6 +25,7 @@ git clone -b ${BASE_VERSION} . ../${BASE_VERSION}
     cd ../${BASE_VERSION}
     virtualenv -p $(which python) .venv
     source .venv/bin/activate
+    pip install -q torch==1.6.0+cpu -f https://download.pytorch.org/whl/torch_stable.html
     pip install -q -e ./
     python ../project/test/test_regression_1.py \
         --out-outputs ../project/outputs.pt \
