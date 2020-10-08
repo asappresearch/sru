@@ -26,7 +26,7 @@ git clone -b ${BASE_VERSION} . ../${BASE_VERSION}
     virtualenv -p $(which python) .venv
     source .venv/bin/activate
     pip install -e ./
-    python test/test_regression_1.py \
+    python ../project/test/test_regression_1.py \
         --out-outputs ../project/outputs.pt \
         --out-model ../project/model.pt
 )
