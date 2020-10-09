@@ -4,28 +4,45 @@ orbs:
   python: circleci/python@0.2.1
 
 jobs:
-  build-and-test:
+  unit-tests:
     executor: python/default
     steps:
       - checkout
-      # - python/load-cache
-      - python/install-deps
       - run:
           name: setup
           command: |
-            pip install torch==1.6.0+cpu -f https://download.pytorch.org/whl/torch_stable.html
-            pip install .
-            pip install -r requirements-test.txt
-            sudo apt-get -y install cmake
-      # - python/save-cache
+            virtualenv -p python3.7 .venv
+            source .venv/bin/activate
+            pip install -q torch==1.6.0+cpu -f https://download.pytorch.org/whl/torch_stable.html
+            pip install -q .
+            pip install -q -r requirements-test.txt
       - run:
           name: Test
           command: |
+            source .venv/bin/activate
             pytest -sv test
-            bash test/test.sh
             flake8 . --count --exit-zero --statistics
+
+  torchscript:
+    executor: python/default
+    steps:
+      - checkout
+      - run:
+          name: setup
+          command: |
+            virtualenv -p python3.7 .venv
+            source .venv/bin/activate
+            pip install -q torch==1.6.0+cpu -f https://download.pytorch.org/whl/torch_stable.html
+            pip install -q .
+            sudo apt-get -y install cmake
+      - run:
+          name: Test
+          command: |
+            source .venv/bin/activate
+            bash test/test.sh
 
 workflows:
   main:
     jobs:
-      - build-and-test
+      - unit-tests
+      - torchscript
