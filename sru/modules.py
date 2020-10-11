@@ -24,9 +24,8 @@ class SRUCell(nn.Module):
                      'projection_size', 'num_matrices', 'layer_norm', 'weight_proj',
                      'scale_x']
 
-    scale_x: Optional[Tensor]
+    scale_x: Tensor
     weight_proj: Optional[Tensor]
-    layer_norm: Optional[nn.Module]
 
     def __init__(self,
                  input_size: int,
@@ -109,7 +108,7 @@ class SRUCell(nn.Module):
         self.rescale = rescale
         self.activation_type = 0
         self.activation = 'none'
-        self.custom_m = custom_m
+        self.custom_m: Optional[nn.Module] = custom_m
         if use_tanh:
             self.activation_type = 1
             self.activation = 'tanh'
@@ -145,7 +144,7 @@ class SRUCell(nn.Module):
         # scaling constant used in highway connections when rescale=True
         self.register_buffer('scale_x', torch.FloatTensor([0]))
 
-        self.layer_norm = None
+        self.layer_norm: Optional[nn.Module]= None
         if layer_norm:
             self.layer_norm = nn.LayerNorm(self.input_size)
 
