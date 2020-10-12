@@ -7,13 +7,13 @@ namespace {
 
 template <typename scalar_t>
 __forceinline__ __device__ scalar_t sigmoidf(scalar_t x) {
-    return (scalar_t)1.f / ((scalar_t)1.f + exp(-x));
+    return (scalar_t)1.f / ((scalar_t)1.f + expf(-x));
 }
 
 template <typename scalar_t>
 __forceinline__ __device__ scalar_t calc_activation(int type, scalar_t x)
 {
-    return type ? (scalar_t)tanh(x) : x;
+    return type ? (scalar_t)tanhf(x) : x;
 }
 
 template <typename scalar_t>
