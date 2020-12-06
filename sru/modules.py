@@ -144,9 +144,10 @@ class SRUCell(nn.Module):
         # scaling constant used in highway connections when rescale=True
         self.register_buffer('scale_x', torch.FloatTensor([0]))
 
-        self.layer_norm: Optional[nn.Module]= None
         if layer_norm:
-            self.layer_norm = nn.LayerNorm(self.input_size)
+            self.layer_norm: Optional[nn.Module] = nn.LayerNorm(self.input_size)
+        else:
+            self.layer_norm = None
 
         self.reset_parameters()
 
