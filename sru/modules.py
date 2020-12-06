@@ -102,8 +102,6 @@ class SRUCell(nn.Module):
         self.projection_size = 0
         self.rnn_dropout = float(rnn_dropout)
         self.dropout = float(dropout)
-        self.weight = None
-        self.weight_proj = None
         self.bidirectional = bidirectional
         self.has_skip_term = has_skip_term
         self.highway_bias = highway_bias
@@ -141,6 +139,9 @@ class SRUCell(nn.Module):
                     self.projection_size,
                     self.output_size * self.num_matrices
                 ))
+        else:
+            self.weight = None
+            self.weight_proj = None
         self.weight_c = nn.Parameter(torch.Tensor(2 * self.output_size))
         self.bias = nn.Parameter(torch.Tensor(2 * self.output_size))
 
