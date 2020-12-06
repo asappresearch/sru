@@ -99,8 +99,11 @@ class SRUCell(nn.Module):
         self.input_size = input_size
         self.hidden_size = hidden_size  # hidden size per direction
         self.output_size = hidden_size * 2 if bidirectional else hidden_size
+        self.projection_size = 0
         self.rnn_dropout = float(rnn_dropout)
         self.dropout = float(dropout)
+        self.weight = None
+        self.weight_proj = None
         self.bidirectional = bidirectional
         self.has_skip_term = has_skip_term
         self.highway_bias = highway_bias
