@@ -1,5 +1,6 @@
 from torch import nn
 import logging
+from typing import List, Union
 from sru import SRU, SRUCell
 
 logger = logging.getLogger(__name__)
@@ -90,9 +91,13 @@ def convert_sru_to_linears(sru: SRU):
 
 
 def create_sru_using_linears(
+        input_size: int,
+        hidden_size: int,
+        num_layers: int = 2,
         projection_size: int = 0,
+        linear_first_layer: bool = True,
         custom_m: None = None,
-        **sru_kwargs):
+        **sru_kwargs) -> SRU:
     """
     Create SRU using nn.Linear, in the custom_m.
     You might do this to facilitate:
@@ -113,21 +118,64 @@ def create_sru_using_linears(
     If projection size is more than zero, then custom_m will contain
     a Sequential[Linear, Linear], otherwise it will contain a Linear.
 
-    This is implemented by creating sru then converting it because:
-    1. easier to test (can compare sru before/after conversion)
-    2. don't need to know about how to dimension the matrices correctly,
-       since can just copy the dimensions of the already-created matrices
-       (so plausibly less fragile to internal sru changes, perhaps)
-
     Parameters
     ----------
+    input_size: int
+        input size of SRU
+    hidden_size: int
+        hidden size of SRU
+    num_layers: int
+        number of layers in SRU
     projection_size: int
         size of projection
         if 0, then no projection
+    linear_first_layer: bool
+        if True, then use Linear for first layer, even if
+        projection_size > 0
     custom_m: None
         must be None
+    **sru_kwargs: Dict[str, Any]
+        additional SRU kwargs
     """
     if custom_m is not None:
         raise Exception('custom_m must be None when using create_sru_using_linears')
-    sru = SRU(projection_size=projection_size, custom_m=None, **sru_kwargs)
-    convert_sru_to_linears(sru)
+    custom_m_list: List[nn.Module] = []
+
+    out_features = (
+        hidden_size * 3 if hidden_size == input_size else hidden_size * 4
+    )
+    if projection_size == 0:
+        # create a list of nn.Linear() if projection trick is
+        # not enabled
+        custom_m_list = [nn.Linear(input_size, out_features, bias=False)]
+        for i in range(num_layers - 1):
+            custom_m_list.append(
+                nn.Linear(hidden_size, hidden_size * 3, bias=False)
+            )
+    else:
+        # create a list of nn.Sequantial() applying the
+        # projection trick
+        if not linear_first_layer:
+            first_module: Union[nn.Sequential, nn.Linear] = nn.Sequential(
+                nn.Linear(input_size, projection_size, bias=False),
+                nn.Linear(projection_size, out_features, bias=False),
+            )
+        else:
+            first_module = nn.Linear(
+                input_size, out_features, bias=False)
+        custom_m_list = [first_module]
+        for i in range(num_layers - 1):
+            custom_m_list.append(
+                nn.Sequential(
+                    nn.Linear(hidden_size, projection_size, bias=False),
+                    nn.Linear(projection_size, hidden_size * 3, bias=False),
+                )
+            )
+    sru = SRU(
+        input_size,
+        hidden_size,
+        num_layers=num_layers,
+        projection_size=projection_size,
+        custom_m=custom_m_list,
+        **sru_kwargs)
+    return sru
