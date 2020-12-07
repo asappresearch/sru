@@ -202,7 +202,8 @@ class SRUCell(nn.Module):
                 self.custom_m.reset_parameters()
             else:
                 warnings.warn("Unable to reset parameters for custom module. "
-                              "reset_parameters() method not found for custom module.")
+                              "reset_parameters() method not found for custom module. "
+                              + self.custom_m.__class__.__name__)
 
         if not self.v1:
             # intialize weight_c such that E[w]=0 and Var[w]=1
