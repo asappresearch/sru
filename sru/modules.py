@@ -151,9 +151,9 @@ class SRUCell(nn.Module):
         self.layer_norm: Optional[nn.Module]= None
         if layer_norm:
             if post_ln:
-                self.layer_norm = nn.LayerNorm(self.input_size)
-            else:
                 self.layer_norm = nn.LayerNorm(self.output_size)
+            else:
+                self.layer_norm = nn.LayerNorm(self.input_size)
 
         self.reset_parameters()
 
