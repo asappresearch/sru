@@ -41,7 +41,8 @@ class SRUCell(nn.Module):
                  rescale: bool = True,
                  v1: bool = False,
                  custom_m: Optional[nn.Module] = None,
-                 amp_recurrence_fp16: bool = False):
+                 amp_recurrence_fp16: bool = False,
+                 weight_c_init: Optional[float] = None):
         """Initialize the SRUCell module.
 
         Parameters
@@ -94,6 +95,8 @@ class SRUCell(nn.Module):
             When using AMP autocast, selects which type to use
             for recurrence custom kernel.
             False: torch.float32, True: torch.float16
+        weight_c_init: Optional[float]
+            if not None, then size of uniform initiatialization of weight_c
         """
         super(SRUCell, self).__init__()
         self.input_size = input_size
@@ -113,6 +116,7 @@ class SRUCell(nn.Module):
             self.activation_type = 1
             self.activation = 'tanh'
         self.amp_recurrence_fp16 = amp_recurrence_fp16
+        self.weight_c_init = weight_c_init
 
         # projection dimension
         self.projection_size = 0
@@ -207,13 +211,16 @@ class SRUCell(nn.Module):
 
         if not self.v1:
             # intialize weight_c such that E[w]=0 and Var[w]=1
-            self.weight_c.data.uniform_(-3.0**0.5, 3.0**0.5)
+            if self.weight_c_init is None:
+                self.weight_c.data.uniform_(-3.0**0.5, 3.0**0.5)
+                self.weight_c.data.mul_(0.5**0.5)
+            else:
+                self.weight_c.data.uniform_(-self.weight_c_init, self.weight_c_init)
 
             # rescale weight_c and the weight of sigmoid gates with a factor of sqrt(0.5)
             if self.custom_m is None:
                 w[:, :, :, 1].mul_(0.5**0.5)
                 w[:, :, :, 2].mul_(0.5**0.5)
-            self.weight_c.data.mul_(0.5**0.5)
         else:
             self.weight_c.data.zero_()
             self.weight_c.requires_grad = False
@@ -427,7 +434,8 @@ class SRU(nn.Module):
                  nn_rnn_compatible_return: bool = False,
                  custom_m: Optional[Union[nn.Module, List[nn.Module]]] = None,
                  proj_input_to_hidden_first: bool = False,
-                 amp_recurrence_fp16: bool = False):
+                 amp_recurrence_fp16: bool = False,
+                 weight_c_init: Optional[float] = None):
         """Initialize the SRU module.
 
         Parameters
@@ -486,6 +494,8 @@ class SRU(nn.Module):
             When using AMP autocast, selects which type to use
             for recurrence custom kernel.
             False: torch.float32, True: torch.float16
+        weight_c_init: Optional[float]
+            if not None, then size of uniform initiatialization of weight_c
 
         """
 
@@ -538,7 +548,8 @@ class SRU(nn.Module):
                 rescale=rescale,
                 v1=v1,
                 custom_m=custom_m_i,
-                amp_recurrence_fp16=amp_recurrence_fp16
+                amp_recurrence_fp16=amp_recurrence_fp16,
+                weight_c_init=weight_c_init,
             )
             rnn_lst.append(layer_i)
         self.rnn_lst = rnn_lst
