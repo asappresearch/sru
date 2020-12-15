@@ -85,6 +85,13 @@ def convert_sru_to_linears(sru: SRU):
 
     If projection is used, then custom_m will contain
     a Sequential[Linear, Linear], otherwise it will contain a Linear.
+
+    Parameters
+    ----------
+    sru: SRU
+        sru to convert to custom_m
+    linear_first_layer: bool
+        if True and first layer is projected, convert to un-projected
     """
     for cell in sru.rnn_lst:
         convert_sru_cell_to_linears(cell)
