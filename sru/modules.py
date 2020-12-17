@@ -22,7 +22,7 @@ class SRUCell(nn.Module):
                      'dropout', 'bidirectional', 'has_skip_term', 'highway_bias',
                      'v1', 'rescale', 'activation_type', 'activation', 'custom_m',
                      'projection_size', 'num_matrices', 'layer_norm', 'weight_proj',
-                     'scale_x']
+                     'scale_x', 'normalize_after', 'weight_c_init',]
 
     scale_x: Tensor
     weight_proj: Optional[Tensor]
