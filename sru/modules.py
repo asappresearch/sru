@@ -41,7 +41,8 @@ class SRUCell(nn.Module):
                  rescale: bool = True,
                  v1: bool = False,
                  custom_m: Optional[nn.Module] = None,
-                 amp_recurrence_fp16: bool = False):
+                 amp_recurrence_fp16: bool = False,
+                 normalize_after: bool = False):
         """Initialize the SRUCell module.
 
         Parameters
@@ -94,6 +95,8 @@ class SRUCell(nn.Module):
             When using AMP autocast, selects which type to use
             for recurrence custom kernel.
             False: torch.float32, True: torch.float16
+        normalize_after: bool
+            if True use post layer norm, else pre layer norm
         """
         super(SRUCell, self).__init__()
         self.input_size = input_size
@@ -113,6 +116,7 @@ class SRUCell(nn.Module):
             self.activation_type = 1
             self.activation = 'tanh'
         self.amp_recurrence_fp16 = amp_recurrence_fp16
+        self.normalize_after = normalize_after
 
         # projection dimension
         self.projection_size = 0
@@ -146,7 +150,10 @@ class SRUCell(nn.Module):
 
         self.layer_norm: Optional[nn.Module]= None
         if layer_norm:
-            self.layer_norm = nn.LayerNorm(self.input_size)
+            if normalize_after:
+                self.layer_norm = nn.LayerNorm(self.output_size)
+            else:
+                self.layer_norm = nn.LayerNorm(self.input_size)
 
         self.reset_parameters()
 
@@ -235,7 +242,7 @@ class SRUCell(nn.Module):
 
         # apply layer norm before activation (i.e. before SRU computation)
         residual = input
-        if self.layer_norm is not None:
+        if self.layer_norm is not None and not self.normalize_after:
             input = self.layer_norm(input)
 
         # apply dropout for multiplication
@@ -260,6 +267,10 @@ class SRUCell(nn.Module):
 
         # apply elementwise recurrence to get hidden states h and c
         h, c = self.apply_recurrence(U, V, residual, c0, scale_val, mask_c, mask_pad)
+
+        if self.layer_norm is not None and self.normalize_after:
+            h = self.layer_norm(h)
+
         return h, c
 
     def apply_recurrence(self,
@@ -427,7 +438,8 @@ class SRU(nn.Module):
                  nn_rnn_compatible_return: bool = False,
                  custom_m: Optional[Union[nn.Module, List[nn.Module]]] = None,
                  proj_input_to_hidden_first: bool = False,
-                 amp_recurrence_fp16: bool = False):
+                 amp_recurrence_fp16: bool = False,
+                 normalize_after: bool = False):
         """Initialize the SRU module.
 
         Parameters
@@ -486,7 +498,8 @@ class SRU(nn.Module):
             When using AMP autocast, selects which type to use
             for recurrence custom kernel.
             False: torch.float32, True: torch.float16
-
+        normalize_after: bool
+            if True use post layer norm, else use pre layer norm
         """
 
         super(SRU, self).__init__()
@@ -538,7 +551,8 @@ class SRU(nn.Module):
                 rescale=rescale,
                 v1=v1,
                 custom_m=custom_m_i,
-                amp_recurrence_fp16=amp_recurrence_fp16
+                amp_recurrence_fp16=amp_recurrence_fp16,
+                normalize_after=normalize_after
             )
             rnn_lst.append(layer_i)
         self.rnn_lst = rnn_lst
