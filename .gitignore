@@ -2,3 +2,10 @@ __pycache__
 *.egg-info/
 sru/csrc/build
 .python-version
+
+# created by torchscript tests:
+py_out.txt
+sru/csrc/Makefile
+sru/csrc/tests/main_test_cpp.cpp
+sru_ts.pt
+cpp_out.txt
