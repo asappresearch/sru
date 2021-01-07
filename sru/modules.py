@@ -22,7 +22,7 @@ class SRUCell(nn.Module):
                      'dropout', 'bidirectional', 'has_skip_term', 'highway_bias',
                      'v1', 'rescale', 'activation_type', 'activation', 'custom_m',
                      'projection_size', 'num_matrices', 'layer_norm', 'weight_proj',
-                     'scale_x', 'normalize_after', 'weight_c_init',]
+                     'scale_x', 'normalize_after', 'weight_c_init', ]
 
     scale_x: Tensor
     weight_proj: Optional[Tensor]
@@ -152,7 +152,7 @@ class SRUCell(nn.Module):
         # scaling constant used in highway connections when rescale=True
         self.register_buffer('scale_x', torch.FloatTensor([0]))
 
-        self.layer_norm: Optional[nn.Module]= None
+        self.layer_norm: Optional[nn.Module] = None
         if layer_norm:
             if normalize_after:
                 self.layer_norm = nn.LayerNorm(self.output_size)
