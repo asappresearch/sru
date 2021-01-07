@@ -114,7 +114,6 @@ class SRUCell(nn.Module):
         self.rescale = rescale
         self.activation_type = 0
         self.activation = 'none'
-        self.custom_m: Optional[nn.Module] = custom_m
         if use_tanh:
             self.activation_type = 1
             self.activation = 'tanh'
@@ -132,20 +131,21 @@ class SRUCell(nn.Module):
         if has_skip_term and self.input_size != self.output_size:
             self.num_matrices = 4
 
-        # make parameters
-        if self.custom_m is None:
+        if custom_m is None:
+            # create an appropriate custom_m, depending on whether we are using projection or not
             if self.projection_size == 0:
-                self.weight_proj = None
-                self.weight = nn.Parameter(torch.Tensor(
-                    input_size,
-                    self.output_size * self.num_matrices
-                ))
+                # use an nn.Linear
+                custom_m = nn.Linear(
+                    input_size, self.output_size * self.num_matrices, bias=False)
             else:
-                self.weight_proj = nn.Parameter(torch.Tensor(input_size, self.projection_size))
-                self.weight = nn.Parameter(torch.Tensor(
-                    self.projection_size,
-                    self.output_size * self.num_matrices
-                ))
+                # use a Sequential[nn.Linear, nn.Linear]
+                custom_m = nn.Sequential(
+                    nn.Linear(input_size, self.projection_size, bias=False),
+                    nn.Linear(
+                        self.projection_size, self.output_size * self.num_matrices, bias=False),
+                )
+        self.custom_m = custom_m
+
         self.weight_c = nn.Parameter(torch.Tensor(2 * self.output_size))
         self.bias = nn.Parameter(torch.Tensor(2 * self.output_size))
 
@@ -180,41 +180,18 @@ class SRUCell(nn.Module):
             scale_val = (1 + math.exp(bias_val) * 2)**0.5
             self.scale_x.data[0] = scale_val
 
-        if self.custom_m is None:
-            # initialize weights such that E[w_ij]=0 and Var[w_ij]=1/d
-            d = self.weight.size(0)
-            val_range = (3.0 / d)**0.5
-            self.weight.data.uniform_(-val_range, val_range)
-            if self.projection_size > 0:
-                val_range = (3.0 / self.weight_proj.size(0))**0.5
-                self.weight_proj.data.uniform_(-val_range, val_range)
-
-            # projection matrix as a tensor of size:
-            #    (input_size, bidirection, hidden_size, num_matrices)
-            w = self.weight.data.view(d, -1, self.hidden_size, self.num_matrices)
-
-            # re-scale weights for dropout and normalized input for better gradient flow
-            if self.dropout > 0:
-                w[:, :, :, 0].mul_((1 - self.dropout)**0.5)
-            if self.rnn_dropout > 0:
-                w.mul_((1 - self.rnn_dropout)**0.5)
-
-            # making weights smaller when layer norm is used. need more tests
-            if self.layer_norm:
-                w.mul_(0.1)
-                # self.weight_c.data.mul_(0.25)
-
-            # properly scale the highway output
-            if self.rescale and self.has_skip_term and self.num_matrices == 4:
-                scale_val = (1 + math.exp(bias_val) * 2)**0.5
-                w[:, :, :, 3].mul_(scale_val)
-        else:
-            if hasattr(self.custom_m, 'reset_parameters'):
-                self.custom_m.reset_parameters()
+        def reset_module_parameters(module):
+            if hasattr(module, 'reset_parameters'):
+                module.reset_parameters()
+            elif isinstance(module, nn.Sequential):
+                for m in module:
+                    reset_module_parameters(m)
             else:
                 warnings.warn("Unable to reset parameters for custom module. "
                               "reset_parameters() method not found for custom module. "
-                              + self.custom_m.__class__.__name__)
+                              + module.__class__.__name__)
+
+        reset_module_parameters(self.custom_m)
 
         if not self.v1:
             # intialize weight_c such that E[w]=0 and Var[w]=1
@@ -223,11 +200,6 @@ class SRUCell(nn.Module):
                 self.weight_c.data.mul_(0.5**0.5)
             else:
                 self.weight_c.data.uniform_(-self.weight_c_init, self.weight_c_init)
-
-            # rescale weight_c and the weight of sigmoid gates with a factor of sqrt(0.5)
-            if self.custom_m is None:
-                w[:, :, :, 1].mul_(0.5**0.5)
-                w[:, :, :, 2].mul_(0.5**0.5)
         else:
             self.weight_c.data.zero_()
             self.weight_c.requires_grad = False
@@ -326,37 +298,33 @@ class SRUCell(nn.Module):
         input (length, batch_size, input_size) into a tensor U of size
         (length * batch_size, output_size * num_matrices).
 
-        When a custom module `custom_m` is given, U will be computed by
-        the given module. In addition, the module can return an
+        U will be computed by
+        the given custom_m. The module can optionally return an
         additional tensor V (length, batch_size, output_size * 2) that
         will be added to the hidden-to-hidden coefficient terms in
         sigmoid gates, i.e., (V[t, b, d] + weight_c[d]) * c[t-1].
 
         """
-        if self.custom_m is None:
-            U = self.compute_U(input)
-            V = self.weight_c
+        ret = self.custom_m(input)
+        if isinstance(ret, tuple) or isinstance(ret, list):
+            if len(ret) > 2:
+                raise Exception("Custom module must return 1 or 2 tensors but got {}.".format(
+                    len(ret)
+                ))
+            U, V = ret[0], ret[1] + self.weight_c
         else:
-            ret = self.custom_m(input)
-            if isinstance(ret, tuple) or isinstance(ret, list):
-                if len(ret) > 2:
-                    raise Exception("Custom module must return 1 or 2 tensors but got {}.".format(
-                        len(ret)
-                    ))
-                U, V = ret[0], ret[1] + self.weight_c
-            else:
-                U, V = ret, self.weight_c
+            U, V = ret, self.weight_c
 
-            if U.size(-1) != self.output_size * self.num_matrices:
-                raise ValueError("U must have a last dimension of {} but got {}.".format(
-                    self.output_size * self.num_matrices,
-                    U.size(-1)
-                ))
-            if V.size(-1) != self.output_size * 2:
-                raise ValueError("V must have a last dimension of {} but got {}.".format(
-                    self.output_size * 2,
-                    V.size(-1)
-                ))
+        if U.size(-1) != self.output_size * self.num_matrices:
+            raise ValueError("U must have a last dimension of {} but got {}.".format(
+                self.output_size * self.num_matrices,
+                U.size(-1)
+            ))
+        if V.size(-1) != self.output_size * 2:
+            raise ValueError("V must have a last dimension of {} but got {}.".format(
+                self.output_size * 2,
+                V.size(-1)
+            ))
         return U, V
 
     def compute_U(self,
@@ -406,8 +374,7 @@ class SRUCell(nn.Module):
             s += ", has_skip_term={has_skip_term}"
         if self.layer_norm:
             s += ", layer_norm=True"
-        if self.custom_m is not None:
-            s += ",\n  custom_m=" + str(self.custom_m)
+        s += ",\n  custom_m=" + str(self.custom_m)
         return s.format(**self.__dict__)
 
     def __repr__(self):
