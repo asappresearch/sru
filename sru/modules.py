@@ -1,7 +1,7 @@
 import copy
 import warnings
 import math
-from typing import List, Tuple, Union, Optional
+from typing import List, Tuple, Union, Optional, Sequence
 
 import torch
 import torch.nn as nn
@@ -33,7 +33,7 @@ class SRUCell(nn.Module):
                  dropout: float = 0.0,
                  rnn_dropout: float = 0.0,
                  bidirectional: bool = False,
-                 n_proj: int = 0,
+                 projection_size: int = 0,
                  use_tanh: bool = False,
                  highway_bias: float = 0.0,
                  has_skip_term: bool = True,
@@ -63,10 +63,10 @@ class SRUCell(nn.Module):
         bidirectional: bool, optional
             if True, set the module as a bidirectional SRU
             (default=False)
-        n_proj: int, optional
+        projection_size: int, optional
             if non-zero, factorize the ``weight`` parameter matrix as a
             product of two parameter matrices, using an innder dimension
-            ``n_proj`` (default=0)
+            ``projection_size`` (default=0)
         use_tanh: bool, optional
             [DEPRECATED] if True, apply `tanh` activation to the hidden
             state (default=False). `tanh` is deprecated because minimal
@@ -122,9 +122,7 @@ class SRUCell(nn.Module):
         self.weight_c_init = weight_c_init
 
         # projection dimension
-        self.projection_size = 0
-        if n_proj > 0 and n_proj < self.input_size and n_proj < self.output_size:
-            self.projection_size = n_proj
+        self.projection_size = projection_size
 
         # number of sub-matrices used in SRU
         self.num_matrices = 3
@@ -402,7 +400,7 @@ class SRU(nn.Module):
                  dropout: float = 0.0,
                  rnn_dropout: float = 0.0,
                  bidirectional: bool = False,
-                 projection_size: int = 0,
+                 projection_size: Union[int, Sequence[int]] = 0,
                  use_tanh: bool = False,
                  layer_norm: bool = False,
                  highway_bias: float = 0.0,
@@ -410,7 +408,7 @@ class SRU(nn.Module):
                  rescale: bool = False,
                  v1: bool = False,
                  nn_rnn_compatible_return: bool = False,
-                 custom_m: Optional[Union[nn.Module, List[nn.Module]]] = None,
+                 custom_m: Optional[Union[nn.Module, Sequence[nn.Module]]] = None,
                  proj_input_to_hidden_first: bool = False,
                  amp_recurrence_fp16: bool = False,
                  normalize_after: bool = False,
@@ -436,10 +434,12 @@ class SRU(nn.Module):
         bidirectional: bool, optional
             if True, set the module as a bidirectional SRU
             (default=False)
-        projection_size: int, optional
+        projection_size: Union[int, Sequence[int]]
             if non-zero, factorize the ``weight`` parameter in each
-            layeras a product of two parameter matrices, using an innder
+            layeras a product of two parameter matrices, using an inner
             dimension ``projection_size`` (default=0)
+            If a sequence, length must equal number of layers, and
+            values are projection size for each layer
         use_tanh: bool, optional
             [DEPRECATED] if True, apply `tanh` activation to the hidden
             state (default=False). `tanh` is deprecated because minimal
@@ -460,7 +460,7 @@ class SRU(nn.Module):
         v1: bool, optional
             [DEPRECATED] whether to use the an ealier v1 implementation
             of SRU (default=False)
-        custom_m: Union[nn.Module, List[nn.Module]], optional
+        custom_m: Union[nn.Module, Sequence[nn.Module]], optional
             use the given module(s) instead of the batched matrix
             multiplication to compute the intermediate representations U
             needed for the elementwise recurrrence operation.  The
@@ -513,6 +513,8 @@ class SRU(nn.Module):
             custom_m_i = None
             if custom_m is not None:
                 custom_m_i = custom_m[i] if isinstance(custom_m, list) else copy.deepcopy(custom_m)
+            _projection_size = projection_size if isinstance(
+                projection_size, int) else projection_size[i]
             # create the i-th SRU layer
             layer_i = SRUCell(
                 first_layer_input_size if i == 0 else self.output_size,
@@ -520,7 +522,7 @@ class SRU(nn.Module):
                 dropout=dropout if i + 1 != num_layers else 0,
                 rnn_dropout=rnn_dropout,
                 bidirectional=bidirectional,
-                n_proj=projection_size,
+                projection_size=_projection_size,
                 use_tanh=use_tanh,
                 layer_norm=layer_norm,
                 highway_bias=highway_bias,
@@ -534,6 +536,12 @@ class SRU(nn.Module):
             )
             rnn_lst.append(layer_i)
         self.rnn_lst = rnn_lst
+
+    def __getitem__(self, n: int) -> SRUCell:
+        """
+        returns n'th layer srucell
+        """
+        return self.rnn_lst[n]
 
     def forward(self, input: Tensor,
                 c0: Optional[Tensor] = None,

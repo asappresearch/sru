@@ -1,6 +1,7 @@
 import pytest
-import sru
+from sru import SRU
 import torch
+from torch import nn
 
 
 @pytest.mark.parametrize(
@@ -31,7 +32,7 @@ def test_cell(cuda, with_grad, compat):
         max_len = 4
         layers = 5
         bidirectional = True
-        encoder = sru.SRU(
+        encoder = SRU(
             embedding_size,
             rnn_hidden,
             layers,
@@ -74,3 +75,21 @@ def test_cell(cuda, with_grad, compat):
     else:
         with torch.no_grad():
             run()
+
+
+@pytest.mark.parametrize(
+    "projection_size,expected_custom_m",
+    [
+        (0, (nn.Linear, nn.Linear, nn.Linear)),
+        (2, (nn.Sequential, nn.Sequential, nn.Sequential)),
+        (3, (nn.Sequential, nn.Sequential, nn.Sequential)),
+        ((0, 2, 3), (nn.Linear, nn.Sequential, nn.Sequential)),
+    ]
+)
+def test_projection(projection_size, expected_custom_m):
+    num_layers = 3
+
+    sru = SRU(2, 3, num_layers=num_layers, projection_size=projection_size)
+    assert len(sru.rnn_lst) == 3
+    for i in range(num_layers):
+        assert isinstance(sru.rnn_lst[i].custom_m, expected_custom_m[i])
