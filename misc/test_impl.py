@@ -74,7 +74,7 @@ def test_custom_v(gpu=False):
     loss_1 = h_1.sum()
     loss_1.backward()
     print("----------")
-    print("SRU w/o custom_m:")
+    print("SRU w/o transform_module:")
     print("loss: {}".format(loss_1))
     print("c: {}".format(c_1.sum()))
     print("grad w: {}".format(weight.grad.sum()))
@@ -85,13 +85,13 @@ def test_custom_v(gpu=False):
     weight_c_custom = weight_c.view(2,-1).transpose(0, 1).contiguous().view(-1)
     # weight_c is (2, bidir, d)
     # but custom weight_c is providing (length, batch, bidir, d, 2)
-    def custom_m(input, **kwargs):
+    def transform_module(input, **kwargs):
         U = input.matmul(weight)
         V = input.new_zeros(input.size(0), input.size(1), weight_c_custom.size(0))
         return U, V
 
     cell_2 = SRUCell(5, 5, bidirectional=True,
-            custom_m=custom_m
+            transform_module=transform_module
     )
     cell_2.weight_c.data.copy_(weight_c_custom)
     cell_2.bias = bias
@@ -100,7 +100,7 @@ def test_custom_v(gpu=False):
     h_2, c_2 = cell_2(x)
     loss_2 = h_2.sum()
     loss_2.backward()
-    print("SRU w/ custom_m:")
+    print("SRU w/ transform_module:")
     print("loss: {}".format(loss_2))
     print("c: {}".format(c_2.sum()))
     print("grad w: {}".format(weight.grad.sum()))

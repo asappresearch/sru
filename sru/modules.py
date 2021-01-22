@@ -1,7 +1,7 @@
 import copy
 import warnings
 import math
-from typing import List, Tuple, Union, Optional
+from typing import List, Tuple, Union, Optional, Sequence
 
 import torch
 import torch.nn as nn
@@ -20,9 +20,9 @@ class SRUCell(nn.Module):
 
     __constants__ = ['input_size', 'hidden_size', 'output_size', 'rnn_dropout',
                      'dropout', 'bidirectional', 'has_skip_term', 'highway_bias',
-                     'v1', 'rescale', 'activation_type', 'activation', 'custom_m',
+                     'v1', 'rescale', 'activation_type', 'activation', 'transform_module',
                      'projection_size', 'num_matrices', 'layer_norm', 'weight_proj',
-                     'scale_x', 'normalize_after', 'weight_c_init',]
+                     'scale_x', 'normalize_after', 'weight_c_init', ]
 
     scale_x: Tensor
     weight_proj: Optional[Tensor]
@@ -33,14 +33,14 @@ class SRUCell(nn.Module):
                  dropout: float = 0.0,
                  rnn_dropout: float = 0.0,
                  bidirectional: bool = False,
-                 n_proj: int = 0,
+                 projection_size: int = 0,
                  use_tanh: bool = False,
                  highway_bias: float = 0.0,
                  has_skip_term: bool = True,
                  layer_norm: bool = False,
                  rescale: bool = True,
                  v1: bool = False,
-                 custom_m: Optional[nn.Module] = None,
+                 transform_module: Optional[nn.Module] = None,
                  amp_recurrence_fp16: bool = False,
                  normalize_after: bool = False,
                  weight_c_init: Optional[float] = None):
@@ -63,10 +63,10 @@ class SRUCell(nn.Module):
         bidirectional: bool, optional
             if True, set the module as a bidirectional SRU
             (default=False)
-        n_proj: int, optional
+        projection_size: int, optional
             if non-zero, factorize the ``weight`` parameter matrix as a
             product of two parameter matrices, using an innder dimension
-            ``n_proj`` (default=0)
+            ``projection_size`` (default=0)
         use_tanh: bool, optional
             [DEPRECATED] if True, apply `tanh` activation to the hidden
             state (default=False). `tanh` is deprecated because minimal
@@ -87,7 +87,7 @@ class SRUCell(nn.Module):
         v1: bool, optional
             [DEPRECATED] whether to use the an ealier v1 implementation
             of SRU (default=False)
-        custom_m: nn.Module, optional
+        transform_module: nn.Module, optional
             use the give module instead of the batched matrix
             multiplication to compute the intermediate representations U
             needed for the elementwise recurrrence operation
@@ -114,7 +114,6 @@ class SRUCell(nn.Module):
         self.rescale = rescale
         self.activation_type = 0
         self.activation = 'none'
-        self.custom_m: Optional[nn.Module] = custom_m
         if use_tanh:
             self.activation_type = 1
             self.activation = 'tanh'
@@ -123,36 +122,36 @@ class SRUCell(nn.Module):
         self.weight_c_init = weight_c_init
 
         # projection dimension
-        self.projection_size = 0
-        if n_proj > 0 and n_proj < self.input_size and n_proj < self.output_size:
-            self.projection_size = n_proj
+        self.projection_size = projection_size
 
         # number of sub-matrices used in SRU
         self.num_matrices = 3
         if has_skip_term and self.input_size != self.output_size:
             self.num_matrices = 4
 
-        # make parameters
-        if self.custom_m is None:
+        if transform_module is None:
+            # create an appropriate transform_module, depending on whether we are using projection
+            # or not
             if self.projection_size == 0:
-                self.weight_proj = None
-                self.weight = nn.Parameter(torch.Tensor(
-                    input_size,
-                    self.output_size * self.num_matrices
-                ))
+                # use an nn.Linear
+                transform_module = nn.Linear(
+                    input_size, self.output_size * self.num_matrices, bias=False)
             else:
-                self.weight_proj = nn.Parameter(torch.Tensor(input_size, self.projection_size))
-                self.weight = nn.Parameter(torch.Tensor(
-                    self.projection_size,
-                    self.output_size * self.num_matrices
-                ))
+                # use a Sequential[nn.Linear, nn.Linear]
+                transform_module = nn.Sequential(
+                    nn.Linear(input_size, self.projection_size, bias=False),
+                    nn.Linear(
+                        self.projection_size, self.output_size * self.num_matrices, bias=False),
+                )
+        self.transform_module = transform_module
+
         self.weight_c = nn.Parameter(torch.Tensor(2 * self.output_size))
         self.bias = nn.Parameter(torch.Tensor(2 * self.output_size))
 
         # scaling constant used in highway connections when rescale=True
         self.register_buffer('scale_x', torch.FloatTensor([0]))
 
-        self.layer_norm: Optional[nn.Module]= None
+        self.layer_norm: Optional[nn.Module] = None
         if layer_norm:
             if normalize_after:
                 self.layer_norm = nn.LayerNorm(self.output_size)
@@ -180,41 +179,18 @@ class SRUCell(nn.Module):
             scale_val = (1 + math.exp(bias_val) * 2)**0.5
             self.scale_x.data[0] = scale_val
 
-        if self.custom_m is None:
-            # initialize weights such that E[w_ij]=0 and Var[w_ij]=1/d
-            d = self.weight.size(0)
-            val_range = (3.0 / d)**0.5
-            self.weight.data.uniform_(-val_range, val_range)
-            if self.projection_size > 0:
-                val_range = (3.0 / self.weight_proj.size(0))**0.5
-                self.weight_proj.data.uniform_(-val_range, val_range)
-
-            # projection matrix as a tensor of size:
-            #    (input_size, bidirection, hidden_size, num_matrices)
-            w = self.weight.data.view(d, -1, self.hidden_size, self.num_matrices)
-
-            # re-scale weights for dropout and normalized input for better gradient flow
-            if self.dropout > 0:
-                w[:, :, :, 0].mul_((1 - self.dropout)**0.5)
-            if self.rnn_dropout > 0:
-                w.mul_((1 - self.rnn_dropout)**0.5)
-
-            # making weights smaller when layer norm is used. need more tests
-            if self.layer_norm:
-                w.mul_(0.1)
-                # self.weight_c.data.mul_(0.25)
-
-            # properly scale the highway output
-            if self.rescale and self.has_skip_term and self.num_matrices == 4:
-                scale_val = (1 + math.exp(bias_val) * 2)**0.5
-                w[:, :, :, 3].mul_(scale_val)
-        else:
-            if hasattr(self.custom_m, 'reset_parameters'):
-                self.custom_m.reset_parameters()
+        def reset_module_parameters(module):
+            if hasattr(module, 'reset_parameters'):
+                module.reset_parameters()
+            elif isinstance(module, nn.Sequential):
+                for m in module:
+                    reset_module_parameters(m)
             else:
                 warnings.warn("Unable to reset parameters for custom module. "
                               "reset_parameters() method not found for custom module. "
-                              + self.custom_m.__class__.__name__)
+                              + module.__class__.__name__)
+
+        reset_module_parameters(self.transform_module)
 
         if not self.v1:
             # intialize weight_c such that E[w]=0 and Var[w]=1
@@ -223,11 +199,6 @@ class SRUCell(nn.Module):
                 self.weight_c.data.mul_(0.5**0.5)
             else:
                 self.weight_c.data.uniform_(-self.weight_c_init, self.weight_c_init)
-
-            # rescale weight_c and the weight of sigmoid gates with a factor of sqrt(0.5)
-            if self.custom_m is None:
-                w[:, :, :, 1].mul_(0.5**0.5)
-                w[:, :, :, 2].mul_(0.5**0.5)
         else:
             self.weight_c.data.zero_()
             self.weight_c.requires_grad = False
@@ -326,37 +297,33 @@ class SRUCell(nn.Module):
         input (length, batch_size, input_size) into a tensor U of size
         (length * batch_size, output_size * num_matrices).
 
-        When a custom module `custom_m` is given, U will be computed by
-        the given module. In addition, the module can return an
+        U will be computed by
+        the given transform_module. The module can optionally return an
         additional tensor V (length, batch_size, output_size * 2) that
         will be added to the hidden-to-hidden coefficient terms in
         sigmoid gates, i.e., (V[t, b, d] + weight_c[d]) * c[t-1].
 
         """
-        if self.custom_m is None:
-            U = self.compute_U(input)
-            V = self.weight_c
+        ret = self.transform_module(input)
+        if isinstance(ret, tuple) or isinstance(ret, list):
+            if len(ret) > 2:
+                raise Exception("Custom module must return 1 or 2 tensors but got {}.".format(
+                    len(ret)
+                ))
+            U, V = ret[0], ret[1] + self.weight_c
         else:
-            ret = self.custom_m(input)
-            if isinstance(ret, tuple) or isinstance(ret, list):
-                if len(ret) > 2:
-                    raise Exception("Custom module must return 1 or 2 tensors but got {}.".format(
-                        len(ret)
-                    ))
-                U, V = ret[0], ret[1] + self.weight_c
-            else:
-                U, V = ret, self.weight_c
+            U, V = ret, self.weight_c
 
-            if U.size(-1) != self.output_size * self.num_matrices:
-                raise ValueError("U must have a last dimension of {} but got {}.".format(
-                    self.output_size * self.num_matrices,
-                    U.size(-1)
-                ))
-            if V.size(-1) != self.output_size * 2:
-                raise ValueError("V must have a last dimension of {} but got {}.".format(
-                    self.output_size * 2,
-                    V.size(-1)
-                ))
+        if U.size(-1) != self.output_size * self.num_matrices:
+            raise ValueError("U must have a last dimension of {} but got {}.".format(
+                self.output_size * self.num_matrices,
+                U.size(-1)
+            ))
+        if V.size(-1) != self.output_size * 2:
+            raise ValueError("V must have a last dimension of {} but got {}.".format(
+                self.output_size * 2,
+                V.size(-1)
+            ))
         return U, V
 
     def compute_U(self,
@@ -406,8 +373,7 @@ class SRUCell(nn.Module):
             s += ", has_skip_term={has_skip_term}"
         if self.layer_norm:
             s += ", layer_norm=True"
-        if self.custom_m is not None:
-            s += ",\n  custom_m=" + str(self.custom_m)
+        s += ",\n  transform_module=" + str(self.transform_module)
         return s.format(**self.__dict__)
 
     def __repr__(self):
@@ -435,7 +401,7 @@ class SRU(nn.Module):
                  dropout: float = 0.0,
                  rnn_dropout: float = 0.0,
                  bidirectional: bool = False,
-                 projection_size: int = 0,
+                 projection_size: Union[int, Sequence[int]] = 0,
                  use_tanh: bool = False,
                  layer_norm: bool = False,
                  highway_bias: float = 0.0,
@@ -443,7 +409,7 @@ class SRU(nn.Module):
                  rescale: bool = False,
                  v1: bool = False,
                  nn_rnn_compatible_return: bool = False,
-                 custom_m: Optional[Union[nn.Module, List[nn.Module]]] = None,
+                 transform_module: Optional[Union[nn.Module, Sequence[nn.Module]]] = None,
                  proj_input_to_hidden_first: bool = False,
                  amp_recurrence_fp16: bool = False,
                  normalize_after: bool = False,
@@ -469,10 +435,12 @@ class SRU(nn.Module):
         bidirectional: bool, optional
             if True, set the module as a bidirectional SRU
             (default=False)
-        projection_size: int, optional
+        projection_size: Union[int, Sequence[int]]
             if non-zero, factorize the ``weight`` parameter in each
-            layeras a product of two parameter matrices, using an innder
+            layeras a product of two parameter matrices, using an inner
             dimension ``projection_size`` (default=0)
+            If a sequence, length must equal number of layers, and
+            values are projection size for each layer
         use_tanh: bool, optional
             [DEPRECATED] if True, apply `tanh` activation to the hidden
             state (default=False). `tanh` is deprecated because minimal
@@ -493,7 +461,7 @@ class SRU(nn.Module):
         v1: bool, optional
             [DEPRECATED] whether to use the an ealier v1 implementation
             of SRU (default=False)
-        custom_m: Union[nn.Module, List[nn.Module]], optional
+        transform_module: Union[nn.Module, Sequence[nn.Module]], optional
             use the given module(s) instead of the batched matrix
             multiplication to compute the intermediate representations U
             needed for the elementwise recurrrence operation.  The
@@ -543,9 +511,12 @@ class SRU(nn.Module):
         rnn_lst = nn.ModuleList()
         for i in range(num_layers):
             # get custom modules when provided
-            custom_m_i = None
-            if custom_m is not None:
-                custom_m_i = custom_m[i] if isinstance(custom_m, list) else copy.deepcopy(custom_m)
+            transform_module_i = None
+            if transform_module is not None:
+                transform_module_i = transform_module[i] if isinstance(
+                    transform_module, list) else copy.deepcopy(transform_module)
+            _projection_size = projection_size if isinstance(
+                projection_size, int) else projection_size[i]
             # create the i-th SRU layer
             layer_i = SRUCell(
                 first_layer_input_size if i == 0 else self.output_size,
@@ -553,20 +524,26 @@ class SRU(nn.Module):
                 dropout=dropout if i + 1 != num_layers else 0,
                 rnn_dropout=rnn_dropout,
                 bidirectional=bidirectional,
-                n_proj=projection_size,
+                projection_size=_projection_size,
                 use_tanh=use_tanh,
                 layer_norm=layer_norm,
                 highway_bias=highway_bias,
                 has_skip_term=has_skip_term,
                 rescale=rescale,
                 v1=v1,
-                custom_m=custom_m_i,
+                transform_module=transform_module_i,
                 amp_recurrence_fp16=amp_recurrence_fp16,
                 normalize_after=normalize_after,
                 weight_c_init=weight_c_init,
             )
             rnn_lst.append(layer_i)
         self.rnn_lst = rnn_lst
+
+    def __getitem__(self, n: int) -> SRUCell:
+        """
+        returns n'th layer srucell
+        """
+        return self.rnn_lst[n]
 
     def forward(self, input: Tensor,
                 c0: Optional[Tensor] = None,
@@ -685,4 +662,4 @@ class SRU(nn.Module):
         if not hasattr(self, 'input_to_hidden'):
             self.input_to_hidden = None
             for cell in self.rnn_lst:
-                cell.custom_m = None
+                cell.transform_module = None

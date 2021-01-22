@@ -7,7 +7,6 @@ test:
 import torch
 import sru
 import pytest
-import sys
 
 
 EPSILON = 1e-6
@@ -18,7 +17,7 @@ ARTIFACT_DIR = 'test/regression/artifacts'
 
 @pytest.mark.parametrize(
     "sru_prev_version",
-    ["2.3.5"]
+    []  # TODO: add in 3.0.0
 )
 def test_regression(sru_prev_version):
     """
