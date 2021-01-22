@@ -20,7 +20,7 @@ class SRUCell(nn.Module):
 
     __constants__ = ['input_size', 'hidden_size', 'output_size', 'rnn_dropout',
                      'dropout', 'bidirectional', 'has_skip_term', 'highway_bias',
-                     'v1', 'rescale', 'activation_type', 'activation', 'custom_m',
+                     'v1', 'rescale', 'activation_type', 'activation', 'transform_module',
                      'projection_size', 'num_matrices', 'layer_norm', 'weight_proj',
                      'scale_x', 'normalize_after', 'weight_c_init', ]
 
@@ -40,7 +40,7 @@ class SRUCell(nn.Module):
                  layer_norm: bool = False,
                  rescale: bool = True,
                  v1: bool = False,
-                 custom_m: Optional[nn.Module] = None,
+                 transform_module: Optional[nn.Module] = None,
                  amp_recurrence_fp16: bool = False,
                  normalize_after: bool = False,
                  weight_c_init: Optional[float] = None):
@@ -87,7 +87,7 @@ class SRUCell(nn.Module):
         v1: bool, optional
             [DEPRECATED] whether to use the an ealier v1 implementation
             of SRU (default=False)
-        custom_m: nn.Module, optional
+        transform_module: nn.Module, optional
             use the give module instead of the batched matrix
             multiplication to compute the intermediate representations U
             needed for the elementwise recurrrence operation
@@ -129,20 +129,21 @@ class SRUCell(nn.Module):
         if has_skip_term and self.input_size != self.output_size:
             self.num_matrices = 4
 
-        if custom_m is None:
-            # create an appropriate custom_m, depending on whether we are using projection or not
+        if transform_module is None:
+            # create an appropriate transform_module, depending on whether we are using projection
+            # or not
             if self.projection_size == 0:
                 # use an nn.Linear
-                custom_m = nn.Linear(
+                transform_module = nn.Linear(
                     input_size, self.output_size * self.num_matrices, bias=False)
             else:
                 # use a Sequential[nn.Linear, nn.Linear]
-                custom_m = nn.Sequential(
+                transform_module = nn.Sequential(
                     nn.Linear(input_size, self.projection_size, bias=False),
                     nn.Linear(
                         self.projection_size, self.output_size * self.num_matrices, bias=False),
                 )
-        self.custom_m = custom_m
+        self.transform_module = transform_module
 
         self.weight_c = nn.Parameter(torch.Tensor(2 * self.output_size))
         self.bias = nn.Parameter(torch.Tensor(2 * self.output_size))
@@ -189,7 +190,7 @@ class SRUCell(nn.Module):
                               "reset_parameters() method not found for custom module. "
                               + module.__class__.__name__)
 
-        reset_module_parameters(self.custom_m)
+        reset_module_parameters(self.transform_module)
 
         if not self.v1:
             # intialize weight_c such that E[w]=0 and Var[w]=1
@@ -297,13 +298,13 @@ class SRUCell(nn.Module):
         (length * batch_size, output_size * num_matrices).
 
         U will be computed by
-        the given custom_m. The module can optionally return an
+        the given transform_module. The module can optionally return an
         additional tensor V (length, batch_size, output_size * 2) that
         will be added to the hidden-to-hidden coefficient terms in
         sigmoid gates, i.e., (V[t, b, d] + weight_c[d]) * c[t-1].
 
         """
-        ret = self.custom_m(input)
+        ret = self.transform_module(input)
         if isinstance(ret, tuple) or isinstance(ret, list):
             if len(ret) > 2:
                 raise Exception("Custom module must return 1 or 2 tensors but got {}.".format(
@@ -372,7 +373,7 @@ class SRUCell(nn.Module):
             s += ", has_skip_term={has_skip_term}"
         if self.layer_norm:
             s += ", layer_norm=True"
-        s += ",\n  custom_m=" + str(self.custom_m)
+        s += ",\n  transform_module=" + str(self.transform_module)
         return s.format(**self.__dict__)
 
     def __repr__(self):
@@ -408,7 +409,7 @@ class SRU(nn.Module):
                  rescale: bool = False,
                  v1: bool = False,
                  nn_rnn_compatible_return: bool = False,
-                 custom_m: Optional[Union[nn.Module, Sequence[nn.Module]]] = None,
+                 transform_module: Optional[Union[nn.Module, Sequence[nn.Module]]] = None,
                  proj_input_to_hidden_first: bool = False,
                  amp_recurrence_fp16: bool = False,
                  normalize_after: bool = False,
@@ -460,7 +461,7 @@ class SRU(nn.Module):
         v1: bool, optional
             [DEPRECATED] whether to use the an ealier v1 implementation
             of SRU (default=False)
-        custom_m: Union[nn.Module, Sequence[nn.Module]], optional
+        transform_module: Union[nn.Module, Sequence[nn.Module]], optional
             use the given module(s) instead of the batched matrix
             multiplication to compute the intermediate representations U
             needed for the elementwise recurrrence operation.  The
@@ -510,9 +511,10 @@ class SRU(nn.Module):
         rnn_lst = nn.ModuleList()
         for i in range(num_layers):
             # get custom modules when provided
-            custom_m_i = None
-            if custom_m is not None:
-                custom_m_i = custom_m[i] if isinstance(custom_m, list) else copy.deepcopy(custom_m)
+            transform_module_i = None
+            if transform_module is not None:
+                transform_module_i = transform_module[i] if isinstance(
+                    transform_module, list) else copy.deepcopy(transform_module)
             _projection_size = projection_size if isinstance(
                 projection_size, int) else projection_size[i]
             # create the i-th SRU layer
@@ -529,7 +531,7 @@ class SRU(nn.Module):
                 has_skip_term=has_skip_term,
                 rescale=rescale,
                 v1=v1,
-                custom_m=custom_m_i,
+                transform_module=transform_module_i,
                 amp_recurrence_fp16=amp_recurrence_fp16,
                 normalize_after=normalize_after,
                 weight_c_init=weight_c_init,
@@ -660,4 +662,4 @@ class SRU(nn.Module):
         if not hasattr(self, 'input_to_hidden'):
             self.input_to_hidden = None
             for cell in self.rnn_lst:
-                cell.custom_m = None
+                cell.transform_module = None

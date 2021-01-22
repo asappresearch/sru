@@ -78,7 +78,7 @@ def test_cell(cuda, with_grad, compat):
 
 
 @pytest.mark.parametrize(
-    "projection_size,expected_custom_m",
+    "projection_size,expected_transform_module",
     [
         (0, (nn.Linear, nn.Linear, nn.Linear)),
         (2, (nn.Sequential, nn.Sequential, nn.Sequential)),
@@ -86,10 +86,10 @@ def test_cell(cuda, with_grad, compat):
         ((0, 2, 3), (nn.Linear, nn.Sequential, nn.Sequential)),
     ]
 )
-def test_projection(projection_size, expected_custom_m):
+def test_projection(projection_size, expected_transform_module):
     num_layers = 3
 
     sru = SRU(2, 3, num_layers=num_layers, projection_size=projection_size)
     assert len(sru.rnn_lst) == 3
     for i in range(num_layers):
-        assert isinstance(sru.rnn_lst[i].custom_m, expected_custom_m[i])
+        assert isinstance(sru.rnn_lst[i].transform_module, expected_transform_module[i])
