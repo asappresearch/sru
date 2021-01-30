@@ -96,31 +96,48 @@ def elementwise_recurrence_gpu(U: Tensor,
     """
     from .cuda_functional import SRU_Compute_GPU
 
-    if amp_recurrence_fp16:
-        cast = torch.Tensor.half
+    cast = torch.Tensor.half if amp_recurrence_fp16 else torch.Tensor.float
 
-        U = cast(U)
-        x = cast(x)
-        weight_c = cast(weight_c)
-        bias = cast(bias)
-        c_init = cast(c_init)
-        scale_x = cast(scale_x) if scale_x is not None else scale_x
-        dropout_mask_c = cast(dropout_mask_c) if dropout_mask_c is not None else dropout_mask_c
+    U = cast(U)
+    x = cast(x)
+    weight_c = cast(weight_c)
+    bias = cast(bias)
+    c_init = cast(c_init)
+    scale_x = cast(scale_x) if scale_x is not None else scale_x
+    dropout_mask_c = cast(dropout_mask_c) if dropout_mask_c is not None else dropout_mask_c
 
-    return SRU_Compute_GPU.apply(
-        U,
-        x,
-        weight_c,
-        bias,
-        c_init,
-        activation_type,
-        hidden_size,
-        bidirectional,
-        has_skip_term,
-        scale_x,
-        dropout_mask_c,
-        mask_pad
-    )
+    in_autocast = getattr(torch, 'is_autocast_enabled', lambda: False)()
+    if in_autocast:
+        with torch.cuda.amp.autocast(enabled=False):
+            return SRU_Compute_GPU.apply(
+                U,
+                x,
+                weight_c,
+                bias,
+                c_init,
+                activation_type,
+                hidden_size,
+                bidirectional,
+                has_skip_term,
+                scale_x,
+                dropout_mask_c,
+                mask_pad
+            )
+    else:
+        return SRU_Compute_GPU.apply(
+            U,
+            x,
+            weight_c,
+            bias,
+            c_init,
+            activation_type,
+            hidden_size,
+            bidirectional,
+            has_skip_term,
+            scale_x,
+            dropout_mask_c,
+            mask_pad
+        )
 
 
 @torch.jit.unused
