@@ -1071,7 +1071,7 @@ class SRUpp(nn.Module):
                 attn_mask: Optional[Tensor] = None,
                 memory: Optional[List[Optional[Tensor]]] = None,
                 memory_mask_pad: Optional[Tensor] = None,
-                ) -> Tuple(Tensor, Tensor, Optional[Tensor]):
+                ) -> Tuple[Tensor, Tensor, Optional[Tensor]]:
         """
         """
         # unpack packed, if input is packed. packing and then unpacking will be slower than not
