@@ -53,15 +53,15 @@ def test_srupp(bidirectional, proj, layer_norm, normalize_after, attn_every_n_la
                       attention_every_n_layers=attn_every_n_layers)
     model.eval()
 
-    h, c = model(x)
+    h, c, _ = model(x)
     h, c = h.detach(), c.detach()
 
     with torch.no_grad():
-        h_, c_ = model(x)
+        h_, c_, _ = model(x)
         assert (h - h_).abs().max() <= eps
         assert (c - c_).abs().max() <= eps
 
     ts_model = torch.jit.script(model)
-    h_, c_ = ts_model(x)
+    h_, c_, _ = ts_model(x)
     assert (h - h_).abs().max() <= eps
     assert (c - c_).abs().max() <= eps

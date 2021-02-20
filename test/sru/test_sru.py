@@ -104,7 +104,7 @@ def test_projection(projection_size, expected_transform_module):
     ]
 )
 def test_srupp(attn_every_n_layers, expected_transform_module):
-    num_layers = 4
+    num_layers = 2
 
     srupp = SRUpp(2, 2, 3, num_layers=num_layers,
                   attention_every_n_layers=attn_every_n_layers)
@@ -157,7 +157,7 @@ def test_srupp_cell(cuda, with_grad, compat):
             words_embeddings = words_embeddings.to("cuda")
             encoder.cuda()
         encoder.eval()
-        hidden, cell = encoder(words_embeddings)
+        hidden, cell, _ = encoder(words_embeddings)
 
         def cell_to_emb(cell, batch_size):
             if compat:
@@ -177,7 +177,7 @@ def test_srupp_cell(cuda, with_grad, compat):
 
         scores = cell_to_emb(cell, num_sentences)
         for i in range(num_sentences):
-            hidden, cell = encoder(words_embeddings[:, i : i + 1])
+            hidden, cell, _ = encoder(words_embeddings[:, i : i + 1])
             score = cell_to_emb(cell, 1)
             assert (score.detach() - scores[i].detach()).abs().max() <= eps
 

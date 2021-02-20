@@ -1,7 +1,7 @@
 import copy
 import warnings
 import math
-from typing import List, Tuple, Union, Optional, Sequence
+from typing import List, Tuple, Union, Optional, Sequence, Dict
 
 import torch
 import torch.nn as nn
@@ -22,7 +22,7 @@ class SRUCell(nn.Module):
     __constants__ = ['input_size', 'hidden_size', 'output_size', 'rnn_dropout',
                      'dropout', 'bidirectional', 'has_skip_term', 'highway_bias',
                      'v1', 'rescale', 'activation_type', 'activation', 'transform_module',
-                     'projection_size', 'num_matrices', 'layer_norm', 'weight_proj',
+                     'projection_size', 'num_matrices', 'layer_norm',
                      'scale_x', 'normalize_after', 'weight_c_init', ]
 
     scale_x: Tensor
@@ -320,23 +320,6 @@ class SRUCell(nn.Module):
                 V.size(-1)
             ))
         return U, V
-
-    def compute_U(self,
-                  input: Tensor) -> Tensor:
-        """
-        SRU performs grouped matrix multiplication to transform the
-        input (length, batch_size, input_size) into a tensor U of size
-        (length * batch_size, output_size * num_matrices)
-        """
-        # collapse (length, batch_size) into one dimension if necessary
-        x = input if input.dim() == 2 else input.contiguous().view(-1, self.input_size)
-        weight_proj = self.weight_proj
-        if weight_proj is not None:
-            x_projected = x.mm(weight_proj)
-            U = x_projected.mm(self.weight)
-        else:
-            U = x.mm(self.weight)
-        return U
 
     def get_dropout_mask_(self,
                           size: Tuple[int, int],
@@ -841,10 +824,10 @@ class SRUppAttention(nn.Module):
 
         if mask_pad is not None or memory_mask_pad is not None:
             if mask_pad is None:
-                mask_pad = input.new_zeros(tgt_len, bsz).bool()
+                mask_pad = input.new_zeros(tgt_len, bsz, dtype=torch.bool)
             if mem_len > 0:
                 if memory_mask_pad is None:
-                    memory_mask_pad = input.new_zeros(mem_len, bsz).bool()
+                    memory_mask_pad = input.new_zeros(mem_len, bsz, dtype=torch.bool)
                 mask_pad = torch.cat([memory_mask_pad, mask_pad], dim=0)
             if list(mask_pad.size()) != [src_len, bsz]:
                 raise ValueError("mask_pad has size {} but expect {}.".format(
@@ -1031,6 +1014,7 @@ class SRUpp(nn.Module):
             in_features = first_layer_input_size if i == 0 else self.output_size
             proj_features = proj_size
             out_features = self.output_size * (3 if in_features == self.output_size else 4)
+            custom_m: Optional[nn.Module] = None
             if (i + 1) % attention_every_n_layers == 0:
                 custom_m = SRUppAttention(
                     in_features,
@@ -1071,7 +1055,7 @@ class SRUpp(nn.Module):
                 attn_mask: Optional[Tensor] = None,
                 memory: Optional[List[Optional[Tensor]]] = None,
                 memory_mask_pad: Optional[Tensor] = None,
-                ) -> Tuple[Tensor, Tensor, Optional[Tensor]]:
+                ) -> Tuple[Tensor, Tensor, Dict[str, List[Tensor]]]:
         """
         """
         # unpack packed, if input is packed. packing and then unpacking will be slower than not
@@ -1131,12 +1115,12 @@ class SRUpp(nn.Module):
             x = input
         else:
             x = self.input_to_hidden(input)
+        prev_inputs = []
         lstc = []
-        lsth = []
         i = 0
         x = x.contiguous()
         for rnn in self.rnn_lst:
-            lsth.append(x)
+            prev_inputs.append(x)
             memory_i = memory[i] if memory is not None else None
             h, c = rnn(x, c0_[i],
                        mask_pad=mask_pad,
@@ -1156,10 +1140,7 @@ class SRUpp(nn.Module):
         if isinstance(orig_input, PackedSequence):
             h = nn.utils.rnn.pack_padded_sequence(h, lengths, enforce_sorted=False)
 
-        if memory is not None:
-            return (h, lstc_stack, tuple(lsth))
-        else:
-            return (h, lstc_stack)
+        return (h, lstc_stack, {'prev_inputs': prev_inputs})
 
     def reset_parameters(self):
         for rnn in self.rnn_lst:
