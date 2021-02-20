@@ -1048,6 +1048,12 @@ class SRUpp(nn.Module):
             )
             self.rnn_lst.append(layer)
 
+    def __getitem__(self, n: int) -> SRUppCell:
+        """
+        returns n'th layer SRUppCell
+        """
+        return self.rnn_lst[n]
+
     def forward(self,
                 input: Tensor,
                 c0: Optional[Tensor] = None,
@@ -1133,9 +1139,9 @@ class SRUpp(nn.Module):
 
         lstc_stack = torch.stack(lstc)
         if self.nn_rnn_compatible_return:
-            lstc_stack = lstc_stack.view(num_layers, bsz, self.num_directions, output_size)
+            lstc_stack = lstc_stack.view(num_layers, bsz, self.num_directions, self.hidden_size)
             lstc_stack = lstc_stack.transpose(1, 2).contiguous()
-            lstc_stack = lstc_stack.view(num_layers * self.num_directions, bsz, output_size)
+            lstc_stack = lstc_stack.view(num_layers * self.num_directions, bsz, self.hidden_size)
 
         if isinstance(orig_input, PackedSequence):
             h = nn.utils.rnn.pack_padded_sequence(h, lengths, enforce_sorted=False)
