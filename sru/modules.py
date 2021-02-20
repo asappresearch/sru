@@ -34,15 +34,15 @@ class SRUCell(nn.Module):
                  rnn_dropout: float = 0.0,
                  bidirectional: bool = False,
                  projection_size: int = 0,
-                 use_tanh: bool = False,
                  highway_bias: float = 0.0,
-                 has_skip_term: bool = True,
                  layer_norm: bool = False,
-                 rescale: bool = True,
-                 v1: bool = False,
+                 normalize_after: bool = True,
                  transform_module: Optional[nn.Module] = None,
+                 rescale: bool = False,
+                 has_skip_term: bool = True,
+                 use_tanh: bool = False,
+                 v1: bool = False,
                  amp_recurrence_fp16: bool = False,
-                 normalize_after: bool = False,
                  weight_c_init: Optional[float] = None):
         """Initialize the SRUCell module.
 
@@ -119,7 +119,9 @@ class SRUCell(nn.Module):
             self.activation = 'tanh'
         self.amp_recurrence_fp16 = amp_recurrence_fp16
         self.normalize_after = normalize_after
-        self.weight_c_init = weight_c_init
+        self.weight_c_init = float(1.0)
+        if weight_c_init is not None:
+            self.weight_c_init = weight_c_init
 
         # projection dimension
         self.projection_size = projection_size
@@ -180,7 +182,11 @@ class SRUCell(nn.Module):
             self.scale_x.data[0] = scale_val
 
         def reset_module_parameters(module):
-            if hasattr(module, 'reset_parameters'):
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    module.bias.data.zero_()
+            elif hasattr(module, 'reset_parameters'):
                 module.reset_parameters()
             elif isinstance(module, nn.Sequential):
                 for m in module:
@@ -193,12 +199,7 @@ class SRUCell(nn.Module):
         reset_module_parameters(self.transform_module)
 
         if not self.v1:
-            # intialize weight_c such that E[w]=0 and Var[w]=1
-            if self.weight_c_init is None:
-                self.weight_c.data.uniform_(-3.0**0.5, 3.0**0.5)
-                self.weight_c.data.mul_(0.5**0.5)
-            else:
-                self.weight_c.data.uniform_(-self.weight_c_init, self.weight_c_init)
+            self.weight_c.data.uniform_(-self.weight_c_init, self.weight_c_init)
         else:
             self.weight_c.data.zero_()
             self.weight_c.requires_grad = False
@@ -402,17 +403,17 @@ class SRU(nn.Module):
                  rnn_dropout: float = 0.0,
                  bidirectional: bool = False,
                  projection_size: Union[int, Sequence[int]] = 0,
-                 use_tanh: bool = False,
-                 layer_norm: bool = False,
                  highway_bias: float = 0.0,
+                 layer_norm: bool = False,
+                 normalize_after: bool = False,
+                 transform_module: Optional[Union[nn.Module, Sequence[nn.Module]]] = None,
                  has_skip_term: bool = True,
                  rescale: bool = False,
+                 use_tanh: bool = False,
                  v1: bool = False,
                  nn_rnn_compatible_return: bool = False,
-                 transform_module: Optional[Union[nn.Module, Sequence[nn.Module]]] = None,
                  proj_input_to_hidden_first: bool = False,
                  amp_recurrence_fp16: bool = False,
-                 normalize_after: bool = False,
                  weight_c_init: Optional[float] = None):
         """Initialize the SRU module.
 
@@ -632,34 +633,3 @@ class SRU(nn.Module):
             rnn.reset_parameters()
         if self.input_to_hidden is not None:
             self.input_to_hidden.reset_parameters()
-
-    def make_backward_compatible(self):
-        self.nn_rnn_compatible_return = getattr(self, 'nn_rnn_compatible_return', False)
-
-        # version <= 2.1.7
-        if hasattr(self, 'n_in'):
-            if len(self.ln_lst):
-                raise Exception("Layer norm is not backward compatible for sru<=2.1.7")
-            if self.use_weight_norm:
-                raise Exception("Weight norm removed in sru>=2.1.9")
-            self.input_size = self.n_in
-            self.hidden_size = self.n_out
-            self.output_size = self.out_size
-            self.num_layers = self.depth
-            self.projection_size = self.n_proj
-            self.use_layer_norm = False
-            for cell in self.rnn_lst:
-                cell.input_size = cell.n_in
-                cell.hidden_size = cell.n_out
-                cell.output_size = cell.n_out * 2 if cell.bidirectional else cell.n_out
-                cell.num_matrices = cell.k
-                cell.projection_size = cell.n_proj
-                cell.layer_norm = None
-                if cell.activation_type > 1:
-                    raise Exception("ReLU or SeLU activation removed in sru>=2.1.9")
-
-        # version <= 2.1.9
-        if not hasattr(self, 'input_to_hidden'):
-            self.input_to_hidden = None
-            for cell in self.rnn_lst:
-                cell.transform_module = None
