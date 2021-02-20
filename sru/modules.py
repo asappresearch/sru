@@ -921,7 +921,7 @@ class SRUppCell(SRUCell):
 
         # compute U
         #   U is (length, batch_size, output_size * num_matrices)
-        transform_module: nn.Module = self.transform_module
+        transform_module = self.transform_module
         U = transform_module(input, mask_pad=mask_pad,
                              attn_mask=attn_mask,
                              memory=memory,
