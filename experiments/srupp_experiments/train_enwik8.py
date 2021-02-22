@@ -162,10 +162,10 @@ def main(args):
         dev_writer = SummaryWriter(log_dir=log_path+"/dev")
 
     # set up distributed training
+    set_seed(args.seed)
     torch.cuda.set_device(args.local_rank)
     device = torch.device("cuda", args.local_rank)
     torch.distributed.init_process_group(backend="nccl")
-    set_seed(1234)
     args.device = device
     local_rank = args.local_rank
     n_nodes = torch.distributed.get_world_size()
@@ -368,6 +368,7 @@ if __name__ == "__main__":
                            help="intial bias of highway gates")
 
     # training configs
+    argparser.add_argument("--seed", type=int, default=1234, help="random seed")
     argparser.add_argument("--fp16", action="store_true")
     argparser.add_argument("--warmup_steps", type=int, default=16000)
     argparser.add_argument("--batch_size", "--batch", type=int, default=4)

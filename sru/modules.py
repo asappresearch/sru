@@ -163,7 +163,7 @@ class SRUCell(nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self):
-        """Properly initialize the weights of SRU.
+        """Initialize the weights of SRU.
         """
         # initialize bias and scaling constant
         self.bias.data.zero_()

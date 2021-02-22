@@ -1,7 +1,7 @@
+import argparse
+from data_utils import get_lm_corpus
 
 if __name__ == '__main__':
-    import argparse
-    from data_utils import get_lm_corpus
     parser = argparse.ArgumentParser(description='unit test')
     parser.add_argument('--datadir', type=str, default='../data/text8',
                         help='location of the data corpus')
