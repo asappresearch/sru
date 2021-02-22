@@ -10,7 +10,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from tensorboardX import SummaryWriter
 
 from radam import RAdam
-from sruplusplus import SRUpp
+from sru import SRUpp
 
 from embedding import AdaptiveEmbedding, AdaptiveLogSoftmax
 from data_utils import get_lm_corpus
