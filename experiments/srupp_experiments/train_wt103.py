@@ -110,7 +110,7 @@ class Model(nn.Module):
             memory=memory,
             attn_mask=attn_mask
         )
-        memory = memory_dict['prev_inputs']
+        memory = memory_dict['saved_inputs']
         output = self.drop(output)
         output = output.view(-1, output.size(2))
         loss = self.output_layer(output, y.view(-1))
@@ -361,8 +361,8 @@ def main(args):
         args.eval_batch_size = 1
         dev = corpus.get_iterator('valid', 1, eval_unroll_size, device=device)
         test = corpus.get_iterator('test', 1, eval_unroll_size, device=device)
-        dev_ppl, dev_loss = eval_model(model_, dev, print_speed=True)
-        test_ppl, test_loss = eval_model(model_, test, print_speed=True)
+        dev_ppl, dev_loss = eval_model(model_, dev, print_speed=False)
+        test_ppl, test_loss = eval_model(model_, test, print_speed=False)
         sys.stdout.write("dev_ppl={:.3f}  test_ppl={:.3f}\n".format(
             dev_ppl, test_ppl
         ))

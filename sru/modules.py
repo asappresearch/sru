@@ -181,7 +181,7 @@ class SRUCell(nn.Module):
                 if module.bias is not None:
                     module.bias.data.zero_()
             elif hasattr(module, 'reset_parameters'):
-                module.reset_parameters()
+                module.reset_parameters()  # type: ignore
             elif isinstance(module, nn.Sequential):
                 for m in module:
                     reset_module_parameters(m)
@@ -1063,6 +1063,58 @@ class SRUpp(nn.Module):
                 memory_mask_pad: Optional[Tensor] = None,
                 ) -> Tuple[Tensor, Tensor, Dict[str, List[Tensor]]]:
         """
+        The forward method of SRUpp module.
+
+        Parameters
+        ----------
+        input: Tensor
+            the input feature. shape: (length, batch_size, input_size)
+        c0: Tensor, optional
+            the initial internal hidden state. shape: (num_layers,
+            batch_size, output_size) where
+            output_size = hidden_size * num_direction
+        mask_pad: Tensor, optional
+            the mask where a non-zero value indicates if an input token
+            is pad token that should be ignored in forward and backward
+            computation. shape: (length, batch_size)
+        attn_mask: Tensor, optional
+            the additive attention mask. shape: (input_length, context_length)
+            the mask is a float tensor that will be directly added to the
+            attention weights before softmax normalization.
+            input_length is the length of the input tensor, and context length
+            is the total length of context states that each input can attend
+            to. the context_length is equal to the sum of input_length and the
+            lengths of extra memory states given by `memory`.
+        memory: a list of optional tensors, optional
+            a list of memory tensors as additional inputs for the attention
+            to attend to. the size of the list is equal to the number of layers
+            of SRUpp module. memory[i] is the memory tensor for the (i+1)-th
+            layer and its second dimension (batch size) and third dimension
+            (hidden size) must be compatible with the input tensor to the
+            (i+1)-th layer.
+        memory_mask_pad: tensor, optional
+            the mask tensor indicate if a position in the memory tensors is
+            an invalid / pad token that should be ignored in attention.
+            shape: (memory_length, batch_size)
+
+        Returns
+        ----------
+        h: Tensor
+            the output hidden state. shape: (length, batch_size,
+            output_size) where
+            output_size = hidden_size * num_direction
+        c: Tensor
+            the last internal hidden state. shape: (num_layers,
+            batch_size, output_size), or (num_layers * num_directions,
+            batch_size, hidden_size) if `nn_rnn_compatible_return` is
+            set `True`
+        memory_bank: Dict[str, List[Tensor]]
+            a dictionary that stores various internal states indexed
+            by state names. each value is a list of tensors in which
+            the i-th element is the state tensor of the (i+1)-th layer.
+            these internal states can be reused for attention for the
+            next forward call during training and decoding.
+
         """
         # unpack packed, if input is packed. packing and then unpacking will be slower than not
         # packing at all, but makes SRU++ usage compatible with nn.RNN usage
@@ -1146,7 +1198,7 @@ class SRUpp(nn.Module):
         if isinstance(orig_input, PackedSequence):
             h = nn.utils.rnn.pack_padded_sequence(h, lengths, enforce_sorted=False)
 
-        return (h, lstc_stack, {'prev_inputs': prev_inputs})
+        return (h, lstc_stack, {'saved_inputs': prev_inputs})
 
     def reset_parameters(self):
         for rnn in self.rnn_lst:

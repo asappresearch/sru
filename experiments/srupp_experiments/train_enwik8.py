@@ -76,7 +76,7 @@ class Model(nn.Module):
             memory=memory,
             attn_mask=attn_mask
         )
-        memory = memory_dict['prev_inputs']
+        memory = memory_dict['saved_inputs']
         output = self.drop(output)
         output = self.output_layer(output)
         output = output.view(-1, output.size(2))

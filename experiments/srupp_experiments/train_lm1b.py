@@ -99,17 +99,17 @@ class Model(nn.Module):
             self.attn_mask = torch.triu(ones, diagonal=1) * -10000.0
 
     def forward(self, x, y, hidden, memory):
-        mem_len = 0 if memory[0] is None else memory[0].size(0)
         input_len = x.size(0)
+        mem_len = 0 if memory[0] is None else memory[0].size(0)
         attn_mask = self.attn_mask[mem_len:mem_len + input_len, :mem_len + input_len]
         attn_mask = attn_mask.to(x)
         emb = self.drop(self.embedding_layer(x))
-        ret = self.rnn(
+        output, hidden, memory_dict = self.rnn(
             emb, hidden,
             memory=memory,
             attn_mask=attn_mask
         )
-        output, hidden, memory = ret[0], ret[1], ret[2:]
+        memory = memory_dict['saved_inputs']
         output = self.drop(output)
         output = output.view(-1, output.size(2))
         loss = self.output_layer(output, y.view(-1))
