@@ -118,6 +118,7 @@ python -m torch.distributed.launch --nproc_per_node 1 --master_port 1234
                       --max_iter 0
                       --eval_unroll_size 2560
 ```
+<br>
 
 ### Billion Word
 Train and eval the base model with 328M parameters:
