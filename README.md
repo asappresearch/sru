@@ -9,7 +9,7 @@
 For example, the figure above presents the processing time of a single mini-batch of 32 samples. SRU achieves 10 to 16 times speed-up compared to LSTM, and operates as fast as (or faster than) word-level convolution using conv2d.
 
 #### Reference:
-Simple Recurrent Units for Highly Parallelizable Recurrence [paper](https://arxiv.org/abs/1709.02755)
+Simple Recurrent Units for Highly Parallelizable Recurrence [[paper](https://arxiv.org/abs/1709.02755)]
 ```
 @inproceedings{lei2018sru,
   title={Simple Recurrent Units for Highly Parallelizable Recurrence},
