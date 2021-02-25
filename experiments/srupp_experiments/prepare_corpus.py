@@ -1,5 +1,5 @@
 '''
-This file is copied and modified from the Transformer-XL repo:
+This file is copied and modified from the Transformer-XL checkpoint:
 https://github.com/kimiyoung/transformer-xl/blob/44781ed21dbaec88b280f74d9ae2877f52b492a5/pytorch/data_utils.py
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,8 +22,8 @@ from data_utils import get_lm_corpus
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--datadir', type=str, required=True, help='location of the data corpus')
-    parser.add_argument('--dataset', type=str, default='enwik8',
-                        choices=['wt103', 'lm1b', 'enwik8'],
+    parser.add_argument('--dataset', type=str, default='wt103',
+                        choices=['wt103', 'lm1b'],
                         help='dataset name')
     args = parser.parse_args()
 

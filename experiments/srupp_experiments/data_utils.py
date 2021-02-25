@@ -1,5 +1,5 @@
 '''
-This file is copied and modified from the Transformer-XL repo:
+This file is copied and modified from the Transformer-XL checkpoint:
 https://github.com/kimiyoung/transformer-xl/blob/44781ed21dbaec88b280f74d9ae2877f52b492a5/pytorch/data_utils.py
 
 Licensed under the Apache License, Version 2.0 (the "License");
