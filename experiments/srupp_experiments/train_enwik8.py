@@ -382,7 +382,6 @@ if __name__ == "__main__":
     argparser.add_argument("--clip_grad", type=float, default=1.0)
     argparser.add_argument("--log_period", type=int, default=200)
     argparser.add_argument("--eval_period", type=int, default=8000)
-    argparser.add_argument("--eval_period", type=int, default=8000)
 
     # distributed data parallel local_rank
     argparser.add_argument("--local_rank", type=int, default=0)
