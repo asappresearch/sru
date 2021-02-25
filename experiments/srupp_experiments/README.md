@@ -1,10 +1,10 @@
 ## About
-This folder contains the experimental code of SRU++ tech report:
+This folder contains the experimental code of SRU++ [tech report](https://arxiv.org/pdf/2102.12459):
 ```
 @article{lei2021srupp,
   title={When Attention Meets Fast Recurrence: Training Language Models with Reduced Compute},
   author={Tao Lei},
-  journal={arXiv preprint}
+  journal={arXiv preprint arXiv:2102.12459},
   year={2021}
 }
 ```
