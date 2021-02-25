@@ -1,4 +1,9 @@
 
+## News
+SRU++, a new SRU variant, is released. [[tech report](https://arxiv.org/pdf/2102.1245))] [[blog](https://www.asapp.com/blog/reducing-the-high-cost-and-carbon-footprint-of-training-nlp-models-with-sru/)]
+
+The experimental code and SRU++ implementation are available on [the dev branch](https://github.com/asappresearch/sru/tree/3.0.0-dev/experiments/srupp_experiments) which will be merged into master later.
+
 ## About
 
 **SRU** is a recurrent unit that can run over 10 times faster than cuDNN LSTM, without loss of accuracy tested on many tasks. 
@@ -8,10 +13,8 @@
 </p>
 For example, the figure above presents the processing time of a single mini-batch of 32 samples. SRU achieves 10 to 16 times speed-up compared to LSTM, and operates as fast as (or faster than) word-level convolution using conv2d.
 
-The [paper](https://arxiv.org/abs/1709.02755) has multiple versions, please check the latest one.
-
 #### Reference:
-Simple Recurrent Units for Highly Parallelizable Recurrence
+Simple Recurrent Units for Highly Parallelizable Recurrence [[paper](https://arxiv.org/abs/1709.02755)]
 ```
 @inproceedings{lei2018sru,
   title={Simple Recurrent Units for Highly Parallelizable Recurrence},
@@ -20,10 +23,20 @@ Simple Recurrent Units for Highly Parallelizable Recurrence
   year={2018}
 }
 ```
+
+When Attention Meets Fast Recurrence: Training Language Models with Reduced Compute [[paper](https://arxiv.org/pdf/2102.12459)]
+```
+@article{lei2021srupp,
+  title={When Attention Meets Fast Recurrence: Training Language Models with Reduced Compute},
+  author={Tao Lei},
+  journal={arXiv preprint arXiv:2102.12459},
+  year={2021}
+}
+```
 <br>
 
 ## Requirements
- - [PyTorch](http://pytorch.org/) >=1.3.1 recommended, [pytorch installation details](docs/pytorch_installation.md)
+ - [PyTorch](http://pytorch.org/) >=1.6 recommended
  - [ninja](https://ninja-build.org/)
 
 Install requirements via `pip install -r requirements.txt`.
