@@ -8,10 +8,8 @@
 </p>
 For example, the figure above presents the processing time of a single mini-batch of 32 samples. SRU achieves 10 to 16 times speed-up compared to LSTM, and operates as fast as (or faster than) word-level convolution using conv2d.
 
-The [paper](https://arxiv.org/abs/1709.02755) has multiple versions, please check the latest one.
-
 #### Reference:
-Simple Recurrent Units for Highly Parallelizable Recurrence
+Simple Recurrent Units for Highly Parallelizable Recurrence [[paper](https://arxiv.org/abs/1709.02755)]
 ```
 @inproceedings{lei2018sru,
   title={Simple Recurrent Units for Highly Parallelizable Recurrence},
@@ -20,10 +18,20 @@ Simple Recurrent Units for Highly Parallelizable Recurrence
   year={2018}
 }
 ```
+
+When Attention Meets Fast Recurrence: Training Language Models with Reduced Compute
+```
+@article{lei2021srupp,
+  title={When Attention Meets Fast Recurrence: Training Language Models with Reduced Compute},
+  author={Tao Lei},
+  journal={arXiv preprint}
+  year={2021}
+}
+```
 <br>
 
 ## Requirements
- - [PyTorch](http://pytorch.org/) >=1.3.1 recommended, [pytorch installation details](docs/pytorch_installation.md)
+ - [PyTorch](http://pytorch.org/) >=1.6 recommended, [pytorch installation details](docs/pytorch_installation.md)
  - [ninja](https://ninja-build.org/)
 
 Install requirements via `pip install -r requirements.txt`.

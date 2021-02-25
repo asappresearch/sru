@@ -1,3 +1,21 @@
+'''
+This file is copied and modified from the Transformer-XL checkpoint:
+https://github.com/kimiyoung/transformer-xl/blob/44781ed21dbaec88b280f74d9ae2877f52b492a5/pytorch/utils/adaptive_softmax.py
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+THIS CODE IS PROVIDED *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY IMPLIED
+WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
+MERCHANTABLITY OR NON-INFRINGEMENT.
+See the Apache 2 License for the specific language governing permissions and
+limitations under the License.
+'''
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -5,8 +23,6 @@ import torch.nn.functional as F
 
 class AdaptiveEmbedding(nn.Module):
     '''
-    Code taken and modified from Transformer-XL
-    https://github.com/kimiyoung/transformer-xl
     '''
     def __init__(self, n_token, d_embed, d_proj, cutoffs,
                  div_val=1,
@@ -87,8 +103,6 @@ class AdaptiveEmbedding(nn.Module):
 
 class AdaptiveLogSoftmax(nn.Module):
     '''
-    Code taken and modified from Transformer-XL
-    https://github.com/kimiyoung/transformer-xl
     '''
     def __init__(self, n_token, d_embed, d_proj, cutoffs,
                  div_val=1,
