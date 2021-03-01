@@ -1,4 +1,5 @@
 import os
+import warnings
 import torch
 from torch.autograd import Function
 
@@ -37,7 +38,7 @@ class SRU_Compute_GPU(Function):
         ctx.has_skip_term = has_skip_term
         ctx.scale_x = scale_x
         # ensure mask_pad is a byte tensor
-        mask_pad = mask_pad.byte().contiguous() if mask_pad is not None else None
+        mask_pad = mask_pad.bool().contiguous() if mask_pad is not None else None
         ctx.mask_pad = mask_pad
 
         bidir = 2 if bidirectional else 1
@@ -62,26 +63,48 @@ class SRU_Compute_GPU(Function):
         else:
             x_ = empty_ftensor
 
-        forward_func = sru_cuda_lib.sru_bi_forward if bidirectional else \
-            sru_cuda_lib.sru_forward
-        forward_func(
-            h,
-            c,
-            u.contiguous(),
-            x_,
-            weight_c.contiguous(),
-            bias,
-            init.contiguous(),
-            mask_c if mask_c is not None else empty_ftensor,
-            mask_pad.contiguous() if mask_pad is not None else empty_btensor,
-            length,
-            batch,
-            d,
-            k_,
-            activation_type,
-            skip_type,
-            is_custom
-        )
+        # call faster / simple version if possible
+        is_simple_version = ((k_ == 3) and has_skip_term and (not is_custom)
+                             and (activation_type == 0))
+        warnings.warn("is_simple_version: {}".format(is_simple_version))
+        if is_simple_version:
+            forward_func = sru_cuda_lib.sru_bi_forward_simple if bidirectional else \
+                sru_cuda_lib.sru_forward_simple
+            forward_func(
+                h,
+                c,
+                u.contiguous(),
+                x_,
+                weight_c.contiguous(),
+                bias,
+                init.contiguous(),
+                mask_c if mask_c is not None else empty_ftensor,
+                mask_pad.contiguous() if mask_pad is not None else empty_btensor,
+                length,
+                batch,
+                d
+            )
+        else:
+            forward_func = sru_cuda_lib.sru_bi_forward if bidirectional else \
+                sru_cuda_lib.sru_forward
+            forward_func(
+                h,
+                c,
+                u.contiguous(),
+                x_,
+                weight_c.contiguous(),
+                bias,
+                init.contiguous(),
+                mask_c if mask_c is not None else empty_ftensor,
+                mask_pad.contiguous() if mask_pad is not None else empty_btensor,
+                length,
+                batch,
+                d,
+                k_,
+                activation_type,
+                skip_type,
+                is_custom
+            )
 
         ctx.save_for_backward(u, x, weight_c, bias, init, mask_c)
         ctx.intermediate = c
@@ -123,32 +146,59 @@ class SRU_Compute_GPU(Function):
         else:
             x_ = empty_ftensor
 
-        backward_func = sru_cuda_lib.sru_bi_backward if ctx.bidirectional else \
-            sru_cuda_lib.sru_backward
-        backward_func(
-            grad_u,
-            grad_x if skip_type > 0 and k_ == 3 else empty_ftensor,
-            grad_wc,
-            grad_bias,
-            grad_init,
-            u.contiguous(),
-            x_,
-            weight_c.contiguous(),
-            bias,
-            init.contiguous(),
-            mask_c if mask_c is not None else empty_ftensor,
-            mask_pad.contiguous() if mask_pad is not None else empty_btensor,
-            c,
-            grad_h.contiguous(),
-            grad_last.contiguous(),
-            length,
-            batch,
-            d,
-            k_,
-            ctx.activation_type,
-            skip_type,
-            is_custom
-        )
+        # call faster / simple version if possible
+        is_simple_version = ((k_ == 3) and ctx.has_skip_term and (not is_custom)
+                             and (ctx.activation_type == 0))
+        if is_simple_version:
+            backward_func = sru_cuda_lib.sru_bi_backward_simple if ctx.bidirectional else \
+                sru_cuda_lib.sru_backward_simple
+            backward_func(
+                grad_u,
+                grad_x if skip_type > 0 and k_ == 3 else empty_ftensor,
+                grad_wc,
+                grad_bias,
+                grad_init,
+                u.contiguous(),
+                x_,
+                weight_c.contiguous(),
+                bias,
+                init.contiguous(),
+                mask_c if mask_c is not None else empty_ftensor,
+                mask_pad.contiguous() if mask_pad is not None else empty_btensor,
+                c,
+                grad_h.contiguous(),
+                grad_last.contiguous(),
+                length,
+                batch,
+                d,
+            )
+        else:
+            backward_func = sru_cuda_lib.sru_bi_backward if ctx.bidirectional else \
+                sru_cuda_lib.sru_backward
+            backward_func(
+                grad_u,
+                grad_x if skip_type > 0 and k_ == 3 else empty_ftensor,
+                grad_wc,
+                grad_bias,
+                grad_init,
+                u.contiguous(),
+                x_,
+                weight_c.contiguous(),
+                bias,
+                init.contiguous(),
+                mask_c if mask_c is not None else empty_ftensor,
+                mask_pad.contiguous() if mask_pad is not None else empty_btensor,
+                c,
+                grad_h.contiguous(),
+                grad_last.contiguous(),
+                length,
+                batch,
+                d,
+                k_,
+                ctx.activation_type,
+                skip_type,
+                is_custom
+            )
 
         if skip_type > 0 and k_ == 3 and scale_x is not None:
             grad_x.mul_(scale_x)
