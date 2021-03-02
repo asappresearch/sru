@@ -42,7 +42,7 @@ class SRUCell(nn.Module):
                  has_skip_term: bool = True,
                  use_tanh: bool = False,
                  v1: bool = False,
-                 amp_recurrence_fp16: bool = False,
+                 amp_recurrence_fp16: bool = True,
                  weight_c_init: Optional[float] = None):
         """Initialize the SRUCell module.
 
@@ -390,7 +390,7 @@ class SRU(nn.Module):
                  v1: bool = False,
                  nn_rnn_compatible_return: bool = False,
                  proj_input_to_hidden_first: bool = False,
-                 amp_recurrence_fp16: bool = False,
+                 amp_recurrence_fp16: bool = True,
                  weight_c_init: Optional[float] = None):
         """Initialize the SRU module.
 

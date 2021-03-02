@@ -328,6 +328,7 @@ def main(args):
                 niter += 1
 
                 if local_rank == 0 and (niter == args.max_iter or niter % args.eval_period == 0):
+                    torch.cuda.empty_cache()
                     dev_ppl, dev_loss = eval_model(model_, dev)
                     dev_writer.add_scalar('loss/lm_loss', dev_loss, niter)
                     dev_writer.add_scalar('loss/avg_loss', dev_loss, niter)
