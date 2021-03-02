@@ -1,5 +1,4 @@
 import os
-import warnings
 import torch
 from torch.autograd import Function
 
@@ -66,7 +65,6 @@ class SRU_Compute_GPU(Function):
         # call faster / simple version if possible
         is_simple_version = ((k_ == 3) and has_skip_term and (not is_custom)
                              and (activation_type == 0))
-        warnings.warn("is_simple_version: {}".format(is_simple_version))
         if is_simple_version:
             forward_func = sru_cuda_lib.sru_bi_forward_simple if bidirectional else \
                 sru_cuda_lib.sru_forward_simple
