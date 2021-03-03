@@ -179,7 +179,7 @@ class AdaptiveLogSoftmax(nn.Module):
         if self.n_clusters == 0:
             return -head_logprob.gather(1, target.unsqueeze(1)).squeeze(1)
 
-        nll = torch.zeros_like(target, dtype=hidden.dtype, device=hidden.device)
+        nll = torch.zeros_like(target, dtype=head_logprob.dtype, device=head_logprob.device)
 
         offset = 0
         cutoff_values = [0] + self.cutoffs
