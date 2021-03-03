@@ -128,6 +128,8 @@ def eval_model(model, valid):
         memory = [None] * args.depth
         N = (len(valid[0])-1)//unroll_size + 1
         for i in range(N):
+            if torch.is_autocast_enabled():
+                torch.clear_autocast_cache()
             x = valid[0][i*unroll_size:(i+1)*unroll_size]
             y = valid[1][i*unroll_size:(i+1)*unroll_size]
             loss, hidden, memory = model(x, y, hidden, memory=memory)
@@ -310,7 +312,8 @@ def main(args):
 
                 if local_rank == 0 and (niter == args.max_iter or niter % args.eval_period == 0):
                     torch.cuda.empty_cache()
-                    dev_ppl, dev_loss = eval_model(model_, dev)
+                    with torch.cuda.amp.autocast(enabled=args.fp16):
+                        dev_ppl, dev_loss = eval_model(model_, dev)
                     dev_writer.add_scalar('loss/lm_loss', dev_loss, niter)
                     dev_writer.add_scalar('loss/avg_loss', dev_loss, niter)
                     dev_writer.add_scalar('bpc', np.log2(dev_ppl), niter)
