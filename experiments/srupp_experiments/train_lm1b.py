@@ -139,6 +139,8 @@ def eval_model(model, valid):
         total_loss = 0.0
         total_tok = 0.0
         for x, y, seq_len in valid:
+            if torch.is_autocast_enabled():
+                torch.clear_autocast_cache()
             loss, hidden, memory = model(x, y, hidden, memory=memory)
             total_loss += loss.sum()
             total_tok += y.numel()
@@ -219,7 +221,6 @@ def main(args):
         dim=1,
         device_ids=[local_rank],
         output_device=local_rank,
-        find_unused_parameters=True,
         broadcast_buffers=False,
     )
 
@@ -318,7 +319,8 @@ def main(args):
 
             if local_rank == 0 and (niter == args.max_iter or niter % args.eval_period == 0):
                 torch.cuda.empty_cache()
-                dev_ppl, dev_loss = eval_model(model_, dev)
+                with torch.cuda.amp.autocast(enabled=args.fp16):
+                    dev_ppl, dev_loss = eval_model(model_, dev)
                 dev_writer.add_scalar('loss/lm_loss', dev_loss, niter)
                 dev_writer.add_scalar('loss/avg_loss', dev_loss, niter)
                 dev_writer.add_scalar('loss/ppl', dev_ppl, niter)
