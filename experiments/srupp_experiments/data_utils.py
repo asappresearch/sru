@@ -128,18 +128,6 @@ class Vocab(object):
 
         return encoded
 
-    def encode_file_stream(self, path, ordered=False, verbose=False, add_eos=True,
-            add_double_eos=False):
-        if verbose: print('encoding file {} ...'.format(path))
-        assert os.path.exists(path)
-        with open(path, 'r', encoding='utf-8') as f:
-            for idx, line in enumerate(f):
-                if verbose and idx > 0 and idx % 500000 == 0:
-                    print('    line {}'.format(idx))
-                symbols = self.tokenize(line, add_eos=add_eos,
-                    add_double_eos=add_double_eos)
-                yield self.convert_to_tensor(symbols)
-
     def encode_sents(self, sents, ordered=False, verbose=False):
         if verbose: print('encoding {} sents ...'.format(len(sents)))
         encoded = []
