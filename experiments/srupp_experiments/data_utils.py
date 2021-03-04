@@ -128,6 +128,18 @@ class Vocab(object):
 
         return encoded
 
+    def encode_file_stream(self, path, ordered=False, verbose=False, add_eos=True,
+            add_double_eos=False):
+        if verbose: print('encoding file {} ...'.format(path))
+        assert os.path.exists(path)
+        with open(path, 'r', encoding='utf-8') as f:
+            for idx, line in enumerate(f):
+                if verbose and idx > 0 and idx % 500000 == 0:
+                    print('    line {}'.format(idx))
+                symbols = self.tokenize(line, add_eos=add_eos,
+                    add_double_eos=add_double_eos)
+                yield self.convert_to_tensor(symbols)
+
     def encode_sents(self, sents, ordered=False, verbose=False):
         if verbose: print('encoding {} sents ...'.format(len(sents)))
         encoded = []
@@ -421,22 +433,20 @@ class DistributedLMMultiFileIterator(LMMultiFileIterator):
 
     def get_sent_stream(self, path):
         sents = self.vocab.encode_file(path, add_double_eos=True)
-        sents = [s for i, s in enumerate(sents) if i % self.n_nodes == self.rank]
         if self.shuffle:
             np.random.shuffle(sents)
         sent_stream = iter(sents)
-
         return sent_stream
 
     def __iter__(self):
         '''
         Iterate over all splits of data *repeatively*
         '''
-        if self.shuffle:
-            np.random.shuffle(self.paths)
-
+        paths = self.paths * self.n_nodes
+        paths_this_node = [path for i, path in enumerate(paths)
+                           if i % self.n_nodes == self.rank]
         while True:
-            for path in self.paths:
+            for path in paths_this_node:
                 # sent_stream is an iterator
                 sent_stream = self.get_sent_stream(path)
                 for batch in self.stream_iterator(sent_stream):
@@ -510,11 +520,6 @@ class Corpus(object):
                 data_iter = DistributedLMMultiFileIterator(self.train, self.vocab, *args, **kwargs)
         elif split in ['valid', 'test']:
             raise NotImplementedError()
-            # data = self.valid if split == 'valid' else self.test
-            # if self.dataset in ['ptb', 'wt2', 'wt103', 'enwik8', 'text8']:
-            #     data_iter = DistributedLMOrderedIterator(data, *args, **kwargs)
-            # elif self.dataset == 'lm1b':
-            #     data_iter = LMShuffledIterator(data, *args, **kwargs)
 
         return data_iter
 
