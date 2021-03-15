@@ -35,10 +35,8 @@ class SRU_Compute_GPU(Function):
         ctx.d_out = d_out
         ctx.bidirectional = bidirectional
         ctx.has_skip_term = has_skip_term
-        ctx.scale_x = scale_x
         # ensure mask_pad is a byte tensor
         mask_pad = mask_pad.bool().contiguous() if mask_pad is not None else None
-        ctx.mask_pad = mask_pad
 
         bidir = 2 if bidirectional else 1
         length = x.size(0) if x.dim() == 3 else 1
@@ -104,8 +102,7 @@ class SRU_Compute_GPU(Function):
                 is_custom
             )
 
-        ctx.save_for_backward(u, x, weight_c, bias, init, mask_c)
-        ctx.intermediate = c
+        ctx.save_for_backward(u, x, weight_c, bias, init, mask_c, c, mask_pad, scale_x)
         if x.dim() == 2:
             last_hidden = c
         elif bidirectional:
@@ -117,10 +114,7 @@ class SRU_Compute_GPU(Function):
     @staticmethod
     def backward(ctx, grad_h, grad_last):
         bidir = 2 if ctx.bidirectional else 1
-        u, x, weight_c, bias, init, mask_c = ctx.saved_tensors
-        c = ctx.intermediate
-        scale_x = ctx.scale_x
-        mask_pad = ctx.mask_pad
+        u, x, weight_c, bias, init, mask_c, c, mask_pad, scale_x = ctx.saved_tensors
         length = x.size(0) if x.dim() == 3 else 1
         batch = x.size(-2)
         d = ctx.d_out
