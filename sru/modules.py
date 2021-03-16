@@ -986,6 +986,9 @@ class SRUpp(nn.Module):
         proj_input_to_hidden_first: bool, optional
             if True, apply an nn.Linear module to the input of this module when input_size !=
             hidden_size (default=False).
+        weight_c_init: float, optional
+            size of uniform initiatialization of weight_c
+            (default=1.0)
 
         """
 
