@@ -100,7 +100,7 @@ class SRUCell(nn.Module):
             if True use post layer norm, else pre layer norm
             (default=True)
         weight_c_init: float, optional
-            if not None, then size of uniform initiatialization of weight_c
+            size of uniform initiatialization of weight_c
             (default=1.0)
         """
         super(SRUCell, self).__init__()
