@@ -215,8 +215,11 @@ class SRUCell(nn.Module):
 
         # apply layer norm before activation (i.e. before SRU computation)
         residual = input
-        if self.layer_norm is not None and not self.normalize_after:
-            input = self.layer_norm(input)
+
+        layer_norm = self.layer_norm
+        if layer_norm is not None:
+            if not self.normalize_after:
+                input = layer_norm(input)
 
         # apply dropout for multiplication
         if self.training and (self.rnn_dropout > 0):
@@ -241,8 +244,9 @@ class SRUCell(nn.Module):
         # apply elementwise recurrence to get hidden states h and c
         h, c = self.apply_recurrence(U, V, residual, c0, scale_val, mask_c, mask_pad)
 
-        if self.layer_norm is not None and self.normalize_after:
-            h = self.layer_norm(h)
+        if layer_norm is not None:
+            if self.normalize_after:
+                h = layer_norm(h)
 
         return h, c
 
