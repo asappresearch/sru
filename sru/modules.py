@@ -43,7 +43,7 @@ class SRUCell(nn.Module):
                  use_tanh: bool = False,
                  v1: bool = False,
                  amp_recurrence_fp16: bool = True,
-                 weight_c_init: Optional[float] = None):
+                 weight_c_init: float = 1.0):
         """Initialize the SRUCell module.
 
         Parameters
@@ -96,10 +96,12 @@ class SRUCell(nn.Module):
             When using AMP autocast, selects which type to use
             for recurrence custom kernel.
             False: torch.float32, True: torch.float16
-        normalize_after: bool
+        normalize_after: bool, optional
             if True use post layer norm, else pre layer norm
-        weight_c_init: Optional[float]
+            (default=True)
+        weight_c_init: float, optional
             if not None, then size of uniform initiatialization of weight_c
+            (default=1.0)
         """
         super(SRUCell, self).__init__()
         self.input_size = input_size
@@ -119,9 +121,7 @@ class SRUCell(nn.Module):
             self.activation = 'tanh'
         self.amp_recurrence_fp16 = amp_recurrence_fp16
         self.normalize_after = normalize_after
-        self.weight_c_init = float(1.0)
-        if weight_c_init is not None:
-            self.weight_c_init = weight_c_init
+        self.weight_c_init = weight_c_init
 
         # projection dimension
         self.projection_size = projection_size
@@ -391,7 +391,7 @@ class SRU(nn.Module):
                  nn_rnn_compatible_return: bool = False,
                  proj_input_to_hidden_first: bool = False,
                  amp_recurrence_fp16: bool = True,
-                 weight_c_init: Optional[float] = None):
+                 weight_c_init: float = 1.0):
         """Initialize the SRU module.
 
         Parameters
@@ -454,8 +454,9 @@ class SRU(nn.Module):
             False: torch.float32, True: torch.float16
         normalize_after: bool
             if True use post layer norm, else use pre layer norm
-        weight_c_init: Optional[float]
+        weight_c_init: float, optional
             if not None, then size of uniform initiatialization of weight_c
+            (default 1.0)
         """
 
         super(SRU, self).__init__()
@@ -949,7 +950,7 @@ class SRUpp(nn.Module):
                  rescale: bool = False,
                  nn_rnn_compatible_return: bool = False,
                  proj_input_to_hidden_first: bool = False,
-                 weight_c_init: Optional[float] = None):
+                 weight_c_init: float = 1.0):
         """Initialize the SRU++ module.
 
         Parameters
