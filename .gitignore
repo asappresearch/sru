@@ -9,3 +9,6 @@ sru/csrc/Makefile
 sru/csrc/tests/main_test_cpp.cpp
 sru_ts.pt
 cpp_out.txt
+cpp_srupp_out.txt
+py_srupp_out.txt
+srupp_ts.pt

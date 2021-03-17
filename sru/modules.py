@@ -798,14 +798,18 @@ class SRUppAttention(nn.Module):
             input_ = torch.cat([memory, input], dim=0)
             z = self.linear1(input_)
             residual = z[memory.size(0):]
-            if self.layer_norm is not None and not self.normalize_after:
-                z = self.layer_norm(z)
+            layer_norm = self.layer_norm
+            if layer_norm is not None:
+                if not self.normalize_after:
+                    z = layer_norm(z)
             q = z[memory.size(0):]
         else:
             mem_len = 0
             z = residual = self.linear1(input)
-            if self.layer_norm is not None and not self.normalize_after:
-                z = self.layer_norm(z)
+            layer_norm = self.layer_norm
+            if layer_norm is not None:
+                if not self.normalize_after:
+                    z = layer_norm(z)
             q = z
 
         # query, key, value
@@ -856,8 +860,10 @@ class SRUppAttention(nn.Module):
         attn_output = attn_output.transpose(0, 1).contiguous().view(tgt_len, bsz, proj_dim)
 
         attn_output = attn_output * self.alpha + residual
-        if self.normalize_after and self.layer_norm is not None:
-            attn_output = self.layer_norm(attn_output)
+        layer_norm = self.layer_norm
+        if layer_norm is not None:
+            if self.normalize_after:
+                attn_output = layer_norm(attn_output)
 
         # (tgt_len, bsz, out_dim)
         attn_output = self.linear3(self.dropout(attn_output))
@@ -889,8 +895,10 @@ class SRUppCell(SRUCell):
 
         # apply layer norm before activation (i.e. before SRU computation)
         residual = input
-        if self.layer_norm is not None and not self.normalize_after:
-            input = self.layer_norm(input)
+        layer_norm = self.layer_norm
+        if layer_norm is not None:
+            if not self.normalize_after:
+                input = layer_norm(input)
 
         # apply dropout for multiplication
         if self.training and (self.rnn_dropout > 0):
@@ -923,8 +931,10 @@ class SRUppCell(SRUCell):
                                      mask_c,
                                      mask_pad)
 
-        if self.layer_norm is not None and self.normalize_after:
-            h = self.layer_norm(h)
+        layer_norm = self.layer_norm
+        if layer_norm is not None:
+            if self.normalize_after:
+                h = layer_norm(h)
         return h, c
 
 
