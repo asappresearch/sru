@@ -43,7 +43,7 @@ class SRUCell(nn.Module):
                  use_tanh: bool = False,
                  v1: bool = False,
                  amp_recurrence_fp16: bool = True,
-                 weight_c_init: Optional[float] = None):
+                 weight_c_init: float = 1.0):
         """Initialize the SRUCell module.
 
         Parameters
@@ -96,10 +96,12 @@ class SRUCell(nn.Module):
             When using AMP autocast, selects which type to use
             for recurrence custom kernel.
             False: torch.float32, True: torch.float16
-        normalize_after: bool
+        normalize_after: bool, optional
             if True use post layer norm, else pre layer norm
-        weight_c_init: Optional[float]
-            if not None, then size of uniform initiatialization of weight_c
+            (default=True)
+        weight_c_init: float, optional
+            size of uniform initiatialization of weight_c
+            (default=1.0)
         """
         super(SRUCell, self).__init__()
         self.input_size = input_size
@@ -119,9 +121,7 @@ class SRUCell(nn.Module):
             self.activation = 'tanh'
         self.amp_recurrence_fp16 = amp_recurrence_fp16
         self.normalize_after = normalize_after
-        self.weight_c_init = float(1.0)
-        if weight_c_init is not None:
-            self.weight_c_init = weight_c_init
+        self.weight_c_init = weight_c_init
 
         # projection dimension
         self.projection_size = projection_size
@@ -215,8 +215,11 @@ class SRUCell(nn.Module):
 
         # apply layer norm before activation (i.e. before SRU computation)
         residual = input
-        if self.layer_norm is not None and not self.normalize_after:
-            input = self.layer_norm(input)
+
+        layer_norm = self.layer_norm
+        if layer_norm is not None:
+            if not self.normalize_after:
+                input = layer_norm(input)
 
         # apply dropout for multiplication
         if self.training and (self.rnn_dropout > 0):
@@ -241,8 +244,9 @@ class SRUCell(nn.Module):
         # apply elementwise recurrence to get hidden states h and c
         h, c = self.apply_recurrence(U, V, residual, c0, scale_val, mask_c, mask_pad)
 
-        if self.layer_norm is not None and self.normalize_after:
-            h = self.layer_norm(h)
+        if layer_norm is not None:
+            if self.normalize_after:
+                h = layer_norm(h)
 
         return h, c
 
@@ -391,7 +395,7 @@ class SRU(nn.Module):
                  nn_rnn_compatible_return: bool = False,
                  proj_input_to_hidden_first: bool = False,
                  amp_recurrence_fp16: bool = True,
-                 weight_c_init: Optional[float] = None):
+                 weight_c_init: float = 1.0):
         """Initialize the SRU module.
 
         Parameters
@@ -454,8 +458,9 @@ class SRU(nn.Module):
             False: torch.float32, True: torch.float16
         normalize_after: bool
             if True use post layer norm, else use pre layer norm
-        weight_c_init: Optional[float]
+        weight_c_init: float, optional
             if not None, then size of uniform initiatialization of weight_c
+            (default 1.0)
         """
 
         super(SRU, self).__init__()
@@ -793,14 +798,18 @@ class SRUppAttention(nn.Module):
             input_ = torch.cat([memory, input], dim=0)
             z = self.linear1(input_)
             residual = z[memory.size(0):]
-            if self.layer_norm is not None and not self.normalize_after:
-                z = self.layer_norm(z)
+            layer_norm = self.layer_norm
+            if layer_norm is not None:
+                if not self.normalize_after:
+                    z = layer_norm(z)
             q = z[memory.size(0):]
         else:
             mem_len = 0
             z = residual = self.linear1(input)
-            if self.layer_norm is not None and not self.normalize_after:
-                z = self.layer_norm(z)
+            layer_norm = self.layer_norm
+            if layer_norm is not None:
+                if not self.normalize_after:
+                    z = layer_norm(z)
             q = z
 
         # query, key, value
@@ -851,8 +860,10 @@ class SRUppAttention(nn.Module):
         attn_output = attn_output.transpose(0, 1).contiguous().view(tgt_len, bsz, proj_dim)
 
         attn_output = attn_output * self.alpha + residual
-        if self.normalize_after and self.layer_norm is not None:
-            attn_output = self.layer_norm(attn_output)
+        layer_norm = self.layer_norm
+        if layer_norm is not None:
+            if self.normalize_after:
+                attn_output = layer_norm(attn_output)
 
         # (tgt_len, bsz, out_dim)
         attn_output = self.linear3(self.dropout(attn_output))
@@ -884,8 +895,10 @@ class SRUppCell(SRUCell):
 
         # apply layer norm before activation (i.e. before SRU computation)
         residual = input
-        if self.layer_norm is not None and not self.normalize_after:
-            input = self.layer_norm(input)
+        layer_norm = self.layer_norm
+        if layer_norm is not None:
+            if not self.normalize_after:
+                input = layer_norm(input)
 
         # apply dropout for multiplication
         if self.training and (self.rnn_dropout > 0):
@@ -918,8 +931,10 @@ class SRUppCell(SRUCell):
                                      mask_c,
                                      mask_pad)
 
-        if self.layer_norm is not None and self.normalize_after:
-            h = self.layer_norm(h)
+        layer_norm = self.layer_norm
+        if layer_norm is not None:
+            if self.normalize_after:
+                h = layer_norm(h)
         return h, c
 
 
@@ -949,7 +964,7 @@ class SRUpp(nn.Module):
                  rescale: bool = False,
                  nn_rnn_compatible_return: bool = False,
                  proj_input_to_hidden_first: bool = False,
-                 weight_c_init: Optional[float] = None):
+                 weight_c_init: float = 1.0):
         """Initialize the SRU++ module.
 
         Parameters
@@ -985,6 +1000,9 @@ class SRUpp(nn.Module):
         proj_input_to_hidden_first: bool, optional
             if True, apply an nn.Linear module to the input of this module when input_size !=
             hidden_size (default=False).
+        weight_c_init: float, optional
+            size of uniform initiatialization of weight_c
+            (default=1.0)
 
         """
 

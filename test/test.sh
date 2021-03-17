@@ -17,10 +17,18 @@ cmake -DCMAKE_PREFIX_PATH="$(python -c 'import torch; import os.path; print(os.p
 make -j
 cd ../../../
 
-python test/test_ts_cpp.py > py_out.txt
+python test/test_ts_sru.py > py_out.txt
 sru/csrc/build/example_app sru_ts.pt > cpp_out.txt
 diff cpp_out.txt py_out.txt
 
-python test/test_ts_cpp.py --normalize-after > py_out.txt
+python test/test_ts_sru.py --normalize-after > py_out.txt
 sru/csrc/build/example_app sru_ts.pt > cpp_out.txt
 diff cpp_out.txt py_out.txt
+
+python test/test_ts_srupp.py > py_srupp_out.txt
+sru/csrc/build/example_app srupp_ts.pt > cpp_srupp_out.txt
+diff cpp_srupp_out.txt py_srupp_out.txt
+
+python test/test_ts_srupp.py --normalize-after > py_srupp_out.txt
+sru/csrc/build/example_app srupp_ts.pt > cpp_srupp_out.txt
+diff cpp_srupp_out.txt py_srupp_out.txt
