@@ -4,7 +4,49 @@ orbs:
   python: circleci/python@0.2.1
 
 jobs:
-  unit-tests:
+  unit-tests-torch151:
+    executor: python/default
+    steps:
+      - checkout
+      - run:
+          name: setup
+          command: |
+            virtualenv -p python3.7 .venv
+            source .venv/bin/activate
+            # pip install -q torch==1.6.0+cpu -f https://download.pytorch.org/whl/torch_stable.html
+            # temporary workaround for https://github.com/pytorch/pytorch/issues/49560
+            wget https://download.pytorch.org/whl/cpu/torch-1.6.0%2Bcpu-cp37-cp37m-linux_x86_64.whl
+            pip install -q torch-1.5.1+cpu-cp37-cp37m-linux_x86_64.whl 
+            pip install -q .
+            pip install -q -r requirements-test.txt
+      - run:
+          name: Test
+          command: |
+            source .venv/bin/activate
+            pytest -sv test
+            flake8 . --count --exit-zero --statistics
+
+  torchscript-torch151:
+    executor: python/default
+    steps:
+      - checkout
+      - run:
+          name: setup
+          command: |
+            virtualenv -p python3.7 .venv
+            source .venv/bin/activate
+            # pip install -q torch==1.6.0+cpu -f https://download.pytorch.org/whl/torch_stable.html
+            # temporary workaround for https://github.com/pytorch/pytorch/issues/49560
+            wget https://download.pytorch.org/whl/cpu/torch-1.6.0%2Bcpu-cp37-cp37m-linux_x86_64.whl
+            pip install -q torch-1.5.1+cpu-cp37-cp37m-linux_x86_64.whl 
+            pip install -q .
+            sudo apt-get -y install cmake
+      - run:
+          name: Test
+          command: |
+            source .venv/bin/activate
+            bash test/test.sh
+  unit-tests-torch16:
     executor: python/default
     steps:
       - checkout
@@ -26,7 +68,7 @@ jobs:
             pytest -sv test
             flake8 . --count --exit-zero --statistics
 
-  torchscript:
+  torchscript-torch16:
     executor: python/default
     steps:
       - checkout
@@ -50,5 +92,7 @@ jobs:
 workflows:
   main:
     jobs:
-      - unit-tests
-      - torchscript
+      - unit-tests-torch151
+      - torchscript-torch151
+      - unit-tests-torch16
+      - torchscript-torch16
