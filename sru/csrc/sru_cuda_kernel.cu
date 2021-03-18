@@ -32,7 +32,7 @@ __global__ void sru_cuda_forward_kernel_simple(
                         const scalar_t* __restrict__ bias,
                         const scalar_t* __restrict__ init,
                         const scalar_t* __restrict__ mask_c,
-                        const unsigned char* __restrict__ mask_pad,
+                        const bool* __restrict__ mask_pad,
                         const int len,
                         const int batch,
                         const int d)
@@ -53,7 +53,7 @@ __global__ void sru_cuda_forward_kernel_simple(
     auto cur = *(init + col);
     const auto* up = u + (col * 3);
     const auto* xp = x + col;
-    const unsigned char* pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col / d));
+    const bool* pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col / d));
     auto* cp = c + col;
     auto* hp = h + col;
 
@@ -91,7 +91,7 @@ __global__ void sru_cuda_backward_kernel_simple(
                         const scalar_t* __restrict__ bias,
                         const scalar_t* __restrict__ init,
                         const scalar_t* __restrict__ mask_c,
-                        const unsigned char * __restrict__ mask_pad,
+                        const bool* __restrict__ mask_pad,
                         const scalar_t* __restrict__ c,
                         const scalar_t* __restrict__ grad_h,
                         const scalar_t* __restrict__ grad_last,
@@ -122,7 +122,7 @@ __global__ void sru_cuda_backward_kernel_simple(
     const auto* xp = x + col + (len - 1) * ncols;
     const auto* cp = c + col + (len - 1) * ncols;
     const auto* ghp = grad_h + col + (len - 1) * ncols;
-    const unsigned char* pad_p = (mask_pad == NULL) ? NULL : 
+    const bool* pad_p = (mask_pad == NULL) ? NULL : 
                                  (mask_pad + (col / d) + (len - 1) * batch);
     auto* gup = grad_u + (col * 3) + (len - 1) * ncols_u;
     auto* gxp = grad_x + col + (len - 1) * ncols;
@@ -194,7 +194,7 @@ __global__ void sru_cuda_bi_forward_kernel_simple(
                         const scalar_t* __restrict__ bias,
                         const scalar_t* __restrict__ init,
                         const scalar_t* __restrict__ mask_c,
-                        const unsigned char * __restrict__ mask_pad,
+                        const bool* __restrict__ mask_pad,
                         const int len,
                         const int batch,
                         const int d)
@@ -217,7 +217,7 @@ __global__ void sru_cuda_bi_forward_kernel_simple(
 
     const auto *up = u + (col * 3);
     const auto *xp = x + col;
-    const unsigned char *pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col / d2));
+    const bool *pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col / d2));
     auto *cp = c + col;
     auto *hp = h + col;
     const bool flip = (col % d2) >= d;
@@ -267,7 +267,7 @@ __global__ void sru_cuda_bi_backward_kernel_simple(
                            const scalar_t* __restrict__ bias,
                            const scalar_t* __restrict__ init,
                            const scalar_t* __restrict__ mask_c,
-                           const unsigned char * __restrict__ mask_pad,
+                           const bool* __restrict__ mask_pad,
                            const scalar_t* __restrict__ c,
                            const scalar_t* __restrict__ grad_h,
                            const scalar_t* __restrict__ grad_last,
@@ -299,7 +299,7 @@ __global__ void sru_cuda_bi_backward_kernel_simple(
     const auto *xp = x + col;
     const auto *cp = c + col;
     const auto *ghp = grad_h + col;
-    const unsigned char *pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col / d2));
+    const bool *pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col / d2));
     auto *gup = grad_u + (col * 3);
     auto *gxp = grad_x + col;
 
@@ -385,7 +385,7 @@ __global__ void sru_cuda_forward_kernel(
                         const scalar_t* __restrict__ bias,
                         const scalar_t* __restrict__ init,
                         const scalar_t* __restrict__ mask_c,
-                        const unsigned char* __restrict__ mask_pad,
+                        const bool* __restrict__ mask_pad,
                         const int len,
                         const int batch,
                         const int d,
@@ -414,7 +414,7 @@ __global__ void sru_cuda_forward_kernel(
     auto cur = *(init + col);
     const auto* up = u + (col * k);
     const auto* xp = (skip_type == 0) ? NULL : ((skip_type == 1) ? (x + col) : (up + 3));
-    const unsigned char* pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col / d));
+    const bool* pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col / d));
     auto* cp = c + col;
     auto* hp = h + col;
 
@@ -457,7 +457,7 @@ __global__ void sru_cuda_backward_kernel(
                         const scalar_t* __restrict__ bias,
                         const scalar_t* __restrict__ init,
                         const scalar_t* __restrict__ mask_c,
-                        const unsigned char * __restrict__ mask_pad,
+                        const bool* __restrict__ mask_pad,
                         const scalar_t* __restrict__ c,
                         const scalar_t* __restrict__ grad_h,
                         const scalar_t* __restrict__ grad_last,
@@ -500,7 +500,7 @@ __global__ void sru_cuda_backward_kernel(
     );
     const auto* cp = c + col + (len - 1) * ncols;
     const auto* ghp = grad_h + col + (len - 1) * ncols;
-    const unsigned char* pad_p = (mask_pad == NULL) ? NULL :
+    const bool* pad_p = (mask_pad == NULL) ? NULL :
                                  (mask_pad + (col / d) + (len - 1) * batch);
     auto* gup = grad_u + (col * k) + (len - 1) * ncols_u;
     auto* gxp = (skip_type == 0) ? NULL : (
@@ -587,7 +587,7 @@ __global__ void sru_cuda_bi_forward_kernel(
                         const scalar_t* __restrict__ bias,
                         const scalar_t* __restrict__ init,
                         const scalar_t* __restrict__ mask_c,
-                        const unsigned char * __restrict__ mask_pad,
+                        const bool* __restrict__ mask_pad,
                         const int len,
                         const int batch,
                         const int d,
@@ -618,7 +618,7 @@ __global__ void sru_cuda_bi_forward_kernel(
 
     const auto *up = u + (col * k);
     const auto *xp = (skip_type == 0) ? NULL : ((skip_type == 1) ? (x + col) : (up + 3));
-    const unsigned char *pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col / d2));
+    const bool *pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col / d2));
     auto *cp = c + col;
     auto *hp = h + col;
     const bool flip = (col % d2) >= d;
@@ -677,7 +677,7 @@ __global__ void sru_cuda_bi_backward_kernel(
                            const scalar_t* __restrict__ bias,
                            const scalar_t* __restrict__ init,
                            const scalar_t* __restrict__ mask_c,
-                           const unsigned char * __restrict__ mask_pad,
+                           const bool* __restrict__ mask_pad,
                            const scalar_t* __restrict__ c,
                            const scalar_t* __restrict__ grad_h,
                            const scalar_t* __restrict__ grad_last,
@@ -721,7 +721,7 @@ __global__ void sru_cuda_bi_backward_kernel(
     );
     const auto *cp = c + col;
     const auto *ghp = grad_h + col;
-    const unsigned char *pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col / d2));
+    const bool *pad_p = (mask_pad == NULL) ? NULL : (mask_pad + (col / d2));
     auto *gup = grad_u + (col * k);
     auto *gxp = (skip_type == 0) ? NULL : (
         (skip_type == 1) ? (grad_x + col) : (gup + 3)
@@ -852,7 +852,7 @@ void sru_cuda_forward_simple(
             bias.data<scalar_t>(),
             c_init.data<scalar_t>(),
             mask_c.numel() ? mask_c.data<scalar_t>() : NULL,
-            mask_pad.numel() ? mask_pad.data<unsigned char>() : NULL,
+            mask_pad.numel() ? mask_pad.data<bool>() : NULL,
             length,
             batch_size,
             hidden_size);
@@ -897,7 +897,7 @@ void sru_cuda_backward_simple(
             bias.data<scalar_t>(),
             c_init.data<scalar_t>(),
             mask_c.numel() ? mask_c.data<scalar_t>() : NULL,
-            mask_pad.numel() ? mask_pad.data<unsigned char>() : NULL,
+            mask_pad.numel() ? mask_pad.data<bool>() : NULL,
             c.data<scalar_t>(),
             grad_h.data<scalar_t>(),
             grad_last.data<scalar_t>(),
@@ -936,7 +936,7 @@ void sru_cuda_bi_forward_simple(
             bias.data<scalar_t>(),
             c_init.data<scalar_t>(),
             mask_c.numel() ? mask_c.data<scalar_t>() : NULL,
-            mask_pad.numel() ? mask_pad.data<unsigned char>() : NULL,
+            mask_pad.numel() ? mask_pad.data<bool>() : NULL,
             length,
             batch_size,
             hidden_size);
@@ -981,7 +981,7 @@ void sru_cuda_bi_backward_simple(
             bias.data<scalar_t>(),
             c_init.data<scalar_t>(),
             mask_c.numel() ? mask_c.data<scalar_t>() : NULL,
-            mask_pad.numel() ? mask_pad.data<unsigned char>() : NULL,
+            mask_pad.numel() ? mask_pad.data<bool>() : NULL,
             c.data<scalar_t>(),
             grad_h.data<scalar_t>(),
             grad_last.data<scalar_t>(),
@@ -1024,7 +1024,7 @@ void sru_cuda_forward(
             bias.data<scalar_t>(),
             c_init.data<scalar_t>(),
             mask_c.numel() ? mask_c.data<scalar_t>() : NULL,
-            mask_pad.numel() ? mask_pad.data<unsigned char>() : NULL,
+            mask_pad.numel() ? mask_pad.data<bool>() : NULL,
             length,
             batch_size,
             hidden_size,
@@ -1068,7 +1068,7 @@ void sru_cuda_bi_forward(
             bias.data<scalar_t>(),
             c_init.data<scalar_t>(),
             mask_c.numel() ? mask_c.data<scalar_t>() : NULL,
-            mask_pad.numel() ? mask_pad.data<unsigned char>() : NULL,
+            mask_pad.numel() ? mask_pad.data<bool>() : NULL,
             length,
             batch_size,
             hidden_size,
@@ -1121,7 +1121,7 @@ void sru_cuda_backward(
             bias.data<scalar_t>(),
             c_init.data<scalar_t>(),
             mask_c.numel() ? mask_c.data<scalar_t>() : NULL,
-            mask_pad.numel() ? mask_pad.data<unsigned char>() : NULL,
+            mask_pad.numel() ? mask_pad.data<bool>() : NULL,
             c.data<scalar_t>(),
             grad_h.data<scalar_t>(),
             grad_last.data<scalar_t>(),
@@ -1177,7 +1177,7 @@ void sru_cuda_bi_backward(
             bias.data<scalar_t>(),
             c_init.data<scalar_t>(),
             mask_c.numel() ? mask_c.data<scalar_t>() : NULL,
-            mask_pad.numel() ? mask_pad.data<unsigned char>() : NULL,
+            mask_pad.numel() ? mask_pad.data<bool>() : NULL,
             c.data<scalar_t>(),
             grad_h.data<scalar_t>(),
             grad_last.data<scalar_t>(),
