@@ -14,7 +14,7 @@ sru_cuda_lib = load(
     verbose=False
 )
 
-empty_btensor = torch.ByteTensor()
+empty_btensor = torch.BoolTensor()
 empty_ftensor = torch.FloatTensor()
 
 
@@ -35,7 +35,7 @@ class SRU_Compute_GPU(Function):
         ctx.d_out = d_out
         ctx.bidirectional = bidirectional
         ctx.has_skip_term = has_skip_term
-        # ensure mask_pad is a byte tensor
+        # ensure mask_pad is a bool tensor
         mask_pad = mask_pad.bool().contiguous() if mask_pad is not None else None
 
         bidir = 2 if bidirectional else 1
