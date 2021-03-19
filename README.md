@@ -77,8 +77,7 @@ rnn = SRU(input_size, hidden_size,
     dropout = 0.0,           # dropout applied between RNN layers
     bidirectional = False,   # bidirectional RNN
     layer_norm = False,      # apply layer normalization on the output of each layer
-    highway_bias = 0,        # initial bias of highway gate (<= 0)
-    rescale = True,          # whether to use scaling correction
+    highway_bias = -2,        # initial bias of highway gate (<= 0)
 )
 rnn.cuda()
 
