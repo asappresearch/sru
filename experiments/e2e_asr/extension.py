@@ -25,7 +25,6 @@ class SRUppTransducerAttention(nn.Module):
                  attn_dropout: float = 0.0,
                  rezero_init_alpha: float = 0.0,
                  layer_norm: bool = False,
-                 normalize_after: bool = True,
                  right_window: int = 0):
         """Initialize the self-attention module.
 
@@ -50,9 +49,10 @@ class SRUppTransducerAttention(nn.Module):
         rezero_init_alpha: float, optional
             initial scalar value for the attention transformation `x + alpha * Attention(x)`
             (default=0).
-        normalize_after: bool, optional
-            if True, apply post layer normalization; otherwise apply pre layer normalization
-            (default=True).
+        right_window: int, optional
+            how many tokens to look to the right. when this is greater than 0, the computation of
+            attention of position t during inference will be delayed until inputs up to position
+            t + right_window are given.
 
         """
         super(SRUppTransducerAttention, self).__init__()
@@ -68,7 +68,6 @@ class SRUppTransducerAttention(nn.Module):
         self.linear2 = nn.Linear(proj_features, proj_features * 2, bias=False)
         self.linear3 = nn.Linear(proj_features, out_features, bias=False)
         self.alpha = nn.Parameter(torch.Tensor([float(rezero_init_alpha)]))  # type: ignore
-        self.normalize_after = normalize_after
         self.layer_norm: Optional[nn.Module] = None
         if layer_norm:
             self.layer_norm = nn.LayerNorm(proj_features)
@@ -97,8 +96,8 @@ class SRUppTransducerAttention(nn.Module):
                 input: Tensor,
                 mask_pad: Optional[Tensor] = None,
                 attn_mask: Optional[Tensor] = None,
-                incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]] = None,
-                ) -> Tuple[Tensor, Optional[Dict[str, Dict[str, Optional[Tensor]]]]]:
+                incremental_state: Optional[Dict[str, Optional[Tensor]]] = None,
+                ) -> Tuple[Tensor, Tensor, Optional[Dict[str, Optional[Tensor]]]]:
         """The forward method of SRU++ attention.
         """
 
@@ -109,7 +108,13 @@ class SRUppTransducerAttention(nn.Module):
         head_dim = proj_dim // num_heads
         scaling = float(head_dim) ** -0.5
 
+        input_ready = input
         q = residual = self.linear1(input)
+
+        # key, value
+        k, v = self.linear2(q).chunk(2, dim=-1)
+        k = k.contiguous()
+        v = v.contiguous()
 
         # take saved queries in the state
         if incremental_state is not None:
@@ -117,17 +122,32 @@ class SRUppTransducerAttention(nn.Module):
             assert mask_pad is None
             right_window = self.right_window
 
-            # fetch previously computed queries
-            if "attn_state" in incremental_state:
-                state = incremental_state["attn_state"]
+            # fetch previously computed inputs, queries, keys and values
+            if "saved_input" in incremental_state:
+                saved_input = incremental_state["saved_input"]
+                assert saved_input is not None
+                all_input = torch.cat([saved_input, input], dim=0)
             else:
-                state = {}
-            if "saved_query" in state:
-                saved_query = state["saved_query"]
+                all_input = input
+            if "saved_query" in incremental_state:
+                saved_query = incremental_state["saved_query"]
                 assert saved_query is not None
                 all_query = torch.cat([saved_query, q], dim=0)
             else:
                 all_query = q
+            if "saved_key" in incremental_state:
+                saved_key = incremental_state["saved_key"]
+                assert saved_key is not None
+                k = torch.cat([saved_key, k], dim=0)
+            if "saved_value" in incremental_state:
+                saved_value = incremental_state["saved_value"]
+                assert saved_value is not None
+                v = torch.cat([saved_value, v], dim=0)
+
+            # ensure the length of key & value tensors is the same
+            # ensure the length of query & input tensors is the same
+            assert k.size(0) == v.size(0)
+            assert all_input.size(0) == all_query.size(0)
 
             # number of queries that are ready for the attention forward
             num_query_ready = all_query.size(0) - right_window
@@ -135,8 +155,11 @@ class SRUppTransducerAttention(nn.Module):
                 num_query_ready = 0
             query_ready = all_query[:num_query_ready]
             query_not_ready = all_query[num_query_ready:]
+            input_ready = all_input[:num_query_ready]
+            input_not_ready = all_input[num_query_ready:]
 
             # update q, tgt_len and attn_mask
+            src_len = k.size(0)
             tgt_len = query_ready.size(0)
             q = residual = query_ready
             if attn_mask is not None:
@@ -144,33 +167,13 @@ class SRUppTransducerAttention(nn.Module):
                 end_idx = attn_mask.size(0) - query_not_ready.size(0)
                 attn_mask = attn_mask[start_idx:end_idx]
 
-        # pre-layernorm
-        if self.layer_norm is not None and not self.normalize_after:
-            q = self.layer_norm(q)
-
-        # key, value
-        k, v = self.linear2(q).chunk(2, dim=-1)
-        k = k.contiguous()
-        v = v.contiguous()
-
-        # take saved keys and values in the state and
-        # update the state with new queries, keys and values
-        if incremental_state is not None:
-            if "saved_key" in state:
-                saved_key = state["saved_key"]
-                assert saved_key is not None
-                k = torch.cat([saved_key, k], dim=0)
-            if "saved_value" in state:
-                saved_value = state["saved_value"]
-                assert saved_value is not None
-                v = torch.cat([saved_value, v], dim=0)
-            src_len = k.size(0)
-            assert v.size(0) == k.size(0)
-
-            state["saved_query"] = query_not_ready
-            state["saved_key"] = k
-            state["saved_value"] = v
-            incremental_state["attn_state"] = state
+            # update the state with new inputs, queries, keys and values
+            incremental_state["saved_input"] = input_not_ready
+            incremental_state["saved_query"] = query_not_ready
+            incremental_state["saved_key"] = k
+            incremental_state["saved_value"] = v
+            if num_query_ready == 0:
+                return input.new_zeros(0, bsz, self.out_features), input_ready, incremental_state
 
         q = q.contiguous().view(tgt_len, -1, head_dim).transpose(0, 1)
         k = k.contiguous().view(src_len, -1, head_dim).transpose(0, 1)
@@ -198,7 +201,7 @@ class SRUppTransducerAttention(nn.Module):
             attn_output_weights = attn_output_weights.view(bsz, num_heads, tgt_len, src_len)
             attn_output_weights = attn_output_weights.masked_fill(
                 mask_pad.transpose(0, 1).unsqueeze(1).unsqueeze(2),  # (bsz, 1, 1, src_len)
-                float('-inf'),
+                float('-1e8'),
             )
             attn_output_weights = attn_output_weights.view(bsz * num_heads, tgt_len, src_len)
 
@@ -212,12 +215,12 @@ class SRUppTransducerAttention(nn.Module):
         attn_output = attn_output.transpose(0, 1).contiguous().view(tgt_len, bsz, proj_dim)
 
         attn_output = attn_output * self.alpha + residual
-        if self.normalize_after and self.layer_norm is not None:
+        if self.layer_norm is not None:
             attn_output = self.layer_norm(attn_output)
 
         # (tgt_len, bsz, out_dim)
         attn_output = self.linear3(self.dropout(attn_output))
-        return attn_output, incremental_state
+        return attn_output, input_ready, incremental_state
 
 
 class SRUppTransducerLinear(nn.Module):
@@ -252,7 +255,10 @@ class SRUppTransducerLinear(nn.Module):
         layer_norm: bool, optional
             whether to apply layer normalization within the projected linear module.
         right_window: int, optional
-            the size of the look-right window.
+            how many tokens to look to the right. when this is greater than 0, the computation of
+            attention of position t during inference will be delayed until inputs up to position
+            t + right_window are given.
+
         """
         super(SRUppTransducerLinear, self).__init__()
         self.in_features = in_features
@@ -282,46 +288,15 @@ class SRUppTransducerLinear(nn.Module):
                 input: Tensor,
                 mask_pad: Optional[Tensor] = None,
                 attn_mask: Optional[Tensor] = None,
-                incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]] = None,
-                ) -> Tuple[Tensor, Optional[Dict[str, Dict[str, Optional[Tensor]]]]]:
+                incremental_state: Optional[Dict[str, Optional[Tensor]]] = None,
+                ) -> Tuple[Tensor, Tensor, Optional[Dict[str, Optional[Tensor]]]]:
         """The forward method.
         """
-        q = self.linear1(input)
-
-        # take saved queries in the state
-        if incremental_state is not None:
-            # during inference mask_pad should not be set
-            assert mask_pad is None
-            right_window = self.right_window
-
-            # fetch previously computed queries
-            if "attn_state" in incremental_state:
-                state = incremental_state["attn_state"]
-            else:
-                state = {}
-            if "saved_query" in state:
-                saved_query = state["saved_query"]
-                assert saved_query is not None
-                all_query = torch.cat([saved_query, q], dim=0)
-            else:
-                all_query = q
-
-            # number of queries that are ready for the attention forward
-            num_query_ready = all_query.size(0) - right_window
-            if num_query_ready < 0:
-                num_query_ready = 0
-            query_ready = all_query[:num_query_ready]
-            query_not_ready = all_query[num_query_ready:]
-            q = query_ready
-
-            # update state
-            state["saved_query"] = query_not_ready
-            incremental_state["attn_state"] = state
-
+        output = self.linear1(input)
         if self.layer_norm is not None:
-            q = self.layer_norm(q)
-        output = self.linear2(self.dropout(q))
-        return output, incremental_state
+            output = self.layer_norm(output)
+        output = self.linear2(self.dropout(output))
+        return output, input, incremental_state
 
 
 class SRUppTransducerCell(SRUCell):
@@ -337,27 +312,53 @@ class SRUppTransducerCell(SRUCell):
                  attn_dropout: float = 0.0,
                  highway_bias: float = -2,
                  layer_norm: bool = True,
-                 normalize_after: bool = True,
                  has_attention: bool = True,
                  right_window: int = 0):
+        """
+        Parameters
+        ----------
+        input_size: int
+        hidden_size: int
+        projection_size: int
+            the projection size used for attention computation. The input is projected into
+            this dimension first. After that the module apply the query-key-value attention
+            computation. The output is projected back to hidden size.
+        num_heads: int, optional
+            the number of attention heads.
+        dropout: float, optional
+            dropout value.
+        attn_dropout: float, optional
+            attention weight dropout.
+        highway_bias: float, optional
+            initial bias value in the highway sigmoid gate of recurrent unit.
+        layer_norm: bool, optional
+            whether to apply layer normalization.
+        has_attention: bool, optional
+            whether to use attention module or simply the linear projection module.
+        right_window: int, optional
+            how many tokens to look to the right. when this is greater than 0, the computation of
+            attention of position t during inference will be delayed until inputs up to position
+            t + right_window are given.
+
+        """
 
         transform_module: Optional[nn.Module] = None
+        output_size = hidden_size * (3 if input_size == hidden_size else 4)
         if has_attention:
             transform_module = SRUppTransducerAttention(
                 input_size,
-                hidden_size,
+                output_size,
                 projection_size,
                 num_heads=num_heads,
                 dropout=dropout,
                 attn_dropout=attn_dropout,
                 layer_norm=layer_norm,
-                normalize_after=normalize_after,
                 right_window=right_window,
             )
         else:
             transform_module = SRUppTransducerLinear(
                 input_size,
-                hidden_size,
+                output_size,
                 projection_size,
                 dropout=dropout,
                 layer_norm=layer_norm,
@@ -374,8 +375,8 @@ class SRUppTransducerCell(SRUCell):
                 c0: Optional[Tensor] = None,
                 mask_pad: Optional[Tensor] = None,
                 attn_mask: Optional[Tensor] = None,
-                incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]] = None,
-                ) -> Tuple[Tensor, Tensor, Optional[Dict[str, Dict[str, Optional[Tensor]]]]]:
+                incremental_state: Optional[Dict[str, Optional[Tensor]]] = None,
+                ) -> Tuple[Tensor, Tensor, Optional[Dict[str, Optional[Tensor]]]]:
         """The forward method.
         """
 
@@ -396,7 +397,7 @@ class SRUppTransducerCell(SRUCell):
         # compute U
         #   U is (length, batch_size, output_size * num_matrices)
         transform_module = self.transform_module
-        U, incremental_state = transform_module(
+        U, residual, incremental_state = transform_module(
             input,
             mask_pad=mask_pad,
             attn_mask=attn_mask,
@@ -412,7 +413,7 @@ class SRUppTransducerCell(SRUCell):
         else:
             # apply elementwise recurrence to get hidden states h and c
             h, c = self.apply_recurrence(U, V,
-                                         input, c0,
+                                         residual, c0,
                                          None,
                                          mask_c,
                                          mask_pad)
