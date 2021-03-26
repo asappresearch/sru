@@ -320,9 +320,9 @@ def main(args):
                     elapsed_time = (time.time() - start_time) / 60.0
                     start_time = time.time()
                     sys.stdout.write(
-                        "\rnum_batches={}  lr={:.6f}  train_loss={:.4f}  dev_loss={:.4f}"
+                        "\rnum_iters={}  lr={:.6f}  train_loss={:.4f}  dev_loss={:.4f}"
                         "  dev_bpc={:.2f}\t[{:.1f}m]\n\n".format(
-                            nbatch,
+                            niter,
                             optimizer.param_groups[0]['lr'],
                             loss,
                             dev_loss,
