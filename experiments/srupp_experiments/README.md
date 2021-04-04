@@ -105,6 +105,9 @@ python -m torch.distributed.launch --nproc_per_node 8 --master_port 1234
                       --save large_model
                       --n_d 4096
                       --n_proj 1024
+                      --dropout 0.2
+                      --attn_dropout 0.2
+                      --emb_dropout 0.2
                       --layer_norm
                       --unroll_size 1024
                       --fp16
