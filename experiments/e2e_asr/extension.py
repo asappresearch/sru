@@ -14,7 +14,7 @@ class SRUppTransducerAttention(nn.Module):
     """
 
     __constants__ = ['in_features', 'out_features', 'proj_features', 'num_heads',
-                     'attn_dropout', 'rezero_init_alpha', 'right_window']
+                     'attn_dropout', 'rezero_init_alpha', 'right_window', 'normalize_after']
 
     def __init__(self,
                  in_features: int,
@@ -25,6 +25,7 @@ class SRUppTransducerAttention(nn.Module):
                  attn_dropout: float = 0.0,
                  rezero_init_alpha: float = 0.0,
                  layer_norm: bool = False,
+                 normalize_after: bool = True,
                  right_window: int = 0):
         """Initialize the self-attention module.
 
@@ -68,6 +69,7 @@ class SRUppTransducerAttention(nn.Module):
         self.linear2 = nn.Linear(proj_features, proj_features * 2, bias=False)
         self.linear3 = nn.Linear(proj_features, out_features, bias=False)
         self.alpha = nn.Parameter(torch.Tensor([float(rezero_init_alpha)]))  # type: ignore
+        self.normalize_after = normalize_after
         self.layer_norm: Optional[nn.Module] = None
         if layer_norm:
             self.layer_norm = nn.LayerNorm(proj_features)
@@ -110,6 +112,8 @@ class SRUppTransducerAttention(nn.Module):
 
         input_ready = input
         q = residual = self.linear1(input)
+        if self.layer_norm is not None and not self.normalize_after:
+            q = self.layer_norm(q)
 
         # key, value
         k, v = self.linear2(q).chunk(2, dim=-1)
@@ -215,7 +219,7 @@ class SRUppTransducerAttention(nn.Module):
         attn_output = attn_output.transpose(0, 1).contiguous().view(tgt_len, bsz, proj_dim)
 
         attn_output = attn_output * self.alpha + residual
-        if self.layer_norm is not None:
+        if self.layer_norm is not None and self.normalize_after:
             attn_output = self.layer_norm(attn_output)
 
         # (tgt_len, bsz, out_dim)
@@ -312,6 +316,7 @@ class SRUppTransducerCell(SRUCell):
                  attn_dropout: float = 0.0,
                  highway_bias: float = -2,
                  layer_norm: bool = True,
+                 normalize_after: bool = True,
                  has_attention: bool = True,
                  right_window: int = 0):
         """
@@ -353,6 +358,7 @@ class SRUppTransducerCell(SRUCell):
                 dropout=dropout,
                 attn_dropout=attn_dropout,
                 layer_norm=layer_norm,
+                normalize_after=normalize_after,
                 right_window=right_window,
             )
         else:
