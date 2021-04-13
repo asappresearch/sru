@@ -21,7 +21,7 @@ This folder contains the experimental code of SRU++ [tech report](https://arxiv.
 | Wiki-103 large <br> 2 attention layers (k=5) | 225M | 5952, 744 | 8 | 17.3 |  |
 | | | | | |
 | Billion-word base | 328M | 4096, 1024 | 4 | 25.1 |  |
-| Billion-word large <br> 2 attention layers (k=5) | 467M | 7616, 1024 | 7.4 | 23.5 |  |
+| Billion-word large <br> 2 attention layers (k=5) | 465M | 7616, 1024 | 7.4 | 23.5 |  |
 
 <br>
 
