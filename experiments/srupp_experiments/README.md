@@ -10,6 +10,21 @@ This folder contains the experimental code of SRU++ [tech report](https://arxiv.
 ```
 <br>
 
+## Pretrained models
+|  Name  |  Params  |  Hidden size <br> (n_d, n_proj) |  Size ratio <br> (n_d : n_proj) | Test result <br> (BPC / PPL) |  Downloadable link  |
+| :---- | :----: | :----: | :----: | :----: | :---- |
+| Enwik8 base | 108M | 3072, 768 | 4 | 0.974 |  |
+| Enwik8 large | 195M | 6016, 752 | 8 | 0.953 |  |
+| | | | | |
+| Wiki-103 base| 148M | 3072, 768 | 4 | 18.3 |  |
+| Wiki-103 large | 234M | 5952, 744 | 8 | 17.1 |  |
+| Wiki-103 large <br> 2 attention layers (k=5) | 225M | 5952, 744 | 8 | 17.3 |  |
+| | | | | |
+| Billion-word base | 328M | 4096, 1024 | 4 | 25.1 |  |
+| Billion-word large <br> 2 attention layers (k=5) | 467M | 7616, 1024 | 7.4 | 23.5 |  |
+
+<br>
+
 ## Reproduce our results
 
 ### Data preparation
@@ -67,7 +82,7 @@ python -m torch.distributed.launch --nproc_per_node 8 --master_port 1234
 python -m torch.distributed.launch --nproc_per_node 1 --master_port 1234
        train_enwik8.py --log tensorboard_log_dir_for_test_run
                        --data enwik8_file
-                       --save large_model.pt
+                       --load large_model.pt
                        --n_d 4096
                        --n_proj 1024
                        --layer_norm
@@ -117,6 +132,8 @@ python -m torch.distributed.launch --nproc_per_node 1 --master_port 1234
        train_wt103.py --log tensorboard_log_dir_for_test_run
                       --data wiki103_datadir
                       --load large_model.pt
+                      --n_d 4096
+                      --n_proj 1024
                       --layer_norm
                       --max_iter 0
                       --eval_unroll_size 2560
