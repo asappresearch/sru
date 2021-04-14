@@ -11,17 +11,21 @@ This folder contains the experimental code of SRU++ [tech report](https://arxiv.
 <br>
 
 ## Pretrained models
+
 |  Name  |  Params  |  Hidden size <br> (n_d, n_proj) |  Size ratio <br> (n_d : n_proj) | Test result <br> (BPC / PPL) |  Downloadable link  |
 | :---- | :----: | :----: | :----: | :----: | :---- |
-| Enwik8 base | 108M | 3072, 768 | 4 | 0.974 |  |
-| Enwik8 large | 195M | 6016, 752 | 8 | 0.953 |  |
+| Enwik8 base | 108M | 3072, 768 | 4 | 0.974 | [enwik8_base.pt](https://drive.google.com/file/d/1X62n-g22mBCh4JyEjhOcyG4r3MpHyd0s/view?usp=sharing) |
+| Enwik8 large | 195M | 6016, 752 | 8 | 0.953 | [enwik8_large_ratio8.pt](https://drive.google.com/file/d/1V2DGs8OvxIzpH8O67kPRbSgUVq4xc6Zd/view?usp=sharing) |
 | | | | | |
-| Wiki-103 base| 148M | 3072, 768 | 4 | 18.3 |  |
-| Wiki-103 large | 234M | 5952, 744 | 8 | 17.1 |  |
-| Wiki-103 large <br> 2 attention layers (k=5) | 225M | 5952, 744 | 8 | 17.3 |  |
+| Wiki-103 base| 148M | 3072, 768 | 4 | 18.3 | [wiki103_base.pt](https://drive.google.com/file/d/1hp8zV8zu-V3pEY7IX0zZm3ONnQVuDhtf/view?usp=sharing) |
+| Wiki-103 large | 234M | 5952, 744 | 8 | 17.1 | [wiki103_large_ratio8.pt](https://drive.google.com/file/d/1VKgbw9o1uv2_kNWfle0PAA2gkXAebyWb/view?usp=sharing) |
+| Wiki-103 large <br> 2 attention layers (k=5) | 225M | 5952, 744 | 8 | 17.3 | [wiki103_large_ratio8_k5.pt](https://drive.google.com/file/d/13TSG7C4eFwxMibFWXMhNfBuLa3kJrvDC/view?usp=sharing) |
 | | | | | |
-| Billion-word base | 328M | 4096, 1024 | 4 | 25.1 |  |
-| Billion-word large <br> 2 attention layers (k=5) | 465M | 7616, 1024 | 7.4 | 23.5 |  |
+| Billion-word base | 328M | 4096, 1024 | 4 | 25.1 | [lm1b_base.pt](https://drive.google.com/file/d/1DcHYuiiucIDQsXHRST1r4dMDmdlX8Ymy/view?usp=sharing) |
+| Billion-word large <br> 2 attention layers (k=5) | 465M | 7616, 1024 | 7.4 | 23.5 | [lm1b_large_10l_k5.pt](https://drive.google.com/file/d/131Y6ItBVSx09-L2bkp7VcfizgdN4qiJf/view?usp=sharing) |
+
+
+*Note:* the Wiki-103 model checkpoints have slightly more parameters than the numbers reported in Params column. This is due to several duplicate parameter matrices been saved. These duplicate matrices came from weight tying between the input and output layer.
 
 <br>
 
