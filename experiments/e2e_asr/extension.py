@@ -14,7 +14,7 @@ class SRUppTransducerAttention(nn.Module):
     """
 
     __constants__ = ['in_features', 'out_features', 'proj_features', 'num_heads',
-                     'attn_dropout', 'rezero_init_alpha', 'right_window', 'normalize_after']
+                     'attn_dropout', 'rezero_init_alpha', 'right_window', 'normalize_type']
 
     def __init__(self,
                  in_features: int,
@@ -25,7 +25,7 @@ class SRUppTransducerAttention(nn.Module):
                  attn_dropout: float = 0.0,
                  rezero_init_alpha: float = 0.0,
                  layer_norm: bool = False,
-                 normalize_after: bool = True,
+                 normalization_type: int = 0,
                  right_window: int = 0):
         """Initialize the self-attention module.
 
@@ -69,10 +69,13 @@ class SRUppTransducerAttention(nn.Module):
         self.linear2 = nn.Linear(proj_features, proj_features * 2, bias=False)
         self.linear3 = nn.Linear(proj_features, out_features, bias=False)
         self.alpha = nn.Parameter(torch.Tensor([float(rezero_init_alpha)]))  # type: ignore
-        self.normalize_after = normalize_after
+        self.normalization_type = normalization_type
         self.layer_norm: Optional[nn.Module] = None
         if layer_norm:
-            self.layer_norm = nn.LayerNorm(proj_features)
+            if normalization_type != 2:
+                self.layer_norm = nn.LayerNorm(proj_features)
+            else:
+                self.layer_norm = nn.LayerNorm(in_features)
 
         if proj_features % num_heads != 0:
             raise ValueError("proj_features ({}) must be divisible by num_heads ({})".format(
@@ -111,8 +114,11 @@ class SRUppTransducerAttention(nn.Module):
         scaling = float(head_dim) ** -0.5
 
         input_ready = input
+        if self.layer_norm is not None and self.normalization_type == 2:
+            input = self.layer_norm(input)
+
         q = residual = self.linear1(input)
-        if self.layer_norm is not None and not self.normalize_after:
+        if self.layer_norm is not None and self.normalization_type == 1:
             q = self.layer_norm(q)
 
         # key, value
@@ -130,7 +136,7 @@ class SRUppTransducerAttention(nn.Module):
             if "saved_input" in incremental_state:
                 saved_input = incremental_state["saved_input"]
                 assert saved_input is not None
-                all_input = torch.cat([saved_input, input], dim=0)
+                all_input = torch.cat([saved_input, input_ready], dim=0)
             else:
                 all_input = input
             if "saved_query" in incremental_state:
@@ -219,7 +225,7 @@ class SRUppTransducerAttention(nn.Module):
         attn_output = attn_output.transpose(0, 1).contiguous().view(tgt_len, bsz, proj_dim)
 
         attn_output = attn_output * self.alpha + residual
-        if self.layer_norm is not None and self.normalize_after:
+        if self.layer_norm is not None and self.normalization_type == 0:
             attn_output = self.layer_norm(attn_output)
 
         # (tgt_len, bsz, out_dim)
@@ -240,6 +246,7 @@ class SRUppTransducerLinear(nn.Module):
                  proj_features: int,
                  dropout: float = 0.0,
                  layer_norm: bool = False,
+                 normalization_type: int = 0,
                  right_window: int = 0):
         """Initialize the projected linear module.
 
@@ -272,9 +279,13 @@ class SRUppTransducerLinear(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.linear1 = nn.Linear(in_features, proj_features, bias=False)
         self.linear2 = nn.Linear(proj_features, out_features, bias=False)
+        self.normalization_type = normalization_type
         self.layer_norm: Optional[nn.Module] = None
         if layer_norm:
-            self.layer_norm = nn.LayerNorm(proj_features)
+            if normalization_type != 2:
+                self.layer_norm = nn.LayerNorm(proj_features)
+            else:
+                self.layer_norm = nn.LayerNorm(in_features)
 
         self.reset_parameters()
 
@@ -296,11 +307,14 @@ class SRUppTransducerLinear(nn.Module):
                 ) -> Tuple[Tensor, Tensor, Optional[Dict[str, Optional[Tensor]]]]:
         """The forward method.
         """
+        original_input = input
+        if self.layer_norm is not None and self.normalization_type == 2:
+            input = self.layer_norm(input)
         output = self.linear1(input)
-        if self.layer_norm is not None:
+        if self.layer_norm is not None and self.normalization_type != 2:
             output = self.layer_norm(output)
         output = self.linear2(self.dropout(output))
-        return output, input, incremental_state
+        return output, original_input, incremental_state
 
 
 class SRUppTransducerCell(SRUCell):
@@ -316,7 +330,7 @@ class SRUppTransducerCell(SRUCell):
                  attn_dropout: float = 0.0,
                  highway_bias: float = -2,
                  layer_norm: bool = True,
-                 normalize_after: bool = True,
+                 normalization_type: int = 0,
                  has_attention: bool = True,
                  right_window: int = 0):
         """
@@ -358,7 +372,7 @@ class SRUppTransducerCell(SRUCell):
                 dropout=dropout,
                 attn_dropout=attn_dropout,
                 layer_norm=layer_norm,
-                normalize_after=normalize_after,
+                normalization_type=normalization_type,
                 right_window=right_window,
             )
         else:
@@ -368,6 +382,7 @@ class SRUppTransducerCell(SRUCell):
                 projection_size,
                 dropout=dropout,
                 layer_norm=layer_norm,
+                normalization_type=normalization_type,
                 right_window=right_window,
             )
         super().__init__(input_size,
