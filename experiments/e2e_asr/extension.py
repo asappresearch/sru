@@ -138,7 +138,7 @@ class SRUppTransducerAttention(nn.Module):
                 assert saved_input is not None
                 all_input = torch.cat([saved_input, input_ready], dim=0)
             else:
-                all_input = input
+                all_input = input_ready
             if "saved_query" in incremental_state:
                 saved_query = incremental_state["saved_query"]
                 assert saved_query is not None
@@ -332,6 +332,7 @@ class SRUppTransducerCell(SRUCell):
                  layer_norm: bool = True,
                  normalization_type: int = 0,
                  has_attention: bool = True,
+                 use_tanh: bool = False,
                  right_window: int = 0):
         """
         Parameters
@@ -389,7 +390,8 @@ class SRUppTransducerCell(SRUCell):
                          hidden_size,
                          dropout=dropout,
                          highway_bias=highway_bias,
-                         transform_module=transform_module)
+                         transform_module=transform_module,
+                         use_tanh=use_tanh)
 
     def forward(self,
                 input: Tensor,
