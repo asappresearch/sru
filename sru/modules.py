@@ -1156,7 +1156,7 @@ class SRUpp(nn.Module):
 
         if input_size != self.input_size:
             raise ValueError("Input has size (*, *, {}) but expect a last dimension of {}".format(
-                input_size, self.input_to_hidden
+                input_size, self.input_size
             ))
 
         if c0 is None:
