@@ -14,7 +14,7 @@ class SRUppTransducerAttention(nn.Module):
     """
 
     __constants__ = ['in_features', 'out_features', 'proj_features', 'num_heads',
-                     'attn_dropout', 'rezero_init_alpha', 'right_window', 'normalize_type']
+                     'attn_dropout', 'rezero_init_alpha', 'right_window', 'normalization_type']
 
     def __init__(self,
                  in_features: int,
