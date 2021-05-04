@@ -5,7 +5,7 @@ import argparse
 
 def run(args):
     D = 4
-    model = sru.SRUpp(D, D, D, num_layers=2, normalize_after=args.normalize_after)
+    model = sru.SRUpp(D, D, D, num_layers=2, normalization_type=args.normalization_type)
     model.eval()
 
     ts_model = torch.jit.script(model)
@@ -21,6 +21,6 @@ def run(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--normalize-after', action='store_true')
+    parser.add_argument('--normalization_type', type=int, default=1)
     args = parser.parse_args()
     run(args)

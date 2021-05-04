@@ -37,9 +37,9 @@ def test_all(bidirectional, rescale, proj, layer_norm):
 @pytest.mark.parametrize("bidirectional", [False, True])
 @pytest.mark.parametrize("proj", [2, 4])
 @pytest.mark.parametrize("layer_norm", [False, True])
-@pytest.mark.parametrize("normalize_after", [False, True])
+@pytest.mark.parametrize("normalization_type", [1, 2, 3])
 @pytest.mark.parametrize("attn_every_n_layers", [1, 2])
-def test_srupp(bidirectional, proj, layer_norm, normalize_after, attn_every_n_layers):
+def test_srupp(bidirectional, proj, layer_norm, normalization_type, attn_every_n_layers):
     eps = 1e-4
     torch.manual_seed(1234)
     L = 16
@@ -49,7 +49,7 @@ def test_srupp(bidirectional, proj, layer_norm, normalize_after, attn_every_n_la
     model = sru.SRUpp(D, D, proj,
                       bidirectional=bidirectional,
                       layer_norm=layer_norm,
-                      normalize_after=normalize_after,
+                      normalization_type=normalization_type,
                       attention_every_n_layers=attn_every_n_layers)
     model.eval()
 

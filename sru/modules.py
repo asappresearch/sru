@@ -958,9 +958,10 @@ class SRUpp(nn.Module):
                  num_heads: int = 1,
                  bidirectional: bool = False,
                  layer_norm: bool = False,
-                 normalize_after: bool = True,
+                 normalization_type: int = 1,
                  highway_bias: float = -2.0,
                  attention_every_n_layers: int = 1,
+                 attention_last_n_layers: int = -1,
                  rescale: bool = False,
                  nn_rnn_compatible_return: bool = False,
                  proj_input_to_hidden_first: bool = False,
@@ -987,9 +988,10 @@ class SRUpp(nn.Module):
             if True, use bidirectional SRU++ (default=False).
         layer_norm: bool, optional
             whether to apply layer normalization to each SRU++ layer (default=False).
-        normalize_after: bool, optional
-            if True, apply post layer normalization; otherwise apply pre layer normalization
-            (default=True).
+        normalization_type: int, optional
+            which type of layer normalization to apply. 1: apply normalization after attention.
+            2: apply normalization before any operators. 3: apply normalization after all operators.
+            (default=1)
         highway_bias: float, optional
             the initial value of the bias used in the highway (sigmoid) gate (default=-1.0).
         attention_every_n_layers: int, optional
@@ -1005,7 +1007,13 @@ class SRUpp(nn.Module):
             (default=1.0)
 
         """
-
+        if normalization_type > 3 or normalization_type < 1:
+            raise ValueError("normalization_type={} but expect 1, 2 or 3.".format(
+                normalization_type
+            ))
+        if attention_every_n_layers != 1 and attention_last_n_layers != -1:
+            raise ValueError("Cannot set both attention_every_n_layers and "
+                             "attention_last_n_layers in SRU++ module.")
         super(SRUpp, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -1017,6 +1025,7 @@ class SRUpp(nn.Module):
         self.rnn_lst = nn.ModuleList()
         self.bidirectional = bidirectional
         self.use_layer_norm = layer_norm
+        self.normalization_type = normalization_type
         self.num_directions = 2 if bidirectional else 1
         self.nn_rnn_compatible_return = nn_rnn_compatible_return
         self.input_to_hidden: Optional[nn.Module] = None
@@ -1027,13 +1036,24 @@ class SRUpp(nn.Module):
         else:
             first_layer_input_size = input_size
 
+        # layer norm configuration
+        module_layer_norm = normalization_type == 1
+        cell_layer_norm = normalization_type != 1
+        cell_normalize_after = normalization_type == 3
+
+        # attention configuration
+        if attention_last_n_layers != -1:
+            use_attention = lambda ind: num_layers - ind <= attention_last_n_layers  # noqa
+        else:
+            use_attention = lambda ind: (ind + 1) % attention_every_n_layers == 0  # noqa
+
         for i in range(num_layers):
             # create the i-th SRU layer
             in_features = first_layer_input_size if i == 0 else self.output_size
             proj_features = proj_size
             out_features = self.output_size * (3 if in_features == self.output_size else 4)
             custom_m: Optional[nn.Module] = None
-            if (i + 1) % attention_every_n_layers == 0:
+            if use_attention(i):
                 custom_m = SRUppAttention(
                     in_features,
                     out_features,
@@ -1041,8 +1061,7 @@ class SRUpp(nn.Module):
                     dropout=dropout,
                     attn_dropout=attn_dropout,
                     num_heads=num_heads,
-                    layer_norm=layer_norm,
-                    normalize_after=normalize_after,
+                    layer_norm=module_layer_norm,
                 )
             else:
                 custom_m = SRUppProjectedLinear(
@@ -1050,15 +1069,15 @@ class SRUpp(nn.Module):
                     out_features,
                     proj_features,
                     dropout=dropout,
-                    layer_norm=layer_norm,
+                    layer_norm=module_layer_norm,
                 )
             layer = SRUppCell(
                 in_features,
                 self.hidden_size,
                 dropout=dropout if i + 1 != num_layers else 0,
                 bidirectional=bidirectional,
-                layer_norm=False,       # use layer norm in transform_module
-                normalize_after=normalize_after,
+                layer_norm=cell_layer_norm,
+                normalize_after=cell_normalize_after,
                 highway_bias=highway_bias,
                 rescale=rescale,
                 transform_module=custom_m,
