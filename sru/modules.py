@@ -8,7 +8,7 @@ import torch.nn as nn
 from torch import Tensor
 from torch.nn.utils.rnn import PackedSequence
 
-from sru.ops import (elementwise_recurrence_cpu,
+from sru.ops import (elementwise_recurrence_inference,
                      elementwise_recurrence_gpu,
                      elementwise_recurrence_naive)
 
@@ -274,29 +274,30 @@ class SRUCell(nn.Module):
         tensors
 
         """
-        if self.bias.is_cuda:
-            return elementwise_recurrence_gpu(U, residual, V, self.bias, c0,
-                                              self.activation_type,
-                                              self.hidden_size,
-                                              self.bidirectional,
-                                              self.has_skip_term,
-                                              scale_val, mask_c, mask_pad,
-                                              self.amp_recurrence_fp16)
-
         if not torch.jit.is_scripting():
-            return elementwise_recurrence_naive(U, residual, V, self.bias, c0,
-                                                self.activation_type,
-                                                self.hidden_size,
-                                                self.bidirectional,
-                                                self.has_skip_term,
-                                                scale_val, mask_c, mask_pad)
+            if self.bias.is_cuda:
+                return elementwise_recurrence_gpu(U, residual, V, self.bias, c0,
+                                                  self.activation_type,
+                                                  self.hidden_size,
+                                                  self.bidirectional,
+                                                  self.has_skip_term,
+                                                  scale_val, mask_c, mask_pad,
+                                                  self.amp_recurrence_fp16)
+            else:
+                return elementwise_recurrence_naive(U, residual, V, self.bias, c0,
+                                                    self.activation_type,
+                                                    self.hidden_size,
+                                                    self.bidirectional,
+                                                    self.has_skip_term,
+                                                    scale_val, mask_c, mask_pad)
         else:
-            return elementwise_recurrence_cpu(U, residual, V, self.bias, c0,
-                                              self.activation_type,
-                                              self.hidden_size,
-                                              self.bidirectional,
-                                              self.has_skip_term,
-                                              scale_val, mask_c, mask_pad)
+            return elementwise_recurrence_inference(U, residual, V, self.bias, c0,
+                                                    self.activation_type,
+                                                    self.hidden_size,
+                                                    self.bidirectional,
+                                                    self.has_skip_term,
+                                                    scale_val, mask_c, mask_pad)
+
 
     def compute_UV(self,
                    input: Tensor,
