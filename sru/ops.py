@@ -60,7 +60,7 @@ def elementwise_recurrence_inference(U: Tensor,
                                      scale_x: Optional[Tensor] = None,
                                      dropout_mask_c: Optional[Tensor] = None,
                                      mask_pad: Optional[Tensor] = None) -> List[Tensor]:
-    """Elementwise forward operation of SRU on CPU.
+    """Torchscripted elementwise forward operation of SRU for inference.
 
     """
     assert dropout_mask_c is None, "Dropout mask cannot be set during inference"

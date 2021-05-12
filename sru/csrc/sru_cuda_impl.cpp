@@ -1,5 +1,4 @@
 #include <torch/script.h>
-//#include <torch/extension.h>
 #include <vector>
 
 //  unidirectional forward()
