@@ -10,6 +10,13 @@ target_compile_features(sru_cpu PRIVATE cxx_std_14)
 # Link against LibTorch
 target_link_libraries(sru_cpu "${TORCH_LIBRARIES}")
 
+# Define our library target
+add_library(sru_cuda SHARED sru_cuda_impl_dummy.cpp)
+# Enable C++14
+target_compile_features(sru_cuda PRIVATE cxx_std_14)
+# Link against LibTorch
+target_link_libraries(sru_cuda "${TORCH_LIBRARIES}")
+
 add_executable(example_app main_test_cpp.cpp)
 target_link_libraries(example_app "${TORCH_LIBRARIES}")
 if (UNIX AND NOT APPLE)
