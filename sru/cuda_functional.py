@@ -1,22 +1,37 @@
 from typing import Optional, Tuple
 import os
+import warnings
 
 import torch
 from torch import Tensor
 from torch.autograd import Function
 from torch.utils.cpp_extension import load
 
-sources = [
-    os.path.join(os.path.dirname(__file__), "csrc", "sru_cuda_impl.cpp"),
-    os.path.join(os.path.dirname(__file__), "csrc", "sru_cuda_kernel.cu"),
-]
-load(
-    name="sru_cuda",
-    sources=sources,
-    extra_cflags=['-O3'],
-    is_python_module=False,
-    verbose=False
-)
+try:
+    sources = [
+        os.path.join(os.path.dirname(__file__), "csrc", "sru_cuda_impl.cpp"),
+        os.path.join(os.path.dirname(__file__), "csrc", "sru_cuda_kernel.cu"),
+    ]
+    load(
+        name="sru_cuda",
+        sources=sources,
+        extra_cflags=['-O3'],
+        is_python_module=False,
+        verbose=False
+    )
+except Exception as e:
+    warnings.warn("Just-in-time loading and compiling the CUDA kernels of SRU was unsuccessful. "
+                  "Got the following error:\n" + str(e))
+    sources_dummy = [
+        os.path.join(os.path.dirname(__file__), "csrc", "sru_cuda_impl_dummy.cpp"),
+    ]
+    load(
+        name="sru_cuda",
+        sources=sources_dummy,
+        extra_cflags=['-O3'],
+        is_python_module=False,
+        verbose=False
+    )
 
 
 @torch.jit.script
