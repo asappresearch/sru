@@ -250,8 +250,11 @@ class ElementwiseRecurrence(Function):
                 is_custom
             )
 
-        if skip_type > 0 and k_ == 3 and scale_x is not None:
-            grad_x.mul_(scale_x)
+        if skip_type > 0 and k_ == 3:
+            if scale_x is not None:
+                grad_x.mul_(scale_x)
+        else:
+            grad_x = None
         if not is_custom:
             grad_wc = grad_wc.sum(1).view(-1)
         return grad_u, grad_x, grad_wc, grad_bias.sum(1).view(-1), grad_init, \
