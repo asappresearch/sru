@@ -7,6 +7,8 @@ import torch
 from torch import Tensor
 from torch.utils.cpp_extension import load
 
+from .cuda_functional import elementwise_recurrence_forward
+
 # JIT compilation of elementwise fwd operator (CPU version)
 cpu_source = os.path.join(os.path.dirname(__file__), "csrc", "sru_cpu_impl.cpp")
 load(
@@ -16,35 +18,6 @@ load(
     is_python_module=False,
     verbose=False
 )
-
-
-def elementwise_recurrence_dummy(
-    u: Tensor,
-    x: Tensor,
-    weight_c: Tensor,
-    bias: Tensor,
-    init: Tensor,
-    activation_type: int,
-    d_out: int,
-    bidirectional: bool,
-    has_skip_term: bool,
-    scale_x: Optional[Tensor] = None,
-    mask_c: Optional[Tensor] = None,
-    mask_pad: Optional[Tensor] = None
-) -> Tuple[Tensor, Tensor, Tensor]:
-    """Dummy function for the case that CUDA isn't available
-    """
-    raise Exception("Failed to load the CUDA kernel of SRU elementwise recurrence.")
-
-
-# If we failed to import CUDA implementation, we use a dummy method that simply
-# raises an exception. This ensures the torchscript method can compile on machines
-# that don't have GPUs or CUDA.
-try:
-    from .cuda_functional import elementwise_recurrence_forward
-    elementwise_recurrence_cuda_torchscript = elementwise_recurrence_forward
-except Exception:
-    elementwise_recurrence_cuda_torchscript = elementwise_recurrence_dummy
 
 
 @torch.jit.script
@@ -71,7 +44,7 @@ def elementwise_recurrence_inference(U: Tensor,
     is_custom = weight_c.dim() > 1
     mask_pad = None if mask_pad is None else mask_pad.to(dtype=torch.bool).contiguous()
     if U.is_cuda:
-        h, last_hidden, c = elementwise_recurrence_cuda_torchscript(
+        h, last_hidden, c = elementwise_recurrence_forward(
             U,
             x,
             weight_c,
