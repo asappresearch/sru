@@ -1,11 +1,12 @@
 
-from typing import List, Optional
+from typing import List, Optional, Tuple
 import os
 import warnings
 
 import torch
 from torch import Tensor
 from torch.utils.cpp_extension import load
+from .cuda_functional import elementwise_recurrence_forward
 
 # JIT compilation of elementwise fwd operator (CPU version)
 cpu_source = os.path.join(os.path.dirname(__file__), "csrc", "sru_cpu_impl.cpp")
@@ -19,19 +20,19 @@ load(
 
 
 @torch.jit.script
-def elementwise_recurrence_cpu(U: Tensor,
-                               x: Tensor,
-                               weight_c: Tensor,
-                               bias: Tensor,
-                               c_init: Tensor,
-                               activation_type: int,
-                               hidden_size: int,
-                               bidirectional: bool,
-                               has_skip_term: bool,
-                               scale_x: Optional[Tensor] = None,
-                               dropout_mask_c: Optional[Tensor] = None,
-                               mask_pad: Optional[Tensor] = None) -> List[Tensor]:
-    """Elementwise forward operation of SRU on CPU.
+def elementwise_recurrence_inference(U: Tensor,
+                                     x: Tensor,
+                                     weight_c: Tensor,
+                                     bias: Tensor,
+                                     c_init: Tensor,
+                                     activation_type: int,
+                                     hidden_size: int,
+                                     bidirectional: bool,
+                                     has_skip_term: bool,
+                                     scale_x: Optional[Tensor] = None,
+                                     dropout_mask_c: Optional[Tensor] = None,
+                                     mask_pad: Optional[Tensor] = None) -> List[Tensor]:
+    """Torchscripted elementwise forward operation of SRU for inference.
 
     """
     assert dropout_mask_c is None, "Dropout mask cannot be set during inference"
@@ -40,8 +41,24 @@ def elementwise_recurrence_cpu(U: Tensor,
     batch = x.size(-2)
     k = U.size(-1) // hidden_size // bidir
     is_custom = weight_c.dim() > 1
-    mask_pad = None if mask_pad is None else mask_pad.float().contiguous()
-    if not bidirectional:
+    mask_pad = None if mask_pad is None else mask_pad.to(dtype=torch.bool).contiguous()
+    if U.is_cuda:
+        h, last_hidden, c = elementwise_recurrence_forward(
+            U,
+            x,
+            weight_c,
+            bias,
+            c_init,
+            activation_type,
+            hidden_size,
+            bidirectional,
+            has_skip_term,
+            scale_x,
+            dropout_mask_c,
+            mask_pad
+        )
+        return h, last_hidden
+    elif not bidirectional:
         return torch.ops.sru_cpu.cpu_forward(
             U.contiguous(),
             x.contiguous(),
@@ -94,50 +111,35 @@ def elementwise_recurrence_gpu(U: Tensor,
     """Elementwise forward operation of SRU on GPU.
 
     """
-    from .cuda_functional import SRU_Compute_GPU
+    from .cuda_functional import ElementwiseRecurrence
 
-    in_autocast = getattr(torch, 'is_autocast_enabled', lambda: False)()
-    if in_autocast:
-        with torch.cuda.amp.autocast(enabled=False):
-            cast = torch.Tensor.half if amp_recurrence_fp16 else torch.Tensor.float
-
-            U = cast(U)
-            x = cast(x)
-            weight_c = cast(weight_c)
-            bias = cast(bias)
-            c_init = cast(c_init)
-            scale_x = cast(scale_x) if scale_x is not None else scale_x
-            dropout_mask_c = cast(dropout_mask_c) if dropout_mask_c is not None else dropout_mask_c
-
-            return SRU_Compute_GPU.apply(
-                U,
-                x,
-                weight_c,
-                bias,
-                c_init,
-                activation_type,
-                hidden_size,
-                bidirectional,
-                has_skip_term,
-                scale_x,
-                dropout_mask_c,
-                mask_pad
-            )
+    if amp_recurrence_fp16 and U.dtype == torch.float16:
+        cast = torch.Tensor.half
     else:
-        return SRU_Compute_GPU.apply(
-            U,
-            x,
-            weight_c,
-            bias,
-            c_init,
-            activation_type,
-            hidden_size,
-            bidirectional,
-            has_skip_term,
-            scale_x,
-            dropout_mask_c,
-            mask_pad
-        )
+        cast = torch.Tensor.float
+
+    U = cast(U)
+    x = cast(x)
+    weight_c = cast(weight_c)
+    bias = cast(bias)
+    c_init = cast(c_init)
+    scale_x = cast(scale_x) if scale_x is not None else scale_x
+    dropout_mask_c = cast(dropout_mask_c) if dropout_mask_c is not None else dropout_mask_c
+
+    return ElementwiseRecurrence.apply(
+        U,
+        x,
+        weight_c,
+        bias,
+        c_init,
+        activation_type,
+        hidden_size,
+        bidirectional,
+        has_skip_term,
+        scale_x,
+        dropout_mask_c,
+        mask_pad
+    )
 
 
 @torch.jit.unused
@@ -159,10 +161,10 @@ def elementwise_recurrence_naive(U: Tensor,
     if torch.is_grad_enabled():
         warnings.warn("Running SRU on CPU with grad_enabled=True. Are you sure?")
     else:
-        return elementwise_recurrence_cpu(U, x, weight_c, bias, c_init,
-                                          activation_type, hidden_size,
-                                          bidirectional, has_skip_term,
-                                          scale_x, dropout_mask_c, mask_pad)
+        return elementwise_recurrence_inference(U, x, weight_c, bias, c_init,
+                                                activation_type, hidden_size,
+                                                bidirectional, has_skip_term,
+                                                scale_x, dropout_mask_c, mask_pad)
 
     bidir = 2 if bidirectional else 1
     length = x.size(0) if x.dim() == 3 else 1
@@ -246,3 +248,4 @@ def elementwise_recurrence_naive(U: Tensor,
         c_final.append(c_t.view(batch, d))
 
     return h.view(length, batch, -1), torch.stack(c_final, dim=1).view(batch, -1)  # type: ignore
+

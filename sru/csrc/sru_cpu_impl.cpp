@@ -90,8 +90,8 @@ std::vector<at::Tensor> cpu_forward(
     const float* reset_b_ptr = forget_b_ptr + hidden_size;
     const float* U_ptr = U.data_ptr<float>();
     const float* x_ptr = x.data_ptr<float>();
-    const float* pad_ptr = mask_pad.has_value() ? 
-                           mask_pad.value().data_ptr<float>() : NULL;
+    const bool* pad_ptr = mask_pad.has_value() ? 
+                          mask_pad.value().data_ptr<bool>() : NULL;
 
     auto h = at::zeros({length, batch_size, hidden_size}, U.options());
     auto c = c_init.clone();
@@ -175,8 +175,8 @@ std::vector<at::Tensor> cpu_bi_forward(
     const float* reset_b_ptr = forget_b_ptr + hidden_size*2;
     const float* U_ptr = U.data_ptr<float>();
     const float* x_ptr = x.data_ptr<float>();
-    const float* pad_ptr = mask_pad.has_value() ? 
-                           mask_pad.value().data_ptr<float>() : NULL;
+    const bool* pad_ptr = mask_pad.has_value() ? 
+                           mask_pad.value().data_ptr<bool>() : NULL;
 
     auto h = at::zeros({length, batch_size, hidden_size*2}, U.options());
     auto c = c_init.clone();

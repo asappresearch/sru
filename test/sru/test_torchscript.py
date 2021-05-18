@@ -3,13 +3,29 @@ import torch
 import sru
 
 
+@pytest.mark.parametrize(
+    "cuda",
+    [
+        False,
+        pytest.param(
+            True,
+            marks=pytest.mark.skipif(
+                not torch.cuda.is_available(), reason="no cuda available"
+            ),
+        ),
+    ],
+)
 @pytest.mark.parametrize("bidirectional", [False, True])
 @pytest.mark.parametrize("rescale", [False, True])
 @pytest.mark.parametrize("proj", [0, 4])
 @pytest.mark.parametrize("layer_norm", [False, True])
-def test_all(bidirectional, rescale, proj, layer_norm):
+def test_all(cuda, bidirectional, rescale, proj, layer_norm):
     eps = 1e-4
     torch.manual_seed(1234)
+    if cuda:
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
     L = 16
     B = 8
     D = 32
@@ -18,6 +34,9 @@ def test_all(bidirectional, rescale, proj, layer_norm):
                     projection_size=proj,
                     layer_norm=layer_norm,
                     rescale=rescale)
+    if cuda:
+        model = model.cuda()
+        x = x.cuda()
     model.eval()
 
     h, c = model(x)
