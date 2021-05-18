@@ -65,16 +65,16 @@ def test_sru(cuda, bidirectional, rescale, proj, layer_norm):
     ],
 )
 @pytest.mark.parametrize("bidirectional", [False, True])
-@pytest.mark.parametrize("proj", [2, 4])
 @pytest.mark.parametrize("layer_norm", [False, True])
 @pytest.mark.parametrize("normalization_type", [1, 2, 3])
 @pytest.mark.parametrize("attn_every_n_layers", [1, 2])
-def test_srupp(cuda, bidirectional, proj, layer_norm, normalization_type, attn_every_n_layers):
+def test_srupp(cuda, bidirectional, layer_norm, normalization_type, attn_every_n_layers):
     eps = 1e-4
     torch.manual_seed(1234)
     L = 5
     B = 3
     D = 4
+    proj = 2
     x = torch.randn(L, B, D)
     model = sru.SRUpp(D, D, proj,
                       bidirectional=bidirectional,

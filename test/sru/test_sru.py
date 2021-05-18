@@ -313,7 +313,7 @@ def test_srupp_backward_simple(cuda, bidirectional, layer_norm):
     def run(x):
         if cuda:
             x = x.cuda()
-        output, state = encoder(x)
+        output, state, _ = encoder(x)
         output.mean().backward()
 
     # test batch size > 1
@@ -341,14 +341,14 @@ def test_srupp_backward(bidirectional, layer_norm):
     x = torch.randn(input_length, batch_size, input_size)
 
     # backward in CPU mode
-    h, c = encoder(x)
+    h, c, _ = encoder(x)
     h.sum().backward()
     grads = [p.grad.clone() for p in encoder.parameters() if p.requires_grad]
 
     # backward in GPU mode
     encoder.zero_grad()
     encoder, x = encoder.cuda(), x.cuda()
-    h_, c_ = encoder(x)
+    h_, c_, _ = encoder(x)
     h_.sum().backward()
     grads_ = [p.grad.cpu().clone() for p in encoder.parameters() if p.requires_grad]
 
