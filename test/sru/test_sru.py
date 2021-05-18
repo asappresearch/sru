@@ -302,8 +302,9 @@ def test_srupp_backward_simple(cuda, bidirectional, layer_norm):
     input_length = 3
     batch_size = 5
     input_size = 4
-    hidden_size = 2
-    encoder = sru.SRUpp(input_size, hidden_size,
+    hidden_size = 3
+    proj_size = 2
+    encoder = sru.SRUpp(input_size, hidden_size, proj_size,
                         bidirectional=bidirectional,
                         layer_norm=layer_norm)
     if cuda:
@@ -332,8 +333,9 @@ def test_srupp_backward(bidirectional, layer_norm):
     input_length = 3
     batch_size = 5
     input_size = 4
-    hidden_size = 2
-    encoder = sru.SRUpp(input_size, hidden_size,
+    hidden_size = 3
+    proj_size = 2
+    encoder = sru.SRUpp(input_size, hidden_size, proj_size,
                         bidirectional=bidirectional,
                         layer_norm=layer_norm)
     x = torch.randn(input_length, batch_size, input_size)
