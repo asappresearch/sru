@@ -170,19 +170,19 @@ std::vector<at::Tensor> sru_bi_backward(
 //   }
 //
 // We choose this way for backward compatibility.
-static auto registory1 = 
+static auto registory_fwd_v1 = 
     torch::RegisterOperators("sru_cuda::sru_forward_simple", &sru_forward_simple);
-static auto registory2 = 
+static auto registory_bwd_v1 = 
     torch::RegisterOperators("sru_cuda::sru_backward_simple", &sru_backward_simple);
-static auto registory3 = 
+static auto registory_bi_fwd_v1 = 
     torch::RegisterOperators("sru_cuda::sru_bi_forward_simple", &sru_bi_forward_simple);
-static auto registory4 = 
+static auto registory_bi_bwd_v1 = 
     torch::RegisterOperators("sru_cuda::sru_bi_backward_simple", &sru_bi_backward_simple);
-static auto registory5 = 
+static auto registory_fwd_v2 = 
     torch::RegisterOperators("sru_cuda::sru_forward", &sru_forward);
-static auto registory6 = 
+static auto registory_bwd_v2 = 
     torch::RegisterOperators("sru_cuda::sru_backward", &sru_backward);
-static auto registory7 = 
+static auto registory_bi_fwd_v2 = 
     torch::RegisterOperators("sru_cuda::sru_bi_forward", &sru_bi_forward);
-static auto registory8 = 
+static auto registory_bi_bwd_v2 = 
     torch::RegisterOperators("sru_cuda::sru_bi_backward", &sru_bi_backward);

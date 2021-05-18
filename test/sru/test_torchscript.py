@@ -2,22 +2,40 @@ import pytest
 import torch
 import sru
 
-
+@pytest.mark.parametrize(
+    "cuda",
+    [
+        False,
+        pytest.param(
+            True,
+            marks=pytest.mark.skipif(
+                not torch.cuda.is_available(), reason="no cuda available"
+            ),
+        ),
+    ],
+)
 @pytest.mark.parametrize("bidirectional", [False, True])
 @pytest.mark.parametrize("rescale", [False, True])
 @pytest.mark.parametrize("proj", [0, 4])
 @pytest.mark.parametrize("layer_norm", [False, True])
-def test_all(bidirectional, rescale, proj, layer_norm):
+def test_sru(cuda, bidirectional, rescale, proj, layer_norm):
     eps = 1e-4
     torch.manual_seed(1234)
-    L = 16
-    B = 8
-    D = 32
+    if cuda:
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
+    L = 5
+    B = 3
+    D = 4
     x = torch.randn(L, B, D)
     model = sru.SRU(D, D, bidirectional=bidirectional,
                     projection_size=proj,
                     layer_norm=layer_norm,
                     rescale=rescale)
+    if cuda:
+        model = model.cuda()
+        x = x.cuda()
     model.eval()
 
     h, c = model(x)
@@ -34,23 +52,38 @@ def test_all(bidirectional, rescale, proj, layer_norm):
     assert (c - c_).abs().max() <= eps
 
 
+@pytest.mark.parametrize(
+    "cuda",
+    [
+        False,
+        pytest.param(
+            True,
+            marks=pytest.mark.skipif(
+                not torch.cuda.is_available(), reason="no cuda available"
+            ),
+        ),
+    ],
+)
 @pytest.mark.parametrize("bidirectional", [False, True])
 @pytest.mark.parametrize("proj", [2, 4])
 @pytest.mark.parametrize("layer_norm", [False, True])
 @pytest.mark.parametrize("normalization_type", [1, 2, 3])
 @pytest.mark.parametrize("attn_every_n_layers", [1, 2])
-def test_srupp(bidirectional, proj, layer_norm, normalization_type, attn_every_n_layers):
+def test_srupp(cuda, bidirectional, proj, layer_norm, normalization_type, attn_every_n_layers):
     eps = 1e-4
     torch.manual_seed(1234)
-    L = 16
-    B = 8
-    D = 32
+    L = 5
+    B = 3
+    D = 4
     x = torch.randn(L, B, D)
     model = sru.SRUpp(D, D, proj,
                       bidirectional=bidirectional,
                       layer_norm=layer_norm,
                       normalization_type=normalization_type,
                       attention_every_n_layers=attn_every_n_layers)
+    if cuda:
+        model = model.cuda()
+        x = x.cuda()
     model.eval()
 
     h, c, _ = model(x)

@@ -946,7 +946,7 @@ class SRUpp(nn.Module):
     __constants__ = ['input_size', 'hidden_size', 'proj_size', 'output_size',
                      'num_layers', 'num_heads', 'dropout', 'bidirectional',
                      'use_layer_norm', 'num_directions', 'nn_rnn_compatible_return',
-                     'input_to_hidden', 'rnn_lst']
+                     'input_to_hidden', 'rnn_lst', 'normalization_type']
 
     def __init__(self,
                  input_size: int,
