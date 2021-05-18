@@ -145,7 +145,7 @@ python -m torch.distributed.launch --nproc_per_node 1 --master_port 1234
 <br>
 
 ### Billion Word
-Train and eval the base model with 328M parameters:
+(1) Train and eval the base model with 328M parameters:
 ```
 # train using 8 GPUs and mixed precision
 python -m torch.distributed.launch --nproc_per_node 8 --master_port 1234
@@ -164,3 +164,29 @@ python -m torch.distributed.launch --nproc_per_node 1 --master_port 1234
                      --max_iter 0
                      --eval_unroll_size 96
 ```
+(2) Train and eval the base model with 465M parameters:
+```
+# train using 8 GPUs and mixed precision
+python -m torch.distributed.launch --nproc_per_node 8 --master_port 1234
+       train_lm1b.py --log tensorboard_log_dir_for_train_run
+                     --data lm1b_datadir
+                     --save large_model
+                     --n_d 7616
+                     --dropout 0.1
+                     --attn_every_n_layers 5
+                     --batch_size 192
+                     --layer_norm
+                     --fp16
+                     
+# evaluate with max attention window size 96
+python -m torch.distributed.launch --nproc_per_node 1 --master_port 1234
+       train_lm1b.py --log tensorboard_log_dir_for_test_run
+                     --data lm1b_datadir
+                     --load large_model.pt
+                     --layer_norm
+                     --n_d 7616
+                     --attn_every_n_layers 5
+                     --max_iter 0
+                     --eval_unroll_size 96
+```
+If the batch size is too large and training gets Out-Of-Memory (OOM) error, use `--update_param_freq` to perform gradient updates every few batches. For example, `--batch_size 96 --update_param_freq 2` gives an effective batch size 96*2 = 192.
