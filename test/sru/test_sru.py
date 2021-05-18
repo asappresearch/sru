@@ -17,7 +17,9 @@ import torch
 )
 @pytest.mark.parametrize("with_grad", [False, True])
 @pytest.mark.parametrize("compat", [False, True])
-def test_cell(cuda, with_grad, compat):
+@pytest.mark.parametrize("bidirectional", [False, True])
+@pytest.mark.parametrize("layer_norm", [False, True])
+def test_cell(cuda, with_grad, compat, bidirectional, layer_norm):
     torch.manual_seed(123)
     if cuda:
         torch.backends.cudnn.deterministic = True
@@ -30,12 +32,12 @@ def test_cell(cuda, with_grad, compat):
         rnn_hidden = 4
         max_len = 4
         layers = 5
-        bidirectional = True
         encoder = sru.SRU(
             embedding_size,
             rnn_hidden,
             layers,
             bidirectional=bidirectional,
+            layer_norm=layer_norm,
             nn_rnn_compatible_return=compat,
         )
         words_embeddings = torch.rand(
