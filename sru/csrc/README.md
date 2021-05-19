@@ -13,7 +13,7 @@ From the `csrc` directory, compile the code using `cmake`:
 ```
 $ mkdir build
 $ cd build 
-$ cmake -DCMAKE_PREFIX_PATH="$(python -c 'import torch.utils; print(torch.utils.cmake_prefix_path)')" ..
+$ cmake -DCMAKE_PREFIX_PATH="$(python -c 'import torch.utils; print(torch.utils.cmake_prefix_path)')" -DGLIBCXX_USE_CXX11_ABI="$(python -c 'import torch; print(1 if torch._C._GLIBCXX_USE_CXX11_ABI else 0)')" ..
 $ make -j
 ```
 Note that `torch.utils.cmake_prefix_path` is not available in earlier versions of pytorch such as
@@ -24,6 +24,7 @@ After compilation, you should be able to see and run `example_app` binary, which
 torchscript SRU model as input:
 ```
 $ ./example_app <path to an exported torchscript SRU model>
+$ ./example_app <path to an exported torchscript SRU model> cuda
 ```
 
 ## Save and load a torchscript SRU model
@@ -40,4 +41,5 @@ torchscript_model.save("example_model.pt")
 Test loading the model:
 ```
 $ ./example_app <path to the model>/example_model.pt
+$ ./example_app <path to the model>/example_model.pt cuda
 ```
