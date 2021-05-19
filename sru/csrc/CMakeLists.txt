@@ -11,7 +11,7 @@ target_link_libraries(sru_cpu "${TORCH_LIBRARIES}")
 message(STATUS "  CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH}")
 message(STATUS "  TORCH LIBS: ${TORCH_LIBRARIES}")
 
-# Define sru_cpu and link against LibTorch
+# Define sru_gpu and link against LibTorch
 find_package(CUDA)
 if (CUDA_FOUND)
     # When libtorch is built with the old GCC ABI, dependent libraries must too.
