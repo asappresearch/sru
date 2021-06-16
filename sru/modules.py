@@ -960,7 +960,8 @@ class SRUpp(nn.Module):
                  num_heads: int = 1,
                  bidirectional: bool = False,
                  layer_norm: bool = False,
-                 normalization_type: int = 1,
+                 normalize_after: bool = False,
+                 attn_layer_norm: bool = True,
                  highway_bias: float = -2.0,
                  attention_every_n_layers: int = 1,
                  attention_last_n_layers: int = -1,
@@ -990,10 +991,6 @@ class SRUpp(nn.Module):
             if True, use bidirectional SRU++ (default=False).
         layer_norm: bool, optional
             whether to apply layer normalization to each SRU++ layer (default=False).
-        normalization_type: int, optional
-            which type of layer normalization to apply. 1: apply normalization after attention.
-            2: apply normalization before any operators. 3: apply normalization after all operators.
-            (default=1)
         highway_bias: float, optional
             the initial value of the bias used in the highway (sigmoid) gate (default=-1.0).
         attention_every_n_layers: int, optional
@@ -1009,10 +1006,6 @@ class SRUpp(nn.Module):
             (default=1.0)
 
         """
-        if normalization_type > 3 or normalization_type < 1:
-            raise ValueError("normalization_type={} but expect 1, 2 or 3.".format(
-                normalization_type
-            ))
         if attention_every_n_layers != 1 and attention_last_n_layers != -1:
             raise ValueError("Cannot set both attention_every_n_layers and "
                              "attention_last_n_layers in SRU++ module.")
@@ -1027,7 +1020,6 @@ class SRUpp(nn.Module):
         self.rnn_lst = nn.ModuleList()
         self.bidirectional = bidirectional
         self.use_layer_norm = layer_norm
-        self.normalization_type = normalization_type
         self.num_directions = 2 if bidirectional else 1
         self.nn_rnn_compatible_return = nn_rnn_compatible_return
         self.input_to_hidden: Optional[nn.Module] = None
@@ -1037,11 +1029,6 @@ class SRUpp(nn.Module):
             nn.init.xavier_uniform_(self.input_to_hidden.weight)
         else:
             first_layer_input_size = input_size
-
-        # layer norm configuration
-        module_layer_norm = normalization_type == 1
-        cell_layer_norm = normalization_type != 1
-        cell_normalize_after = normalization_type == 3
 
         # attention configuration
         if attention_last_n_layers != -1:
@@ -1063,7 +1050,7 @@ class SRUpp(nn.Module):
                     dropout=dropout,
                     attn_dropout=attn_dropout,
                     num_heads=num_heads,
-                    layer_norm=module_layer_norm,
+                    layer_norm=attn_layer_norm,
                 )
             else:
                 custom_m = SRUppProjectedLinear(
@@ -1071,15 +1058,15 @@ class SRUpp(nn.Module):
                     out_features,
                     proj_features,
                     dropout=dropout,
-                    layer_norm=module_layer_norm,
+                    layer_norm=attn_layer_norm,
                 )
             layer = SRUppCell(
                 in_features,
                 self.hidden_size,
                 dropout=dropout if i + 1 != num_layers else 0,
                 bidirectional=bidirectional,
-                layer_norm=cell_layer_norm,
-                normalize_after=cell_normalize_after,
+                layer_norm=layer_norm,
+                normalize_after=normalize_after,
                 highway_bias=highway_bias,
                 rescale=rescale,
                 transform_module=custom_m,
