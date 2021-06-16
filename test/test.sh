@@ -29,6 +29,6 @@ python test/test_ts_srupp.py > py_srupp_out.txt
 sru/csrc/build/example_app srupp_ts.pt > cpp_srupp_out.txt
 diff cpp_srupp_out.txt py_srupp_out.txt
 
-python test/test_ts_srupp.py --normalize_after > py_srupp_out.txt
+python test/test_ts_srupp.py --normalize-after > py_srupp_out.txt
 sru/csrc/build/example_app srupp_ts.pt > cpp_srupp_out.txt
 diff cpp_srupp_out.txt py_srupp_out.txt
