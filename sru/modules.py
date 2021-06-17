@@ -350,11 +350,13 @@ class SRUCell(nn.Module):
             s += ", activation={activation}"
         if self.v1:
             s += ", v1={v1}"
-        s += ", rescale={rescale}"
+        if self.rescale:
+            s += ", rescale={rescale}"
         if not self.has_skip_term:
             s += ", has_skip_term={has_skip_term}"
         if self.layer_norm:
             s += ", layer_norm=True"
+            s += ", normalize_after={normalize_after}"
         s += ",\n  transform_module=" + str(self.transform_module)
         return s.format(**self.__dict__)
 
@@ -743,7 +745,7 @@ class SRUppAttention(nn.Module):
         self.linear1 = nn.Linear(in_features, proj_features, bias=False)
         self.linear2 = nn.Linear(proj_features, proj_features * 2, bias=False)
         self.linear3 = nn.Linear(proj_features, out_features, bias=False)
-        # self.alpha = nn.Parameter(torch.Tensor([float(rezero_init_alpha)]))  # type: ignore
+        self.alpha = nn.Parameter(torch.Tensor([float(rezero_init_alpha)]))  # type: ignore
         self.normalize_after = normalize_after
         self.layer_norm: Optional[nn.Module] = None
         if layer_norm:
@@ -759,8 +761,7 @@ class SRUppAttention(nn.Module):
         nn.init.xavier_uniform_(self.linear1.weight)
         nn.init.xavier_uniform_(self.linear2.weight)
         nn.init.xavier_uniform_(self.linear3.weight)
-        self.linear2.weight.data[self.proj_features:].mul_(0.0)
-        # self.alpha.data[:] = self.rezero_init_alpha
+        self.alpha.data[:] = self.rezero_init_alpha
         if self.linear1.bias is not None:
             self.linear1.bias.data.zero_()
         if self.linear2.bias is not None:
@@ -860,8 +861,7 @@ class SRUppAttention(nn.Module):
         attn_output = torch.bmm(attn_output_weights, v)
         attn_output = attn_output.transpose(0, 1).contiguous().view(tgt_len, bsz, proj_dim)
 
-        # attn_output = attn_output * self.alpha + residual
-        attn_output = attn_output + residual
+        attn_output = attn_output * self.alpha + residual
         layer_norm = self.layer_norm
         if layer_norm is not None:
             if self.normalize_after:
