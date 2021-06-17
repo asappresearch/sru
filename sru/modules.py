@@ -991,6 +991,12 @@ class SRUpp(nn.Module):
             if True, use bidirectional SRU++ (default=False).
         layer_norm: bool, optional
             whether to apply layer normalization to each SRU++ layer (default=False).
+        normalize_after: bool, optional
+            whether to apply post layer norm that normalizes the output of each SRU++ layer
+            (default=False).
+        attn_layer_norm: bool, optional
+            whether to apply layer norm in the attention module or projected linear module if
+            attention is disabled (default=True).
         highway_bias: float, optional
             the initial value of the bias used in the highway (sigmoid) gate (default=-1.0).
         attention_every_n_layers: int, optional
