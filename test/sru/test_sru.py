@@ -218,7 +218,8 @@ def test_srupp_creation(attn_every_n_layers, expected_transform_module):
 @pytest.mark.parametrize("compat", [False, True])
 @pytest.mark.parametrize("bidirectional", [False, True])
 @pytest.mark.parametrize("layer_norm", [False, True])
-def test_srupp(cuda, with_grad, compat, bidirectional, layer_norm):
+@pytest.mark.parametrize("normalize_after", [False, True])
+def test_srupp(cuda, with_grad, compat, bidirectional, layer_norm, normalize_after):
     torch.manual_seed(123)
     if cuda:
         torch.backends.cudnn.deterministic = True
@@ -239,6 +240,7 @@ def test_srupp(cuda, with_grad, compat, bidirectional, layer_norm):
             layers,
             bidirectional=bidirectional,
             layer_norm=layer_norm,
+            normalize_after=normalize_after,
             nn_rnn_compatible_return=compat,
         )
         words_embeddings = torch.rand(
@@ -293,7 +295,8 @@ def test_srupp(cuda, with_grad, compat, bidirectional, layer_norm):
 )
 @pytest.mark.parametrize("bidirectional", [False, True])
 @pytest.mark.parametrize("layer_norm", [False, True])
-def test_srupp_backward_simple(cuda, bidirectional, layer_norm):
+@pytest.mark.parametrize("normalize_after", [False, True])
+def test_srupp_backward_simple(cuda, bidirectional, layer_norm, normalize_after):
     torch.manual_seed(123)
     if cuda:
         torch.backends.cudnn.deterministic = True
@@ -306,7 +309,8 @@ def test_srupp_backward_simple(cuda, bidirectional, layer_norm):
     proj_size = 2
     encoder = sru.SRUpp(input_size, hidden_size, proj_size,
                         bidirectional=bidirectional,
-                        layer_norm=layer_norm)
+                        layer_norm=layer_norm,
+                        normalize_after=normalize_after)
     if cuda:
         encoder = encoder.cuda()
 
@@ -324,7 +328,8 @@ def test_srupp_backward_simple(cuda, bidirectional, layer_norm):
 @pytest.mark.skipif(not torch.cuda.is_available(), reason='CUDA not available')
 @pytest.mark.parametrize("bidirectional", [False, True])
 @pytest.mark.parametrize("layer_norm", [False, True])
-def test_srupp_backward(bidirectional, layer_norm):
+@pytest.mark.parametrize("normalize_after", [False, True])
+def test_srupp_backward(bidirectional, layer_norm, normalize_after):
     eps = 1e-4
     torch.manual_seed(123)
     torch.backends.cudnn.deterministic = True
@@ -337,7 +342,8 @@ def test_srupp_backward(bidirectional, layer_norm):
     proj_size = 2
     encoder = sru.SRUpp(input_size, hidden_size, proj_size,
                         bidirectional=bidirectional,
-                        layer_norm=layer_norm)
+                        layer_norm=layer_norm,
+                        normalize_after=normalize_after)
     x = torch.randn(input_length, batch_size, input_size)
 
     # backward in CPU mode
