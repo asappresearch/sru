@@ -36,6 +36,7 @@ class Model(nn.Module):
             attn_dropout=args.attn_dropout,
             num_heads=args.attn_heads,
             layer_norm=args.layer_norm,
+            attn_layer_norm=True,
             attention_every_n_layers=args.attn_every_n_layers,
         )
         self.output_layer = AdaptiveLogSoftmax(

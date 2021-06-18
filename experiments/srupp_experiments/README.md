@@ -54,7 +54,6 @@ python -m torch.distributed.launch --nproc_per_node 8 --master_port 1234
        train_enwik8.py --log tensorboard_log_dir_for_train_run
                        --data enwik8_file
                        --save base_model
-                       --layer_norm
                        --fp16
 
 # evaluate with max attention window size 3072
@@ -62,7 +61,6 @@ python -m torch.distributed.launch --nproc_per_node 1 --master_port 1234
        train_enwik8.py --log tensorboard_log_dir_for_test_run
                        --data enwik8_file
                        --load base_model.pt
-                       --layer_norm
                        --max_iter 0
                        --eval_unroll_size 3072
 ```
@@ -77,7 +75,6 @@ python -m torch.distributed.launch --nproc_per_node 8 --master_port 1234
                        --n_proj 1024
                        --dropout 0.32
                        --attn_dropout 0.32
-                       --layer_norm
                        --batch_size 8
                        --lr 0.0004
                        --fp16
@@ -89,7 +86,6 @@ python -m torch.distributed.launch --nproc_per_node 1 --master_port 1234
                        --load large_model.pt
                        --n_d 4096
                        --n_proj 1024
-                       --layer_norm
                        --max_iter 0
                        --eval_unroll_size 3072
 ```
@@ -103,7 +99,6 @@ python -m torch.distributed.launch --nproc_per_node 8 --master_port 1234
        train_wt103.py --log tensorboard_log_dir_for_train_run
                       --data wiki103_datadir
                       --save base_model
-                      --layer_norm
                       --fp16
 
 # evaluate with max attention window size 2560
@@ -111,7 +106,6 @@ python -m torch.distributed.launch --nproc_per_node 1 --master_port 1234
        train_wt103.py --log tensorboard_log_dir_for_test_run
                       --data wiki103_datadir
                       --load base_model.pt
-                      --layer_norm
                       --max_iter 0
                       --eval_unroll_size 2560
 ```
@@ -127,7 +121,6 @@ python -m torch.distributed.launch --nproc_per_node 8 --master_port 1234
                       --dropout 0.2
                       --attn_dropout 0.2
                       --emb_dropout 0.2
-                      --layer_norm
                       --unroll_size 1024
                       --fp16
 
@@ -138,7 +131,6 @@ python -m torch.distributed.launch --nproc_per_node 1 --master_port 1234
                       --load large_model.pt
                       --n_d 4096
                       --n_proj 1024
-                      --layer_norm
                       --max_iter 0
                       --eval_unroll_size 2560
 ```
@@ -152,7 +144,6 @@ python -m torch.distributed.launch --nproc_per_node 8 --master_port 1234
        train_lm1b.py --log tensorboard_log_dir_for_train_run
                      --data lm1b_datadir
                      --save base_model
-                     --layer_norm
                      --fp16
                      
 # evaluate with max attention window size 96
@@ -160,7 +151,6 @@ python -m torch.distributed.launch --nproc_per_node 1 --master_port 1234
        train_lm1b.py --log tensorboard_log_dir_for_test_run
                      --data lm1b_datadir
                      --load base_model.pt
-                     --layer_norm
                      --max_iter 0
                      --eval_unroll_size 96
 ```
@@ -175,7 +165,6 @@ python -m torch.distributed.launch --nproc_per_node 8 --master_port 1234
                      --dropout 0.1
                      --attn_every_n_layers 5
                      --batch_size 192
-                     --layer_norm
                      --fp16
                      
 # evaluate with max attention window size 96
@@ -183,7 +172,6 @@ python -m torch.distributed.launch --nproc_per_node 1 --master_port 1234
        train_lm1b.py --log tensorboard_log_dir_for_test_run
                      --data lm1b_datadir
                      --load large_model.pt
-                     --layer_norm
                      --n_d 7616
                      --attn_every_n_layers 5
                      --max_iter 0
