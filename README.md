@@ -31,7 +31,7 @@ When Attention Meets Fast Recurrence: Training Language Models with Reduced Comp
 <br>
 
 ## Requirements
- - [PyTorch](http://pytorch.org/) >=1.6 recommended, [pytorch installation details](docs/pytorch_installation.md)
+ - [PyTorch](http://pytorch.org/) 1.6 or 1.7 recommended, [pytorch installation details](docs/pytorch_installation.md)
  - [ninja](https://ninja-build.org/)
 
 Install requirements via `pip install -r requirements.txt`.
