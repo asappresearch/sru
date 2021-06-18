@@ -41,13 +41,8 @@ has_amp = torch.cuda.is_available() and 'amp' in torch.cuda.__dict__
 
 
 @pytest.mark.skipif(not has_amp, reason='AMP not available')
-@pytest.mark.parametrize(
-    'use_amp,fp16_recurrence', [
-        [False, False],
-        [False, False],
-        [True, False],
-        [True, True]]
-)
+@pytest.mark.parametrize('use_amp', [False, True])
+@pytest.mark.parametrize('fp16_recurrence', [False, True])
 def test_amp(use_amp: bool, fp16_recurrence: bool):
     its = 20
     warmup = 3

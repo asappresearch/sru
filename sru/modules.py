@@ -9,7 +9,7 @@ import torch.nn.functional as F
 from torch import Tensor
 from torch.nn.utils.rnn import PackedSequence
 
-from sru.ops import (elementwise_recurrence_cpu,
+from sru.ops import (elementwise_recurrence_inference,
                      elementwise_recurrence_gpu,
                      elementwise_recurrence_naive)
 
@@ -263,29 +263,29 @@ class SRUCell(nn.Module):
         tensors
 
         """
-        if self.bias.is_cuda:
-            return elementwise_recurrence_gpu(U, residual, V, self.bias, c0,
-                                              self.activation_type,
-                                              self.hidden_size,
-                                              self.bidirectional,
-                                              self.has_skip_term,
-                                              scale_val, mask_c, mask_pad,
-                                              self.amp_recurrence_fp16)
-
         if not torch.jit.is_scripting():
-            return elementwise_recurrence_naive(U, residual, V, self.bias, c0,
-                                                self.activation_type,
-                                                self.hidden_size,
-                                                self.bidirectional,
-                                                self.has_skip_term,
-                                                scale_val, mask_c, mask_pad)
+            if self.bias.is_cuda:
+                return elementwise_recurrence_gpu(U, residual, V, self.bias, c0,
+                                                  self.activation_type,
+                                                  self.hidden_size,
+                                                  self.bidirectional,
+                                                  self.has_skip_term,
+                                                  scale_val, mask_c, mask_pad,
+                                                  self.amp_recurrence_fp16)
+            else:
+                return elementwise_recurrence_naive(U, residual, V, self.bias, c0,
+                                                    self.activation_type,
+                                                    self.hidden_size,
+                                                    self.bidirectional,
+                                                    self.has_skip_term,
+                                                    scale_val, mask_c, mask_pad)
         else:
-            return elementwise_recurrence_cpu(U, residual, V, self.bias, c0,
-                                              self.activation_type,
-                                              self.hidden_size,
-                                              self.bidirectional,
-                                              self.has_skip_term,
-                                              scale_val, mask_c, mask_pad)
+            return elementwise_recurrence_inference(U, residual, V, self.bias, c0,
+                                                    self.activation_type,
+                                                    self.hidden_size,
+                                                    self.bidirectional,
+                                                    self.has_skip_term,
+                                                    scale_val, mask_c, mask_pad)
 
     def compute_UV(self,
                    input: Tensor,
@@ -350,11 +350,13 @@ class SRUCell(nn.Module):
             s += ", activation={activation}"
         if self.v1:
             s += ", v1={v1}"
-        s += ", rescale={rescale}"
+        if self.rescale:
+            s += ", rescale={rescale}"
         if not self.has_skip_term:
             s += ", has_skip_term={has_skip_term}"
         if self.layer_norm:
             s += ", layer_norm=True"
+            s += ", normalize_after={normalize_after}"
         s += ",\n  transform_module=" + str(self.transform_module)
         return s.format(**self.__dict__)
 
@@ -946,7 +948,7 @@ class SRUpp(nn.Module):
     __constants__ = ['input_size', 'hidden_size', 'proj_size', 'output_size',
                      'num_layers', 'num_heads', 'dropout', 'bidirectional',
                      'use_layer_norm', 'num_directions', 'nn_rnn_compatible_return',
-                     'input_to_hidden', 'rnn_lst']
+                     'input_to_hidden', 'rnn_lst', 'normalization_type']
 
     def __init__(self,
                  input_size: int,
@@ -958,7 +960,8 @@ class SRUpp(nn.Module):
                  num_heads: int = 1,
                  bidirectional: bool = False,
                  layer_norm: bool = False,
-                 normalization_type: int = 1,
+                 normalize_after: bool = False,
+                 attn_layer_norm: bool = True,
                  highway_bias: float = -2.0,
                  attention_every_n_layers: int = 1,
                  attention_last_n_layers: int = -1,
@@ -988,10 +991,12 @@ class SRUpp(nn.Module):
             if True, use bidirectional SRU++ (default=False).
         layer_norm: bool, optional
             whether to apply layer normalization to each SRU++ layer (default=False).
-        normalization_type: int, optional
-            which type of layer normalization to apply. 1: apply normalization after attention.
-            2: apply normalization before any operators. 3: apply normalization after all operators.
-            (default=1)
+        normalize_after: bool, optional
+            whether to apply post layer norm that normalizes the output of each SRU++ layer
+            (default=False).
+        attn_layer_norm: bool, optional
+            whether to apply layer norm in the attention module or projected linear module if
+            attention is disabled (default=True).
         highway_bias: float, optional
             the initial value of the bias used in the highway (sigmoid) gate (default=-1.0).
         attention_every_n_layers: int, optional
@@ -1007,10 +1012,6 @@ class SRUpp(nn.Module):
             (default=1.0)
 
         """
-        if normalization_type > 3 or normalization_type < 1:
-            raise ValueError("normalization_type={} but expect 1, 2 or 3.".format(
-                normalization_type
-            ))
         if attention_every_n_layers != 1 and attention_last_n_layers != -1:
             raise ValueError("Cannot set both attention_every_n_layers and "
                              "attention_last_n_layers in SRU++ module.")
@@ -1025,7 +1026,6 @@ class SRUpp(nn.Module):
         self.rnn_lst = nn.ModuleList()
         self.bidirectional = bidirectional
         self.use_layer_norm = layer_norm
-        self.normalization_type = normalization_type
         self.num_directions = 2 if bidirectional else 1
         self.nn_rnn_compatible_return = nn_rnn_compatible_return
         self.input_to_hidden: Optional[nn.Module] = None
@@ -1035,11 +1035,6 @@ class SRUpp(nn.Module):
             nn.init.xavier_uniform_(self.input_to_hidden.weight)
         else:
             first_layer_input_size = input_size
-
-        # layer norm configuration
-        module_layer_norm = normalization_type == 1
-        cell_layer_norm = normalization_type != 1
-        cell_normalize_after = normalization_type == 3
 
         # attention configuration
         if attention_last_n_layers != -1:
@@ -1061,7 +1056,7 @@ class SRUpp(nn.Module):
                     dropout=dropout,
                     attn_dropout=attn_dropout,
                     num_heads=num_heads,
-                    layer_norm=module_layer_norm,
+                    layer_norm=attn_layer_norm,
                 )
             else:
                 custom_m = SRUppProjectedLinear(
@@ -1069,15 +1064,15 @@ class SRUpp(nn.Module):
                     out_features,
                     proj_features,
                     dropout=dropout,
-                    layer_norm=module_layer_norm,
+                    layer_norm=attn_layer_norm,
                 )
             layer = SRUppCell(
                 in_features,
                 self.hidden_size,
                 dropout=dropout if i + 1 != num_layers else 0,
                 bidirectional=bidirectional,
-                layer_norm=cell_layer_norm,
-                normalize_after=cell_normalize_after,
+                layer_norm=layer_norm,
+                normalize_after=normalize_after,
                 highway_bias=highway_bias,
                 rescale=rescale,
                 transform_module=custom_m,
