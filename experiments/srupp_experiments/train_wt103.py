@@ -14,6 +14,7 @@ from sru import SRUpp
 
 from embedding import AdaptiveEmbedding, AdaptiveLogSoftmax
 from data_utils import get_lm_corpus
+from train_utils import calc_norm, set_seed, copy_model, log_stats
 
 
 class Model(nn.Module):
@@ -124,11 +125,6 @@ class Model(nn.Module):
         return zeros
 
 
-def calc_norm(lis):
-    l2_sum = sum(x.norm()**2 for x in lis)
-    return l2_sum**0.5
-
-
 def eval_model(model, valid, print_speed=False):
     with torch.no_grad():
         args = model.args
@@ -158,21 +154,6 @@ def eval_model(model, valid, print_speed=False):
         model.train()
         model.set_mask(args.unroll_size, same_length=False)
         return ppl, avg_loss
-
-
-def copy_model(model):
-    states = model.state_dict()
-    for k in states:
-        v = states[k]
-        states[k] = v.clone().cpu()
-    return states
-
-
-def set_seed(seed):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
 
 
 def main(args):
@@ -314,6 +295,8 @@ def main(args):
                             calc_norm([x.grad for x in parameters if x.grad is not None]),
                             niter
                         )
+                        if niter % (args.log_period * 10) == 0:
+                            log_stats(train_writer, niter, model_, memory)
 
                 # gradient clipping after the gradient is logged
                 if args.clip_grad > 0:

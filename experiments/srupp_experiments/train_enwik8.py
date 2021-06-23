@@ -12,7 +12,7 @@ from tensorboardX import SummaryWriter
 
 from sru import SRUpp
 from radam import RAdam
-
+from train_utils import calc_norm, set_seed, copy_model, log_stats
 
 class Model(nn.Module):
     def __init__(self, words, args):
@@ -112,11 +112,6 @@ def create_batches(data_ids, batch_size, n_nodes=1, rank=0, device='cpu'):
     return x, y
 
 
-def calc_norm(lis):
-    l2_sum = sum(x.norm()**2 for x in lis)
-    return l2_sum**0.5
-
-
 def eval_model(model, valid):
     with torch.no_grad():
         model.eval()
@@ -140,21 +135,6 @@ def eval_model(model, valid):
         model.train()
         model.set_mask(args.unroll_size, same_length=False)
         return ppl, avg_loss
-
-
-def copy_model(model):
-    states = model.state_dict()
-    for k in states:
-        v = states[k]
-        states[k] = v.clone().cpu()
-    return states
-
-
-def set_seed(seed):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
 
 
 def main(args):
@@ -296,6 +276,8 @@ def main(args):
                             calc_norm([x.grad for x in parameters if x.grad is not None]),
                             niter
                         )
+                        if niter % (args.log_period * 10) == 0:
+                            log_stats(train_writer, niter, model_, memory)
 
                 # gradient clipping after the gradient is logged
                 if args.clip_grad > 0:
