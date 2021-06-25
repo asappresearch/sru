@@ -41,7 +41,7 @@ class Model(nn.Module):
 
     def init_weights(self):
         params = list(self.embedding_layer.parameters()) + list(self.output_layer.parameters())
-        new_init_version = self.args.layer_norm
+        new_init_version = True
         for p in params:
             if p.dim() > 1:  # matrix
                 # keep old init version for reproducibility

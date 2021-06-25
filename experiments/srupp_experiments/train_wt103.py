@@ -60,7 +60,7 @@ class Model(nn.Module):
             dropout=args.emb_dropout,
             emb_weights=shared_embs,
             proj_weights=shared_projs,
-            scale_emb=not args.layer_norm,
+            scale_emb=False,
         )
         self.init_weights()
 
