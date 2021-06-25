@@ -20,6 +20,35 @@ load(
 )
 
 
+# Wraper functions for APEX AMP
+def apex_amp_sru_elementwise_fp16(*args, **kwargs):
+    return _apex_amp_sru_elementwise(*args, **kwargs)
+
+
+def apex_amp_sru_elementwise_fp32(*args, **kwargs):
+    return _apex_amp_sru_elementwise(*args, **kwargs)
+
+
+def _apex_amp_sru_elementwise(*args, **kwargs):
+    # Will already have been imported and cached at this point
+    from .cuda_functional import ElementwiseRecurrence
+    return ElementwiseRecurrence.apply(*args, **kwargs)
+
+
+# Register elementwise recurrence operator as apex amp functions when APEX is available
+try:
+    from apex import amp
+    import sys
+    APEX_AMP_AVAILABLE = True
+    current_module = sys.modules[__name__]
+    warnings.warn("Registering SRU op in {}".format(current_module))
+
+    amp.register_half_function(current_module, "apex_amp_sru_elementwise_fp16")
+    amp.register_float_function(current_module, "apex_amp_sru_elementwise_fp32")
+except ImportError:
+    APEX_AMP_AVAILABLE = False
+
+
 @torch.jit.script
 def elementwise_recurrence_inference(U: Tensor,
                                      x: Tensor,
@@ -112,35 +141,61 @@ def elementwise_recurrence_gpu(U: Tensor,
     """Elementwise forward operation of SRU on GPU.
 
     """
-    from .cuda_functional import ElementwiseRecurrence
+    in_autocast = getattr(torch, 'is_autocast_enabled', lambda: False)()
 
-    if amp_recurrence_fp16 and U.dtype == torch.float16:
-        cast = torch.Tensor.half
+    # APEX is available and not in native Pytorch AMP autocast
+    if APEX_AMP_AVAILABLE and not in_autocast:
+        if amp_recurrence_fp16 and U.dtype == torch.float16:
+            warnings.warn("Running SRU with APEX and cast type {}", torch.Tensor.half)
+            apex_sru_elementwise_gpu = apex_amp_sru_elementwise_fp16
+        else:
+            warnings.warn("Running SRU with APEX and cast type {}", torch.Tensor.float)
+            apex_sru_elementwise_gpu = apex_amp_sru_elementwise_fp32
+
+        return apex_sru_elementwise_gpu(
+            U,
+            x,
+            weight_c,
+            bias,
+            c_init,
+            activation_type,
+            hidden_size,
+            bidirectional,
+            has_skip_term,
+            scale_x,
+            dropout_mask_c,
+            mask_pad
+        )
     else:
-        cast = torch.Tensor.float
+        from .cuda_functional import ElementwiseRecurrence
+        if amp_recurrence_fp16 and U.dtype == torch.float16:
+            cast = torch.Tensor.half
+        else:
+            cast = torch.Tensor.float
+        warnings.warn("Running SRU with native AMP and cast type {}".format(cast))
 
-    U = cast(U)
-    x = cast(x)
-    weight_c = cast(weight_c)
-    bias = cast(bias)
-    c_init = cast(c_init)
-    scale_x = cast(scale_x) if scale_x is not None else scale_x
-    dropout_mask_c = cast(dropout_mask_c) if dropout_mask_c is not None else dropout_mask_c
+        U = cast(U)
+        x = cast(x)
+        weight_c = cast(weight_c)
+        bias = cast(bias)
+        c_init = cast(c_init)
+        scale_x = cast(scale_x) if scale_x is not None else scale_x
+        dropout_mask_c = cast(dropout_mask_c) if dropout_mask_c is not None else dropout_mask_c
 
-    return ElementwiseRecurrence.apply(
-        U,
-        x,
-        weight_c,
-        bias,
-        c_init,
-        activation_type,
-        hidden_size,
-        bidirectional,
-        has_skip_term,
-        scale_x,
-        dropout_mask_c,
-        mask_pad
-    )
+        return ElementwiseRecurrence.apply(
+            U,
+            x,
+            weight_c,
+            bias,
+            c_init,
+            activation_type,
+            hidden_size,
+            bidirectional,
+            has_skip_term,
+            scale_x,
+            dropout_mask_c,
+            mask_pad
+        )
 
 
 @torch.jit.unused

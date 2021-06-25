@@ -703,9 +703,10 @@ class SRUppAttention(nn.Module):
                  num_heads: int = 1,
                  dropout: float = 0.0,
                  attn_dropout: float = 0.0,
-                 rezero_init_alpha: float = 0.0,
                  layer_norm: bool = False,
-                 normalize_after: bool = True):
+                 normalize_after: bool = True,
+                 use_rezero: bool = True,
+                 rezero_init_alpha: float = 0.0):
         """Initialize the self-attention module.
 
         Parameters
@@ -726,13 +727,14 @@ class SRUppAttention(nn.Module):
             (default=0.0).
         attn_dropout: float, optional
             dropout probability applied on attention map.
-        rezero_init_alpha: float, optional
-            initial scalar value for the attention transformation `x + alpha * Attention(x)`
-            (default=0).
         normalize_after: bool, optional
             if True, apply post layer normalization; otherwise apply pre layer normalization
             (default=True).
-
+        use_rezero: bool, optional
+            if True, apply rezero init using a scalar value `alpha` for the attention transformation
+            `x + alpha * Attention(x)`.
+        rezero_init_alpha: float, optional
+            initial value of the scalar value `alpha` when using rezero (default=0).
         """
         super(SRUppAttention, self).__init__()
         self.in_features = in_features
@@ -745,7 +747,9 @@ class SRUppAttention(nn.Module):
         self.linear1 = nn.Linear(in_features, proj_features, bias=False)
         self.linear2 = nn.Linear(proj_features, proj_features * 2, bias=False)
         self.linear3 = nn.Linear(proj_features, out_features, bias=False)
-        self.alpha = nn.Parameter(torch.Tensor([float(rezero_init_alpha)]))  # type: ignore
+        self.alpha: Optional[nn.Parameter] = None
+        if use_rezero:
+            self.alpha = nn.Parameter(torch.Tensor([float(rezero_init_alpha)]))  # type: ignore
         self.normalize_after = normalize_after
         self.layer_norm: Optional[nn.Module] = None
         if layer_norm:
@@ -761,7 +765,10 @@ class SRUppAttention(nn.Module):
         nn.init.xavier_uniform_(self.linear1.weight)
         nn.init.xavier_uniform_(self.linear2.weight)
         nn.init.xavier_uniform_(self.linear3.weight)
-        self.alpha.data[:] = self.rezero_init_alpha
+        if self.alpha is not None:
+            self.alpha.data[:] = self.rezero_init_alpha
+        else:
+            self.linear2.weight.data[self.proj_features:].mul_(0.0)
         if self.linear1.bias is not None:
             self.linear1.bias.data.zero_()
         if self.linear2.bias is not None:
@@ -861,7 +868,10 @@ class SRUppAttention(nn.Module):
         attn_output = torch.bmm(attn_output_weights, v)
         attn_output = attn_output.transpose(0, 1).contiguous().view(tgt_len, bsz, proj_dim)
 
-        attn_output = attn_output * self.alpha + residual
+        if self.alpha is not None:
+            attn_output = attn_output * self.alpha + residual
+        else:
+            attn_output = attn_output + residual
         layer_norm = self.layer_norm
         if layer_norm is not None:
             if self.normalize_after:
