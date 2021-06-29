@@ -973,6 +973,7 @@ class SRUpp(nn.Module):
                  normalize_after: bool = False,
                  attn_layer_norm: bool = True,
                  highway_bias: float = -2.0,
+                 use_rezero: bool = True,
                  attention_every_n_layers: int = 1,
                  attention_last_n_layers: int = -1,
                  rescale: bool = False,
@@ -1009,6 +1010,9 @@ class SRUpp(nn.Module):
             attention is disabled (default=True).
         highway_bias: float, optional
             the initial value of the bias used in the highway (sigmoid) gate (default=-1.0).
+        use_rezero: bool, optional
+            if True, apply rezero init using a scalar value `alpha` for the attention transformation
+            `x + alpha * Attention(x)`.
         attention_every_n_layers: int, optional
             only introduce attention every few layers of SRU++. by default, every SRU++ layer has
             attention (default=1).
@@ -1063,10 +1067,11 @@ class SRUpp(nn.Module):
                     in_features,
                     out_features,
                     proj_features,
+                    num_heads=num_heads,
                     dropout=dropout,
                     attn_dropout=attn_dropout,
-                    num_heads=num_heads,
                     layer_norm=attn_layer_norm,
+                    use_rezero=use_rezero,
                 )
             else:
                 custom_m = SRUppProjectedLinear(

@@ -146,10 +146,10 @@ def elementwise_recurrence_gpu(U: Tensor,
     # APEX is available and not in native Pytorch AMP autocast
     if APEX_AMP_AVAILABLE and not in_autocast:
         if amp_recurrence_fp16 and U.dtype == torch.float16:
-            warnings.warn("Running SRU with APEX and cast type {}", torch.Tensor.half)
+            warnings.warn("Running SRU with APEX and cast type {}".format(torch.Tensor.half))
             apex_sru_elementwise_gpu = apex_amp_sru_elementwise_fp16
         else:
-            warnings.warn("Running SRU with APEX and cast type {}", torch.Tensor.float)
+            warnings.warn("Running SRU with APEX and cast type {}".format(torch.Tensor.float))
             apex_sru_elementwise_gpu = apex_amp_sru_elementwise_fp32
 
         return apex_sru_elementwise_gpu(
