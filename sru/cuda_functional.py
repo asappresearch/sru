@@ -7,31 +7,33 @@ from torch import Tensor
 from torch.autograd import Function
 from torch.utils.cpp_extension import load
 
-try:
-    sources = [
-        os.path.join(os.path.dirname(__file__), "csrc", "sru_cuda_impl.cpp"),
-        os.path.join(os.path.dirname(__file__), "csrc", "sru_cuda_kernel.cu"),
-    ]
-    load(
-        name="sru_cuda",
-        sources=sources,
-        extra_cflags=['-O3'],
-        is_python_module=False,
-        verbose=False
-    )
-except Exception as e:
-    warnings.warn("Just-in-time loading and compiling the CUDA kernels of SRU was unsuccessful. "
-                  "Got the following error:\n" + str(e))
-    sources_dummy = [
-        os.path.join(os.path.dirname(__file__), "csrc", "sru_cuda_impl_dummy.cpp"),
-    ]
-    load(
-        name="sru_cuda",
-        sources=sources_dummy,
-        extra_cflags=['-O3'],
-        is_python_module=False,
-        verbose=False
-    )
+
+def init_sru_cuda():
+    try:
+        sources = [
+            os.path.join(os.path.dirname(__file__), "csrc", "sru_cuda_impl.cpp"),
+            os.path.join(os.path.dirname(__file__), "csrc", "sru_cuda_kernel.cu"),
+        ]
+        load(
+            name="sru_cuda",
+            sources=sources,
+            extra_cflags=['-O3'],
+            is_python_module=False,
+            verbose=False
+        )
+    except Exception as e:
+        warnings.warn("Just-in-time loading and compiling the CUDA kernels of SRU was unsuccessful. "
+                      "Got the following error:\n" + str(e))
+        sources_dummy = [
+            os.path.join(os.path.dirname(__file__), "csrc", "sru_cuda_impl_dummy.cpp"),
+        ]
+        load(
+            name="sru_cuda",
+            sources=sources_dummy,
+            extra_cflags=['-O3'],
+            is_python_module=False,
+            verbose=False
+        )
 
 
 @torch.jit.script
@@ -76,6 +78,9 @@ def elementwise_recurrence_forward(
             x_ = x.contiguous() * scale_x
         else:
             x_ = x.contiguous()
+
+    if 'sru_cuda' not in torch.ops.__dict__:
+        init_sru_cuda()
 
     # call faster / simple version if possible
     is_simple_version = ((k_ == 3) and has_skip_term and (not is_custom)
@@ -205,6 +210,9 @@ class ElementwiseRecurrence(Function):
             x_ = x.contiguous() * scale_x if scale_x is not None else x.contiguous()
         else:
             x_ = None
+
+        if 'sru_cuda' not in torch.ops.__dict__:
+            init_sru_cuda()
 
         # call faster / simple version if possible
         is_simple_version = ((k_ == 3) and ctx.has_skip_term and (not is_custom)
