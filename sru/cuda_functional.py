@@ -8,7 +8,12 @@ from torch.autograd import Function
 from torch.utils.cpp_extension import load
 
 
+g_sru_cuda_initialized = False
+
+
 def init_sru_cuda():
+    global g_sru_cuda_initialized
+    g_sru_cuda_initialized = True
     try:
         sources = [
             os.path.join(os.path.dirname(__file__), "csrc", "sru_cuda_impl.cpp"),
@@ -79,7 +84,7 @@ def elementwise_recurrence_forward(
         else:
             x_ = x.contiguous()
 
-    if 'sru_cuda' not in torch.ops.__dict__:
+    if not g_sru_cuda_initialized:
         init_sru_cuda()
 
     # call faster / simple version if possible
@@ -211,7 +216,7 @@ class ElementwiseRecurrence(Function):
         else:
             x_ = None
 
-        if 'sru_cuda' not in torch.ops.__dict__:
+        if not g_sru_cuda_initialized:
             init_sru_cuda()
 
         # call faster / simple version if possible
