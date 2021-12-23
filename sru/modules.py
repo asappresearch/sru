@@ -19,6 +19,8 @@ elementwise_recurrence_naive = None
 
 def init():
     global g_sru_inited, elementwise_recurrence_gpu, elementwise_recurrence_inference, elementwise_recurrence_naive
+    if g_sru_inited:
+        return
     from sru.ops import (elementwise_recurrence_inference,
                         elementwise_recurrence_gpu,
                         elementwise_recurrence_naive)
@@ -309,6 +311,7 @@ class SRUCell(nn.Module):
         tensors
 
         """
+        init()
         if not torch.jit.is_scripting():
             if self.bias.is_cuda:
                 return elementwise_recurrence_gpu(U, residual, V, self.bias, c0,
