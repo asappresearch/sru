@@ -12,9 +12,13 @@ from torch.nn.utils.rnn import PackedSequence
 
 g_sru_inited = False
 
+elementwise_recurrence_inference = None
+elementwise_recurrence_gpu = None
+elementwise_recurrence_naive = None
+
 
 def init():
-    global g_sru_inited
+    global g_sru_inited, elementwise_recurrence_gpu, elementwise_recurrence_inference, elementwise_recurrence_naive
     from sru.ops import (elementwise_recurrence_inference,
                         elementwise_recurrence_gpu,
                         elementwise_recurrence_naive)
