@@ -41,6 +41,10 @@ def init_sru_cuda():
         )
 
 
+if not 'SRU_NEED_EXPLICIT_INIT' in os.environ:
+    init_sru_cuda()
+
+
 @torch.jit.script
 def elementwise_recurrence_forward(
     u: Tensor,
@@ -83,9 +87,6 @@ def elementwise_recurrence_forward(
             x_ = x.contiguous() * scale_x
         else:
             x_ = x.contiguous()
-
-    if not g_sru_cuda_initialized:
-        init_sru_cuda()
 
     # call faster / simple version if possible
     is_simple_version = ((k_ == 3) and has_skip_term and (not is_custom)
@@ -215,9 +216,6 @@ class ElementwiseRecurrence(Function):
             x_ = x.contiguous() * scale_x if scale_x is not None else x.contiguous()
         else:
             x_ = None
-
-        if not g_sru_cuda_initialized:
-            init_sru_cuda()
 
         # call faster / simple version if possible
         is_simple_version = ((k_ == 3) and ctx.has_skip_term and (not is_custom)
