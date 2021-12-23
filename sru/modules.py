@@ -1,5 +1,6 @@
 import copy
 import warnings
+import os
 import math
 from typing import List, Tuple, Union, Optional
 
@@ -8,9 +9,20 @@ import torch.nn as nn
 from torch import Tensor
 from torch.nn.utils.rnn import PackedSequence
 
-from sru.ops import (elementwise_recurrence_inference,
-                     elementwise_recurrence_gpu,
-                     elementwise_recurrence_naive)
+
+g_sru_inited = False
+
+
+def init():
+    global g_sru_inited
+    from sru.ops import (elementwise_recurrence_inference,
+                        elementwise_recurrence_gpu,
+                        elementwise_recurrence_naive)
+    g_sru_inited = True
+
+
+if 'SRU_REQUIRE_EXPLICIT_INIT' not in os.environ:
+    init()
 
 
 class SRUCell(nn.Module):

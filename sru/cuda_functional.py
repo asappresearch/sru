@@ -41,8 +41,7 @@ def init_sru_cuda():
         )
 
 
-if not 'SRU_NEED_EXPLICIT_INIT' in os.environ:
-    init_sru_cuda()
+init_sru_cuda()
 
 
 @torch.jit.script
