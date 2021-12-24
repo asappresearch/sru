@@ -27,7 +27,7 @@ def init():
     g_sru_inited = True
 
 
-if 'SRU_REQUIRE_EXPLICIT_INIT' not in os.environ:
+if 'SRU_LAZY_INIT' not in os.environ:
     init()
 
 
