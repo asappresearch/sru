@@ -1,7 +1,7 @@
 version: 2.1
 
 orbs:
-  python: circleci/python@0.2.1
+  python: circleci/python@1.5.0
 
 jobs:
   unit-tests:
@@ -11,7 +11,7 @@ jobs:
       - run:
           name: setup
           command: |
-            virtualenv -p python3.7 .venv
+            virtualenv -p python3.8 .venv
             source .venv/bin/activate
             # pip install -q torch==1.6.0+cpu -f https://download.pytorch.org/whl/torch_stable.html
             # temporary workaround for https://github.com/pytorch/pytorch/issues/49560
@@ -33,7 +33,7 @@ jobs:
       - run:
           name: setup
           command: |
-            virtualenv -p python3.7 .venv
+            virtualenv -p python3.8 .venv
             source .venv/bin/activate
             # pip install -q torch==1.6.0+cpu -f https://download.pytorch.org/whl/torch_stable.html
             # temporary workaround for https://github.com/pytorch/pytorch/issues/49560
