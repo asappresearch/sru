@@ -1,3 +1,11 @@
+"""
+This module implements core classes SRU and SRUCell.
+
+Implementation note 1: We have postponed the import of sru.ops to the first SRUCell
+instantiation in order to ensure CUDA init takes place in the process that will be
+running the model. Please see the class method init_elementwise_recurrence_funcs.
+"""
+
 import copy
 import warnings
 import math
