@@ -40,6 +40,7 @@ jobs:
             wget https://download.pytorch.org/whl/cpu/torch-1.6.0%2Bcpu-cp38-cp38-linux_x86_64.whl
             pip install -q torch-1.6.0+cpu-cp38-cp38-linux_x86_64.whl
             pip install -q .
+            sudo apt-get update -y
             sudo apt-get -y install cmake
       - run:
           name: Test
