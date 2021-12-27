@@ -165,6 +165,11 @@ class SRUCell(nn.Module):
 
     @classmethod
     def init_elementwise_recurrence_funcs(cls):
+        """
+        Initializes the elementwise recurrence functions. This is postponed to the creation
+        of the first SRUCell instance because we want to avoid eager CUDA initialization and
+        ensure it takes place in the process running the model.
+        """
         if cls.initialized:
             return
         from sru.ops import (elementwise_recurrence_inference,
