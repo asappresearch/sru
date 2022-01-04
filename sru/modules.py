@@ -320,8 +320,6 @@ class SRUCell(nn.Module):
         tensors
 
         """
-        if not self.__class__.initialized:
-            self.__class__.init_elementwise_recurrence_funcs()
         if not torch.jit.is_scripting():
             if self.bias.is_cuda:
                 return SRUCell.elementwise_recurrence_gpu(U, residual, V, self.bias, c0,
