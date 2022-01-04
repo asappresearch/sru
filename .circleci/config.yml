@@ -1,7 +1,7 @@
 version: 2.1
 
 orbs:
-  python: circleci/python@0.2.1
+  python: circleci/python@1.5.0
 
 jobs:
   unit-tests:
@@ -11,12 +11,12 @@ jobs:
       - run:
           name: setup
           command: |
-            virtualenv -p python3.7 .venv
+            virtualenv -p python3.8 .venv
             source .venv/bin/activate
             # pip install -q torch==1.6.0+cpu -f https://download.pytorch.org/whl/torch_stable.html
             # temporary workaround for https://github.com/pytorch/pytorch/issues/49560
-            wget https://download.pytorch.org/whl/cpu/torch-1.6.0%2Bcpu-cp37-cp37m-linux_x86_64.whl
-            pip install -q torch-1.6.0+cpu-cp37-cp37m-linux_x86_64.whl 
+            wget https://download.pytorch.org/whl/cpu/torch-1.6.0%2Bcpu-cp38-cp38-linux_x86_64.whl
+            pip install -q torch-1.6.0+cpu-cp38-cp38-linux_x86_64.whl
             pip install -q .
             pip install -q -r requirements-test.txt
       - run:
@@ -33,13 +33,14 @@ jobs:
       - run:
           name: setup
           command: |
-            virtualenv -p python3.7 .venv
+            virtualenv -p python3.8 .venv
             source .venv/bin/activate
             # pip install -q torch==1.6.0+cpu -f https://download.pytorch.org/whl/torch_stable.html
             # temporary workaround for https://github.com/pytorch/pytorch/issues/49560
-            wget https://download.pytorch.org/whl/cpu/torch-1.6.0%2Bcpu-cp37-cp37m-linux_x86_64.whl
-            pip install -q torch-1.6.0+cpu-cp37-cp37m-linux_x86_64.whl 
+            wget https://download.pytorch.org/whl/cpu/torch-1.6.0%2Bcpu-cp38-cp38-linux_x86_64.whl
+            pip install -q torch-1.6.0+cpu-cp38-cp38-linux_x86_64.whl
             pip install -q .
+            sudo apt-get update -y
             sudo apt-get -y install cmake
       - run:
           name: Test

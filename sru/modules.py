@@ -1,3 +1,11 @@
+"""
+This module implements core classes SRU and SRUCell.
+
+Implementation note 1: We have postponed the import of sru.ops to the first SRUCell
+instantiation in order to ensure CUDA init takes place in the process that will be
+running the model. Please see the class method init_elementwise_recurrence_funcs.
+"""
+
 import copy
 import warnings
 import math
@@ -7,10 +15,6 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 from torch.nn.utils.rnn import PackedSequence
-
-from sru.ops import (elementwise_recurrence_inference,
-                     elementwise_recurrence_gpu,
-                     elementwise_recurrence_naive)
 
 
 class SRUCell(nn.Module):
@@ -26,6 +30,11 @@ class SRUCell(nn.Module):
 
     scale_x: Tensor
     weight_proj: Optional[Tensor]
+
+    initialized = False
+    elementwise_recurrence_inference = None
+    elementwise_recurrence_gpu = None
+    elementwise_recurrence_naive = None
 
     def __init__(self,
                  input_size: int,
@@ -160,6 +169,24 @@ class SRUCell(nn.Module):
                 self.layer_norm = nn.LayerNorm(self.input_size)
 
         self.reset_parameters()
+        SRUCell.init_elementwise_recurrence_funcs()
+
+    @classmethod
+    def init_elementwise_recurrence_funcs(cls):
+        """
+        Initializes the elementwise recurrence functions. This is postponed to the creation
+        of the first SRUCell instance because we want to avoid eager CUDA initialization and
+        ensure it takes place in the process running the model.
+        """
+        if cls.initialized:
+            return
+        from sru.ops import (elementwise_recurrence_inference,
+                             elementwise_recurrence_gpu,
+                             elementwise_recurrence_naive)
+        cls.elementwise_recurrence_inference = elementwise_recurrence_inference
+        cls.elementwise_recurrence_gpu = elementwise_recurrence_gpu
+        cls.elementwise_recurrence_naive = elementwise_recurrence_naive
+        cls.initialized = True
 
     def reset_parameters(self):
         """Properly initialize the weights of SRU, following the same
@@ -295,27 +322,27 @@ class SRUCell(nn.Module):
         """
         if not torch.jit.is_scripting():
             if self.bias.is_cuda:
-                return elementwise_recurrence_gpu(U, residual, V, self.bias, c0,
-                                                  self.activation_type,
-                                                  self.hidden_size,
-                                                  self.bidirectional,
-                                                  self.has_skip_term,
-                                                  scale_val, mask_c, mask_pad,
-                                                  self.amp_recurrence_fp16)
+                return SRUCell.elementwise_recurrence_gpu(U, residual, V, self.bias, c0,
+                                                       self.activation_type,
+                                                       self.hidden_size,
+                                                       self.bidirectional,
+                                                       self.has_skip_term,
+                                                       scale_val, mask_c, mask_pad,
+                                                       self.amp_recurrence_fp16)
             else:
-                return elementwise_recurrence_naive(U, residual, V, self.bias, c0,
-                                                    self.activation_type,
-                                                    self.hidden_size,
-                                                    self.bidirectional,
-                                                    self.has_skip_term,
-                                                    scale_val, mask_c, mask_pad)
+                return SRUCell.elementwise_recurrence_naive(U, residual, V, self.bias, c0,
+                                                         self.activation_type,
+                                                         self.hidden_size,
+                                                         self.bidirectional,
+                                                         self.has_skip_term,
+                                                         scale_val, mask_c, mask_pad)
         else:
-            return elementwise_recurrence_inference(U, residual, V, self.bias, c0,
-                                                    self.activation_type,
-                                                    self.hidden_size,
-                                                    self.bidirectional,
-                                                    self.has_skip_term,
-                                                    scale_val, mask_c, mask_pad)
+            return SRUCell.elementwise_recurrence_inference(U, residual, V, self.bias, c0,
+                                                         self.activation_type,
+                                                         self.hidden_size,
+                                                         self.bidirectional,
+                                                         self.has_skip_term,
+                                                         scale_val, mask_c, mask_pad)
 
 
     def compute_UV(self,
